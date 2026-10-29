@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'liamnystrom9@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Public songs in YouSong library: read-only for public, admin-managed
+    match /songs/{songId} {
+      allow read: if isValidId(songId);
+      allow create, update, delete: if isAdmin() && isValidId(songId);
+    }
+
+    // Song requests holding queue:
+    // Completely hidden from regular users in listings
+    // Regular users can only submit a request or read their own request
+    // Admin has full review, editing, approval, and management rights
+    match /song_requests/{requestId} {
+      allow get: if isValidId(requestId) && (
+        isAdmin() || (isSignedIn() && resource.data.requestedByUserId == request.auth.uid)
+      );
+      allow list: if isAdmin();
+      allow create: if isValidId(requestId) && isSignedIn() &&
+        request.resource.data.keys().hasAll(['id', 'songTitle', 'requestedByUsername', 'createdAt', 'status']) &&
+        request.resource.data.songTitle is string && request.resource.data.songTitle.size() <= 300 &&
+        request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin() && isValidId(requestId);
+    }
+
+    // Admin role verification
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

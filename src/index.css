@@ -1,0 +1,358 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Lexend', 'Outfit', sans-serif;
+    --font-body: 'Lexend', 'Plus Jakarta Sans', sans-serif;
+  }
+
+  html.font-lexend {
+    --font-display: 'Lexend', sans-serif;
+    --font-body: 'Lexend', sans-serif;
+  }
+
+  html.font-inter {
+    --font-display: 'Inter', sans-serif;
+    --font-body: 'Inter', sans-serif;
+  }
+
+  html.font-jakarta {
+    --font-display: 'Outfit', sans-serif;
+    --font-body: 'Plus Jakarta Sans', sans-serif;
+  }
+
+  html.font-outfit {
+    --font-display: 'Outfit', sans-serif;
+    --font-body: 'Outfit', sans-serif;
+  }
+
+  html.font-mono {
+    --font-display: 'JetBrains Mono', monospace;
+    --font-body: 'JetBrains Mono', monospace;
+  }
+
+  html.text-scale-large {
+    font-size: 108%;
+  }
+
+  /* High Contrast Accessibility Mode (WCAG AAA Compliance) */
+  html.high-contrast:not(.dark) body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  html.high-contrast:not(.dark) p,
+  html.high-contrast:not(.dark) span,
+  html.high-contrast:not(.dark) div {
+    font-weight: 500;
+  }
+
+  html.high-contrast.dark body {
+    background-color: #020408 !important;
+    color: #ffffff !important;
+  }
+
+  body {
+    font-family: var(--font-body);
+    overflow-x: hidden;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Light Mode Defaults & High-Contrast Typography */
+html:not(.dark) body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html:not(.dark) .text-slate-400 {
+  color: #334155 !important;
+}
+
+html:not(.dark) .text-slate-500 {
+  color: #1e293b !important;
+}
+
+html:not(.dark) .text-slate-300 {
+  color: #0f172a !important;
+}
+
+html:not(.dark) .text-slate-600 {
+  color: #0f172a !important;
+}
+
+html:not(.dark) .text-slate-700 {
+  color: #020617 !important;
+}
+
+/* Dark Mode High-Contrast Typography */
+html.dark .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+/* User Accent Color System (Maximum Readability in Both Modes) */
+:root {
+  --accent-primary: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-text-light: #1e40af;
+  --accent-text-dark: #93c5fd;
+  --accent-light: #eff6ff;
+  --accent-dark-bg: rgba(37, 99, 235, 0.25);
+  --accent-border: #93c5fd;
+  --accent-glow: rgba(37, 99, 235, 0.4);
+}
+
+[data-accent="emerald"] {
+  --accent-primary: #059669;
+  --accent-hover: #047857;
+  --accent-text-light: #064e3b;
+  --accent-text-dark: #6ee7b7;
+  --accent-light: #ecfdf5;
+  --accent-dark-bg: rgba(5, 150, 105, 0.25);
+  --accent-border: #6ee7b7;
+  --accent-glow: rgba(5, 150, 105, 0.4);
+}
+
+[data-accent="violet"] {
+  --accent-primary: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-text-light: #4c1d95;
+  --accent-text-dark: #c4b5fd;
+  --accent-light: #f5f3ff;
+  --accent-dark-bg: rgba(124, 58, 237, 0.25);
+  --accent-border: #c4b5fd;
+  --accent-glow: rgba(124, 58, 237, 0.4);
+}
+
+[data-accent="amber"] {
+  --accent-primary: #d97706;
+  --accent-hover: #b45309;
+  --accent-text-light: #78350f;
+  --accent-text-dark: #fcd34d;
+  --accent-light: #fffbeb;
+  --accent-dark-bg: rgba(217, 119, 6, 0.25);
+  --accent-border: #fcd34d;
+  --accent-glow: rgba(217, 119, 6, 0.4);
+}
+
+[data-accent="rose"] {
+  --accent-primary: #e11d48;
+  --accent-hover: #be123c;
+  --accent-text-light: #881337;
+  --accent-text-dark: #fda4af;
+  --accent-light: #fff1f2;
+  --accent-dark-bg: rgba(225, 29, 72, 0.25);
+  --accent-border: #fda4af;
+  --accent-glow: rgba(225, 29, 72, 0.4);
+}
+
+[data-accent="cyan"] {
+  --accent-primary: #0891b2;
+  --accent-hover: #0e7490;
+  --accent-text-light: #164e63;
+  --accent-text-dark: #7dd3fc;
+  --accent-light: #ecfeff;
+  --accent-dark-bg: rgba(8, 145, 178, 0.25);
+  --accent-border: #67e8f9;
+  --accent-glow: rgba(8, 145, 178, 0.4);
+}
+
+/* Dynamically bind accent colors to primary UI classes */
+[data-accent] .bg-blue-600,
+[data-accent] .bg-blue-500 {
+  background-color: var(--accent-primary) !important;
+  color: #ffffff !important;
+}
+
+[data-accent] .hover\:bg-blue-500:hover,
+[data-accent] .hover\:bg-blue-600:hover {
+  background-color: var(--accent-hover) !important;
+}
+
+/* Text color adaptations */
+html:not(.dark)[data-accent] .text-blue-600,
+html:not(.dark)[data-accent] .text-blue-500 {
+  color: var(--accent-text-light) !important;
+}
+
+html.dark[data-accent] .text-blue-600,
+html.dark[data-accent] .text-blue-500,
+html.dark[data-accent] .dark\:text-blue-400,
+html.dark[data-accent] .dark\:text-blue-300,
+html.dark[data-accent] .dark\:text-blue-200 {
+  color: var(--accent-text-dark) !important;
+}
+
+[data-accent] .border-blue-500,
+[data-accent] .border-blue-600 {
+  border-color: var(--accent-primary) !important;
+}
+
+[data-accent] input[type="range"],
+[data-accent] .accent-blue-600,
+[data-accent] .accent-blue-500 {
+  accent-color: var(--accent-primary) !important;
+}
+
+[data-accent] .focus\:border-blue-500:focus {
+  border-color: var(--accent-primary) !important;
+}
+
+/* Gradient overrides */
+[data-accent] .from-blue-600,
+[data-accent] .from-blue-500 {
+  --tw-gradient-from: var(--accent-primary) !important;
+  --tw-gradient-to: rgb(255 255 255 / 0) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+[data-accent] .to-indigo-500,
+[data-accent] .to-blue-500,
+[data-accent] .to-blue-600 {
+  --tw-gradient-to: var(--accent-hover) !important;
+}
+
+html.dark[data-accent] .dark\:bg-blue-600\/20,
+html.dark[data-accent] .dark\:bg-blue-500\/10,
+html.dark[data-accent] .dark\:bg-blue-950\/25,
+html.dark[data-accent] .dark\:bg-blue-950\/30 {
+  background-color: var(--accent-dark-bg) !important;
+}
+
+[data-accent] .bg-blue-50 {
+  background-color: var(--accent-light) !important;
+}
+
+[data-accent] .selection\:bg-blue-600\/30 {
+  background-color: var(--accent-dark-bg) !important;
+}
+
+@keyframes shrinkWidth {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+html:not(.dark) .liquid-glass-surface {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+html:not(.dark) .liquid-glass-card {
+  background: #ffffff;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.04);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html:not(.dark) .liquid-glass-card:hover {
+  background: #ffffff;
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -4px rgba(59, 130, 246, 0.12);
+}
+
+html:not(.dark) ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Dark Mode Overrides */
+html.dark body {
+  background-color: #090d16;
+  color: #f8fafc;
+}
+
+html.dark .liquid-glass-surface {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html.dark .liquid-glass-card {
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.dark .liquid-glass-card:hover {
+  background: rgba(30, 41, 59, 0.55);
+  border-color: rgba(99, 102, 241, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+html.dark ::-webkit-scrollbar-track {
+  background: rgba(9, 13, 22, 0.7);
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 9999px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+/* Subtle Shimmer */
+@keyframes subtleShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-liquid-shimmer {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0) 100%);
+  background-size: 200% 100%;
+  animation: subtleShimmer 4s infinite;
+}
+
+/* Custom Refined Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}

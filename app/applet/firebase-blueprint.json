@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "SongRequest": {
+      "title": "SongRequest",
+      "description": "User submitted song request and manual-approval conversion pipeline record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "songTitle": { "type": "string", "maxLength": 300 },
+        "artist": { "type": "string", "maxLength": 300 },
+        "webLink": { "type": "string", "maxLength": 2048 },
+        "coverUrl": { "type": "string", "maxLength": 2048 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "requestedByUserId": { "type": "string", "maxLength": 128 },
+        "requestedByUsername": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "processing", "staging", "published", "declined"]
+        },
+        "adminNote": { "type": "string", "maxLength": 2000 },
+        "requestType": { "type": "string", "maxLength": 50 },
+        "audioUrl": { "type": "string", "maxLength": 2048 },
+        "driveFileId": { "type": "string", "maxLength": 256 },
+        "driveFolderId": { "type": "string", "maxLength": 256 },
+        "duration": { "type": "number" },
+        "genre": { "type": "string", "maxLength": 100 },
+        "stagingAudioUrl": { "type": "string", "maxLength": 2048 },
+        "publishedSongId": { "type": "string", "maxLength": 128 },
+        "reviewedAt": { "type": "string" },
+        "publishedAt": { "type": "string" }
+      },
+      "required": ["id", "songTitle", "requestedByUsername", "createdAt", "status"]
+    },
+    "Song": {
+      "title": "Song",
+      "description": "Published songs in the YouSong public library",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 300 },
+        "artist": { "type": "string", "maxLength": 300 },
+        "album": { "type": "string", "maxLength": 300 },
+        "genre": { "type": "string", "maxLength": 100 },
+        "duration": { "type": "number" },
+        "audioUrl": { "type": "string", "maxLength": 2048 },
+        "coverUrl": { "type": "string", "maxLength": 2048 },
+        "addedAt": { "type": "string" },
+        "plays": { "type": "number" },
+        "featured": { "type": "boolean" },
+        "description": { "type": "string", "maxLength": 2000 }
+      },
+      "required": ["id", "title", "artist", "genre", "audioUrl", "coverUrl", "addedAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator role mapping for YouSong",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid"]
+    }
+  },
+  "firestore": {
+    "/song_requests/{requestId}": {
+      "schema": "SongRequest",
+      "description": "Pending, staged, and processed song requests"
+    },
+    "/songs/{songId}": {
+      "schema": "Song",
+      "description": "Public library songs accessible to users"
+    },
+    "/admins/{userId}": {
+      "schema": "Admin",
+      "description": "Designated administrators"
+    }
+  }
+}
