@@ -553,37 +553,38 @@ class StorageService {
   }
 
   async updateRequestStatus(id: string, status: SongRequest['status'], adminNote?: string): Promise<boolean> {
-    const r = this.requests.find((item) => item.id === id);
-    if (!r) return false;
-    r.status = status;
-    if (adminNote !== undefined) r.adminNote = adminNote;
-    if (status === 'approved' || status === 'declined' || status === 'staging' || status === 'published') {
-      r.reviewedAt = new Date().toISOString();
+    const res = await fetch(`/api/admin/requests/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ status, adminNote }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success || !data.request) {
+      throw new Error(data.error || 'The server did not save the request status.');
     }
+
+    const idx = this.requests.findIndex((item) => item.id === id);
+    if (idx !== -1) this.requests[idx] = data.request as SongRequest;
+    else this.requests.unshift(data.request as SongRequest);
     this.saveRequests();
     this.notify();
-    try {
-      await fetch(`/api/admin/requests/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, adminNote }),
-      });
-    } catch (e) {
-      console.error('Update request status error:', e);
-    }
     return true;
   }
 
   async deleteRequest(id: string, keepSong: boolean = false): Promise<boolean> {
-    this.requests = this.requests.filter((r) => r.id !== id);
+    const res = await fetch(`/api/admin/requests/${encodeURIComponent(id)}${keepSong ? '?keepSong=1' : ''}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'The server did not delete the request.');
+    }
+
+    this.requests = this.requests.filter((request) => request.id !== id);
     this.saveRequests();
     this.notify();
-
-    try {
-      await fetch(`/api/admin/requests/${id}${keepSong ? '?keepSong=1' : ''}`, { method: 'DELETE' });
-    } catch (e) {
-      console.error('Delete request error:', e);
-    }
     return true;
   }
 
