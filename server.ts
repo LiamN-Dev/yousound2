@@ -1920,13 +1920,37 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
       coverTempPath = null;
       uploadedCoverId = driveCover.fileId;
-      return res.json({
-        success: true,
+
+      if (!(await checkSqlAvailability())) {
+        throw new Error('The persistent database is unavailable. The media was uploaded but has not been added to the library; reconnect the database and retry.');
+      }
+      const title = String(req.body?.title || audioFile.originalname.replace(/\\.mp3$/i, '')).trim();
+      const artist = String(req.body?.artist || '').trim();
+      if (!title || !artist) throw new Error('Song title and artist are required.');
+      const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
+      const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
+      const id = `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const song = await insertSongDb({
+        id,
+        title,
+        artist,
+        album: String(req.body?.album || 'Single').trim() || 'Single',
+        genre,
+        tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
+        typeMood: String(req.body?.mood || '').trim() || undefined,
+        duration: driveAudio.duration || 180,
         audioUrl: driveAudio.streamingUrl,
         coverUrl: driveCover.imageUrl,
+        addedAt: new Date().toISOString(),
+        plays: 0,
+        featured: false,
+        description: String(req.body?.description || '').trim(),
+      });
+      return res.json({
+        success: true,
+        song,
         audioFileId: driveAudio.fileId,
         coverFileId: driveCover.fileId,
-        duration: driveAudio.duration,
       });
     } catch (error: any) {
       console.error('[LibraryUpload] Drive media upload failed:', error);
