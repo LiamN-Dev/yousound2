@@ -25,7 +25,7 @@ type RequestDraft = {
   adminNote: string;
 };
 
-type QueueFilter = 'all' | 'pending' | 'staging' | 'published' | 'declined' | 'feature';
+type QueueFilter = 'all' | 'pending' | 'approved' | 'staging' | 'published' | 'declined' | 'feature';
 type MigrationCandidate = { id: string; title: string; artist: string; duration: number };
 
 
@@ -47,7 +47,6 @@ export const AdminPipelineManager: React.FC = () => {
     updateSongRequestStatus,
     deleteSongRequest,
     adminUpdateRequest,
-    adminApproveAndProcess,
     adminPublishRequest,
     refreshState,
   } = useAuth();
@@ -64,6 +63,8 @@ export const AdminPipelineManager: React.FC = () => {
   const [uploadingFallback, setUploadingFallback] = useState(false);
   const [connectingDrive, setConnectingDrive] = useState(false);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({});
+  const [requestAudioFiles, setRequestAudioFiles] = useState<Record<string, File | null>>({});
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
 
@@ -73,6 +74,7 @@ export const AdminPipelineManager: React.FC = () => {
       const next = { ...current };
       for (const request of songRequests) {
         if (!next[request.id]) next[request.id] = getDraft(request);
+      if (!(request.id in etaDrafts)) setEtaDrafts((current) => ({ ...current, [request.id]: request.estimatedUploadAt ? new Date(request.estimatedUploadAt).toISOString().slice(0, 16) : '' }));
       }
       for (const id of Object.keys(next)) {
         if (!songRequests.some((request) => request.id === id)) delete next[id];
@@ -82,7 +84,7 @@ export const AdminPipelineManager: React.FC = () => {
   }, [songRequests]);
 
   const orderedRequests = useMemo(() => [...songRequests].sort((a, b) => {
-    const priority = (status: string) => status === 'pending' ? 0 : status === 'processing' ? 1 : status === 'staging' ? 2 : status === 'published' ? 3 : 4;
+    const priority = (status: string) => status === 'pending' ? 0 : status === 'approved' ? 1 : status === 'staging' ? 2 : status === 'published' ? 3 : 4;
     return priority(a.status) - priority(b.status) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   }), [songRequests]);
 
@@ -259,40 +261,69 @@ export const AdminPipelineManager: React.FC = () => {
     }
   };
 
-  const convertRequest = async (request: SongRequest) => {
+  const approveRequest = async (request: SongRequest) => {
     const draft = drafts[request.id] || getDraft(request);
-    if (request.requestType === 'feature') {
-      setFeedback({ type: 'error', message: 'Feature requests cannot be converted to audio.' });
-      return;
-    }
-    if (!driveConnected) {
-      setFeedback({ type: 'error', message: 'Connect the site-wide Google Drive account before converting.' });
-      return;
-    }
-    if (!rightsConfirmed) {
-      setFeedback({ type: 'error', message: 'Confirm that you have permission to download and re-host this audio.' });
-      return;
-    }
+    if (request.requestType === 'feature') return;
     if (!draft.songTitle.trim() || !draft.artist.trim()) {
       setFeedback({ type: 'error', message: 'Song title and artist are required.' });
       return;
     }
-    if (!window.confirm(`Convert “${draft.songTitle.trim()}” to MP3 and upload it to the connected Google Drive? Only continue for audio you own or are licensed to re-host.`)) return;
-
+    const localEta = etaDrafts[request.id] || '';
+    const estimatedUploadAt = localEta ? new Date(localEta).toISOString() : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     setWorkingId(request.id);
-    setFeedback({ type: 'info', message: `Converting “${draft.songTitle.trim()}” to MP3 and uploading it to Drive…` });
     try {
-      const result = await adminApproveAndProcess(request.id, {
+      const updated = await adminUpdateRequest(request.id, {
         songTitle: draft.songTitle.trim(),
         artist: draft.artist.trim(),
         genre: draft.genre.trim() || 'Vibe / Chill',
-        coverUrl: draft.coverUrl.trim() || undefined,
-        rightsConfirmed: true,
+        coverUrl: draft.coverUrl.trim(),
+        adminNote: draft.adminNote,
+        status: 'approved',
+        estimatedUploadAt,
       });
-      if (!result.success) throw new Error(result.error || 'Conversion failed.');
-      setFeedback({ type: 'success', message: `“${result.request?.songTitle || draft.songTitle}” is staged. Preview the MP3 before publishing.` });
+      if (!updated || updated.status !== 'approved') throw new Error('The server did not save approval. Refresh and try again.');
+      setFeedback({ type: 'success', message: `“${updated.songTitle}” approved and placed in the upload waiting room.` });
     } catch (error: any) {
-      setFeedback({ type: 'error', message: error?.message || 'Conversion failed.' });
+      setFeedback({ type: 'error', message: error?.message || 'Could not approve request.' });
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
+  const uploadRequestAudio = async (request: SongRequest) => {
+    const file = requestAudioFiles[request.id];
+    if (!driveConnected) {
+      setFeedback({ type: 'error', message: 'Connect the site-wide Google Drive account before uploading.' });
+      return;
+    }
+    if (!file) {
+      setFeedback({ type: 'error', message: 'Choose an MP3 file first.' });
+      return;
+    }
+    if (!/\\.mp3$/i.test(file.name) || (file.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(file.type.toLowerCase()))) {
+      setFeedback({ type: 'error', message: 'This upload accepts MP3 files only. No conversion will be performed.' });
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setFeedback({ type: 'error', message: 'The MP3 is larger than the 100 MB upload limit.' });
+      return;
+    }
+    setWorkingId(request.id);
+    setFeedback({ type: 'info', message: `Uploading “${request.songTitle}” directly to Google Drive…` });
+    try {
+      const form = new FormData();
+      form.append('audio', file);
+      const response = await fetch(`/api/admin/requests/${encodeURIComponent(request.id)}/upload-audio`, {
+        method: 'POST', credentials: 'same-origin', body: form,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'MP3 upload failed.');
+      setRequestAudioFiles((current) => ({ ...current, [request.id]: null }));
+      await storage.syncWithServer();
+      refreshState();
+      setFeedback({ type: 'success', message: `“${request.songTitle}” is uploaded to Drive and waiting for you to publish it.` });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.message || 'Could not upload MP3.' });
     } finally {
       setWorkingId(null);
     }
@@ -358,8 +389,8 @@ export const AdminPipelineManager: React.FC = () => {
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
           <div className="max-w-3xl">
             <div className="flex items-center gap-2 text-sm font-bold text-white"><Cloud className="h-4 w-4 text-cyan-300" /> Google Drive MP3 archive</div>
-            <p className="mt-1 text-xs leading-5 text-slate-300">Approved audio is converted once, uploaded to Drive, and played directly from Drive. Playback no longer sends the audio bytes through this app's server. Conversion requires yt-dlp and ffmpeg on the server.</p>
-            <p className="mt-2 text-[11px] leading-5 text-amber-200/90">Only convert audio you own or have explicit permission to download and re-host. Conversion may fail if the server cannot access the source or Drive sharing is restricted.</p>
+            <p className="mt-1 text-xs leading-5 text-slate-300">Approve a song to move it into the upload waiting room. Upload an MP3 directly to the site Google Drive, then publish it when ready. No downloading or audio conversion is performed.</p>
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">Request uploads accept MP3 files up to 100 MB. Playback streams from Drive rather than through the app server.</p>
           </div>
           <button type="button" onClick={requestGoogleToken} disabled={connectingDrive} className={`${buttonClass} shrink-0 ${driveConnected ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/15 text-cyan-100'}`}>
             {connectingDrive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Cloud className="h-3.5 w-3.5" />}
@@ -404,7 +435,7 @@ export const AdminPipelineManager: React.FC = () => {
       )}
 
       <div className="flex flex-wrap gap-2">
-        {(['all', 'pending', 'staging', 'published', 'declined', 'feature'] as QueueFilter[]).map((value) => (
+        {(['all', 'pending', 'approved', 'staging', 'published', 'declined', 'feature'] as QueueFilter[]).map((value) => (
           <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition ${filter === value ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'}`}>
             {value === 'all' ? 'All requests' : value === 'feature' ? 'Feature requests' : value[0].toUpperCase() + value.slice(1)} <span className="ml-1 opacity-70">{countFor(value)}</span>
           </button>
@@ -460,13 +491,13 @@ export const AdminPipelineManager: React.FC = () => {
 
                   <div className="flex flex-row flex-wrap xl:max-w-64 xl:justify-end gap-2">
                     <button type="button" onClick={() => saveRequestDraft(request)} disabled={busy} className={`${buttonClass} border-white/10 bg-white/[0.04] text-slate-200`}><RefreshCw className="h-3 w-3" /> Save details</button>
-                    {!isFeature && ['pending', 'approved', 'staging'].includes(request.status) && request.status !== 'processing' && (request.status !== 'staging' || !request.driveFileId) && (
-                      <button type="button" onClick={() => convertRequest(request)} disabled={busy || !driveConnected || !rightsConfirmed} className={`${buttonClass} border-cyan-400/30 bg-cyan-500/15 text-cyan-100`}>
-                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileAudio className="h-3.5 w-3.5" />} Convert to MP3 & Stage
-                      </button>
-                    )}
-                    {request.status === 'pending' && (
-                      <button type="button" onClick={() => declineRequest(request)} disabled={busy} className={`${buttonClass} border-rose-400/25 bg-rose-500/10 text-rose-200`}><XCircle className="h-3.5 w-3.5" /> Decline</button>
+                    {!isFeature && request.status === 'pending' && (
+                      <>
+                        <button type="button" onClick={() => approveRequest(request)} disabled={busy} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}>
+                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />} Approve song for upload
+                        </button>
+                        <button type="button" onClick={() => declineRequest(request)} disabled={busy} className={`${buttonClass} border-rose-400/25 bg-rose-500/10 text-rose-200`}><XCircle className="h-3.5 w-3.5" /> Decline</button>
+                      </>
                     )}
                     {request.status === 'staging' && (
                       <button type="button" onClick={() => publishRequest(request, true)} disabled={busy || !request.driveFileId || !String(request.audioUrl || '').startsWith('https://drive.google.com/uc?export=download&id=')} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}><Send className="h-3.5 w-3.5" /> Publish</button>
@@ -478,6 +509,25 @@ export const AdminPipelineManager: React.FC = () => {
                   </div>
                 </div>
 
+                {request.status === 'approved' && (
+                  <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-500/[0.05] p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold text-emerald-100">Approved — waiting for MP3 upload</div>
+                      <div className="text-[10px] text-slate-400">Requester can see this status</div>
+                    </div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Estimated upload time</label>
+                    <input type="datetime-local" className={inputClass} value={etaDrafts[request.id] || ''} onChange={(event) => setEtaDrafts((current) => ({ ...current, [request.id]: event.target.value }))} disabled={busy} />
+                    <button type="button" onClick={() => adminUpdateRequest(request.id, { estimatedUploadAt: etaDrafts[request.id] ? new Date(etaDrafts[request.id]).toISOString() : null }).then(() => { refreshState(); setFeedback({ type: 'success', message: 'Upload estimate saved.' }); })} disabled={busy} className={`${buttonClass} mt-2 border-white/10 bg-white/[0.04] text-slate-200`}>Save estimate</button>
+                    <div className="mt-3">
+                      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Choose MP3 file (max 100 MB)</label>
+                      <input type="file" accept=".mp3,audio/mpeg" onChange={(event) => setRequestAudioFiles((current) => ({ ...current, [request.id]: event.target.files?.[0] || null }))} disabled={busy} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-400/15 file:px-2 file:py-1 file:text-cyan-100`} />
+                      {requestAudioFiles[request.id] && <div className="mt-1 text-[10px] text-slate-400">{requestAudioFiles[request.id]?.name}</div>}
+                      <button type="button" onClick={() => uploadRequestAudio(request)} disabled={busy || !driveConnected || !requestAudioFiles[request.id]} className={`${buttonClass} mt-2 border-cyan-400/30 bg-cyan-500/15 text-cyan-100`}>
+                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload MP3 to Drive
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {request.status === 'staging' && request.driveFileId && stagedUrl && (
                   <div className="mt-4 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] p-3">
                     <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-cyan-100"><Music2 className="h-3.5 w-3.5" /> Staged MP3 preview</div>
@@ -487,7 +537,7 @@ export const AdminPipelineManager: React.FC = () => {
                 )}
                 {request.status === 'staging' && !request.driveFileId && (
                   <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/[0.05] p-3 text-[11px] text-amber-100">
-                    This older staging record has no Google Drive MP3 yet. Reprocess it to convert and upload the audio before publishing.
+                    This request has no Drive MP3 yet. Upload an MP3 directly to continue.
                   </div>
                 )}
               </article>
