@@ -100,7 +100,7 @@ import {
   purgeClosedFeedbackDb,
   clearClosedFeedbackDb,
 } from './src/db/feedback.ts';
-import { convertLocalAudioToMp3, uploadMp3ToGoogleDrive } from './src/services/audioPipeline.ts';
+import { convertLocalAudioToMp3, extractAudioFromYouTube, uploadMp3ToGoogleDrive } from './src/services/audioPipeline.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
