@@ -1318,14 +1318,17 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
     if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     const updates = { ...req.body };
-    if (typeof updates.audioUrl === 'string' && updates.audioUrl.startsWith('data:audio/')) {
-      updates.audioUrl = await persistInlineAudioDataUri(updates.audioUrl, updates.title || id);
+    if (typeof updates.audioUrl === 'string' && !/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+/i.test(updates.audioUrl)) {
+      return res.status(400).json({ success: false, error: 'Song audio must be uploaded to the site Google Drive. External links and embedded audio are disabled.' });
+    }
+    if (typeof updates.coverUrl === 'string' && updates.coverUrl && !/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(updates.coverUrl)) {
+      return res.status(400).json({ success: false, error: 'Song artwork must be uploaded to the site Google Drive.' });
     }
     const updated = await updateSongDb(id, updates);
-    res.json({ success: true, song: updated });
+    return res.json({ success: true, song: updated });
   } catch (error: any) {
     console.error('Update song error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 });
 
