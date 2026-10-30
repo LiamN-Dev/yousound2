@@ -3,8 +3,6 @@ name: Verify YouSong
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main, feature/song-request-upload-waiting-room]
 
 permissions:
   contents: read
