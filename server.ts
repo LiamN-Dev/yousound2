@@ -1745,7 +1745,7 @@ app.post('/api/favorites/:userId/toggle', async (req: Request, res: Response) =>
   }
 });
 
-// ----------------- SONG REQUESTS & CONVERSION PIPELINE -----------------
+// ----------------- SONG REQUESTS & GOOGLE DRIVE UPLOAD PIPELINE -----------------
 app.get('/api/requests', async (req: Request, res: Response) => {
   try {
     const list = await getRequestsDb();
@@ -2078,11 +2078,6 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       if (coverTempPath && fs.existsSync(coverTempPath)) { try { fs.unlinkSync(coverTempPath); } catch {} }
     }
   });
-});
-
-// Retired endpoint: requests are approved and uploaded manually as MP3 files now.
-app.post('/api/admin/requests/:id/approve-and-process', (_req: Request, res: Response) => {
-  return res.status(410).json({ success: false, error: 'The conversion workflow has been removed. Approve the request, then upload an MP3 directly.' });
 });
 
 // Publish only a staged MP3 hosted directly on Google Drive. This keeps song bytes out of this app host.
