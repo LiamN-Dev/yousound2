@@ -395,30 +395,33 @@ export async function bulkUpdateSongsDb(
     throw new Error('The persistent database is unavailable. No bulk changes were saved.');
   }
 
-  const existing = await db.select().from(songs).where(inArray(songs.id, ids));
-  const results: any[] = [];
-  for (const song of existing) {
-    const updatePayload: Record<string, any> = { ...cleanUpdates };
-    if (tagOperation) {
-      const currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
-      const requested = Array.from(new Set((tagOperation.tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
-      if (tagOperation.action === 'set') updatePayload.tags = requested;
-      else if (tagOperation.action === 'add') {
-        const merged = new Map(currentTags.map((tag) => [String(tag).toLowerCase(), tag]));
-        requested.forEach((tag) => merged.set(tag.toLowerCase(), tag));
-        updatePayload.tags = Array.from(merged.values());
-      } else if (tagOperation.action === 'remove') {
-        const remove = new Set(requested.map((tag) => tag.toLowerCase()));
-        updatePayload.tags = currentTags.filter((tag) => !remove.has(String(tag).toLowerCase()));
+  const results: any[] = await db.transaction(async (tx) => {
+    const existing = await tx.select().from(songs).where(inArray(songs.id, ids));
+    const changed: any[] = [];
+    for (const song of existing) {
+      const updatePayload: Record<string, any> = { ...cleanUpdates };
+      if (tagOperation) {
+        const currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
+        const requested = Array.from(new Set((tagOperation.tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
+        if (tagOperation.action === 'set') updatePayload.tags = requested;
+        else if (tagOperation.action === 'add') {
+          const merged = new Map(currentTags.map((tag) => [String(tag).toLowerCase(), tag]));
+          requested.forEach((tag) => merged.set(tag.toLowerCase(), tag));
+          updatePayload.tags = Array.from(merged.values());
+        } else if (tagOperation.action === 'remove') {
+          const remove = new Set(requested.map((tag) => tag.toLowerCase()));
+          updatePayload.tags = currentTags.filter((tag) => !remove.has(String(tag).toLowerCase()));
+        }
       }
+      if (Object.keys(updatePayload).length === 0) {
+        changed.push(song);
+        continue;
+      }
+      const updated = await tx.update(songs).set(updatePayload).where(eq(songs.id, song.id)).returning();
+      if (updated[0]) changed.push(updated[0]);
     }
-    if (Object.keys(updatePayload).length === 0) {
-      results.push(song);
-      continue;
-    }
-    const updated = await db.update(songs).set(updatePayload).where(eq(songs.id, song.id)).returning();
-    if (updated[0]) results.push(updated[0]);
-  }
+    return changed;
+  });
   // Update the local cache only after the database writes have succeeded.
   for (const song of results) {
     localStore.updateSong(song.id, song);
@@ -770,14 +773,17 @@ export async function updateRequestDb(id: string, status: string, adminNote?: st
 }
 
 export async function deleteRequestDb(id: string) {
-  localStore.deleteRequest(id);
-  if (!(await checkSqlAvailability())) return true;
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The request was not deleted.');
+  }
   try {
-    await db.delete(songRequests).where(eq(songRequests.id, id));
+    const deleted = await db.delete(songRequests).where(eq(songRequests.id, id)).returning({ id: songRequests.id });
+    if (!deleted.length) throw new Error('Song request not found.');
+    localStore.deleteRequest(id);
     return true;
   } catch (error) {
     noteDbError('deleteRequestDb', error);
-    return true;
+    throw error;
   }
 }
 
