@@ -1969,6 +1969,7 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
 
 // Admin uploads both request assets on the website. Temporary files are immediately moved to Drive.
 app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
   upload(req, res, async (uploadError: any) => {
     const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
@@ -2031,6 +2032,7 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
 
 // Manual library upload: both files go directly to Google Drive; this endpoint stores no media bytes in the DB.
 app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
   upload(req, res, async (uploadError: any) => {
     const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
