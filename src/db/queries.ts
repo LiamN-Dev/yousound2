@@ -345,6 +345,8 @@ export async function insertSongDb(songData: {
       .returning();
     return inserted[0] || songData;
   } catch (error) {
+    // Undo the optimistic local insert so a failed persistent write cannot surface a broken Drive URL.
+    localStore.deleteSong(songData.id);
     noteDbError('insertSongDb', error);
     throw error;
   }
