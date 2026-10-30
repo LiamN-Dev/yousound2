@@ -760,7 +760,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                     {req.status === 'pending' && (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400 bg-amber-950/40 px-2.5 py-1 rounded-full border border-amber-800/50">
                         <Clock className="w-3 h-3" />
-                        Holding Queue (Review Gate)
+                        Awaiting admin review
                       </span>
                     )}
                     {req.status === 'approved' && (
