@@ -769,7 +769,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                         Approved — waiting for upload
                       </span>
                     )}
-                    {req.status === 'approved' && req.estimatedUploadAt && (
+                    {req.status !== 'published' && req.estimatedUploadAt && (
                       <span className="text-[10px] text-slate-400 text-right">Estimated upload: {new Date(req.estimatedUploadAt).toLocaleString()}</span>
                     )}
                     {req.status === 'processing' && (
