@@ -299,9 +299,10 @@ export async function insertSongDb(songData: {
   weeklyPlaysResetDate?: string;
   isScheduledForDeletion?: boolean;
   scheduledDeletionAt?: string;
-}) {
-  localStore.insertSong(songData);
+}, requirePersistent = false) {
   if (!(await checkSqlAvailability())) {
+    if (requirePersistent) throw new Error('The persistent database is unavailable. The song was not saved.');
+    localStore.insertSong(songData);
     return songData;
   }
   try {
@@ -343,13 +344,15 @@ export async function insertSongDb(songData: {
         scheduledDeletionAt: songData.scheduledDeletionAt || null,
       })
       .returning();
-    return inserted[0] || songData;
+  
+    if (!inserted[0]) throw new Error('The database did not return the new song.');
+    localStore.insertSong(inserted[0]);
+    return inserted[0];
   } catch (error) {
     noteDbError('insertSongDb', error);
-    return songData;
+    throw error;
   }
 }
-
 export async function updateSongDb(id: string, updates: any) {
   localStore.updateSong(id, updates);
   if (!(await checkSqlAvailability())) {
@@ -370,60 +373,73 @@ export async function updateSongDb(id: string, updates: any) {
 
 export async function bulkUpdateSongsDb(
   songIds: string[],
-  updates: {
-    genre?: string;
-    typeMood?: string;
-    tagsToAdd?: string[];
-    tagsToRemove?: string[];
-  },
-  _tagOperation?: string
+  updates: Record<string, any>,
+  tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
 ) {
-  localStore.bulkUpdateSongs(songIds, updates);
-  if (!(await checkSqlAvailability())) {
-    return localStore.bulkUpdateSongs(songIds, updates);
+  const allowedColumns = new Set([
+    'title', 'artist', 'album', 'genre', 'typeMood', 'duration',
+    'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
+    'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'autoReleaseOnDrop',
+    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
+    'isScheduledForDeletion', 'scheduledDeletionAt',
+  ]);
+  const cleanUpdates: Record<string, any> = {};
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (key === 'badgeCustomText') cleanUpdates.badgeMessage = value;
+    else if (allowedColumns.has(key) && value !== undefined) cleanUpdates[key] = value;
   }
-  try {
-    const list = await db.select().from(songs).where(inArray(songs.id, songIds));
-    const results = [];
-    for (const song of list) {
-      const updatePayload: any = {};
-      if (updates.genre !== undefined && updates.genre.trim()) {
-        updatePayload.genre = updates.genre.trim();
-      }
-      if (updates.typeMood !== undefined && updates.typeMood.trim()) {
-        updatePayload.typeMood = updates.typeMood.trim();
-      }
-      let currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
-      if (updates.tagsToAdd && updates.tagsToAdd.length > 0) {
-        for (const t of updates.tagsToAdd) {
-          const clean = t.trim().toLowerCase();
-          if (clean && !currentTags.includes(clean)) currentTags.push(clean);
+
+  const ids = Array.from(new Set(songIds.map(String).filter(Boolean)));
+  if (!ids.length) return [];
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. No bulk changes were saved.');
+  }
+
+  const results: any[] = await db.transaction(async (tx) => {
+    const existing = await tx.select().from(songs).where(inArray(songs.id, ids));
+    const changed: any[] = [];
+    for (const song of existing) {
+      const updatePayload: Record<string, any> = { ...cleanUpdates };
+      if (tagOperation) {
+        const currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
+        const requested = Array.from(new Set((tagOperation.tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
+        if (tagOperation.action === 'set') updatePayload.tags = requested;
+        else if (tagOperation.action === 'add') {
+          const merged = new Map(currentTags.map((tag) => [String(tag).toLowerCase(), tag]));
+          requested.forEach((tag) => merged.set(tag.toLowerCase(), tag));
+          updatePayload.tags = Array.from(merged.values());
+        } else if (tagOperation.action === 'remove') {
+          const remove = new Set(requested.map((tag) => tag.toLowerCase()));
+          updatePayload.tags = currentTags.filter((tag) => !remove.has(String(tag).toLowerCase()));
         }
       }
-      if (updates.tagsToRemove && updates.tagsToRemove.length > 0) {
-        const removeSet = new Set(updates.tagsToRemove.map((t) => t.trim().toLowerCase()));
-        currentTags = currentTags.filter((t) => !removeSet.has(t.toLowerCase()));
+      if (Object.keys(updatePayload).length === 0) {
+        changed.push(song);
+        continue;
       }
-      updatePayload.tags = currentTags;
-      const res = await db.update(songs).set(updatePayload).where(eq(songs.id, song.id)).returning();
-      if (res[0]) results.push(res[0]);
+      const updated = await tx.update(songs).set(updatePayload).where(eq(songs.id, song.id)).returning();
+      if (updated[0]) changed.push(updated[0]);
     }
-    return results;
-  } catch (error) {
-    noteDbError('bulkUpdateSongsDb', error);
-    return localStore.bulkUpdateSongs(songIds, updates);
+    return changed;
+  });
+  // Update the local cache only after the database writes have succeeded.
+  for (const song of results) {
+    localStore.updateSong(song.id, song);
   }
+  return results;
 }
-
 export async function deleteSongDb(id: string) {
-  localStore.deleteSong(id);
-  if (!(await checkSqlAvailability())) return true;
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The song was not deleted.');
+  }
   try {
-    await db.delete(songs).where(eq(songs.id, id));
+    const deleted = await db.delete(songs).where(eq(songs.id, id)).returning({ id: songs.id });
+    if (!deleted.length) throw new Error('Song not found.');
+    localStore.deleteSong(id);
     return true;
   } catch (error) {
     noteDbError('deleteSongDb', error);
-    return true;
+    throw error;
   }
 }
 
@@ -670,12 +686,11 @@ export async function createRequestDb(data: {
   createdAt: string;
   status?: string;
   adminNote?: string;
-  requestType?: 'song' | 'feature';
+  requestType?: string;
   genre?: string;
 }) {
-  localStore.createRequest(data);
   if (!(await checkSqlAvailability())) {
-    return localStore.getRequestById(data.id);
+    throw new Error('The persistent database is unavailable. The request was not saved.');
   }
   try {
     const inserted = await db
@@ -684,8 +699,8 @@ export async function createRequestDb(data: {
         id: data.id,
         songTitle: data.songTitle,
         artist: data.artist || null,
-        webLink: data.webLink || null,
-        coverUrl: data.coverUrl || null,
+        webLink: null,
+        coverUrl: null,
         notes: data.notes || null,
         requestedByUserId: data.requestedByUserId || null,
         requestedByUsername: data.requestedByUsername,
@@ -696,22 +711,24 @@ export async function createRequestDb(data: {
         genre: data.genre || 'Vibe / Chill',
       })
       .returning();
-    return inserted[0] || localStore.getRequestById(data.id);
+    if (!inserted[0]) throw new Error('The database did not return the new song request.');
+    localStore.createRequest(inserted[0]);
+    return inserted[0];
   } catch (error) {
     noteDbError('createRequestDb', error);
-    return localStore.getRequestById(data.id);
+    throw error;
   }
 }
 
 export async function updateRequestFullDb(
   id: string,
   updates: {
-    songTitle?: string | null;
+    songTitle?: string;
     artist?: string | null;
     webLink?: string | null;
     coverUrl?: string | null;
     notes?: string | null;
-    status?: string | null;
+    status?: string;
     adminNote?: string | null;
     reviewedAt?: string | null;
     approvedAt?: string | null;
@@ -720,7 +737,7 @@ export async function updateRequestFullDb(
     driveFileId?: string | null;
     driveFolderId?: string | null;
     duration?: number | null;
-    genre?: string | null;
+    genre?: string;
     stagingAudioUrl?: string | null;
     publishedSongId?: string | null;
     publishedAt?: string | null;
@@ -728,28 +745,27 @@ export async function updateRequestFullDb(
     processingError?: string | null;
   }
 ) {
-  localStore.updateRequestFull(id, updates);
   if (!(await checkSqlAvailability())) {
-    return localStore.getRequestById(id);
+    throw new Error('The persistent database is unavailable. The request update was not saved.');
   }
   try {
-    const cleanUpdates: any = { ...updates };
     const updated = await db
       .update(songRequests)
-      .set(cleanUpdates)
+      .set({ ...updates })
       .where(eq(songRequests.id, id))
       .returning();
-    return updated[0] || localStore.getRequestById(id);
+    if (!updated[0]) throw new Error('Song request not found or no longer available.');
+    localStore.updateRequestFull(id, updates);
+    return updated[0];
   } catch (error) {
     noteDbError('updateRequestFullDb', error);
-    return localStore.getRequestById(id);
+    throw error;
   }
 }
 
 export async function updateRequestDb(id: string, status: string, adminNote?: string) {
-  localStore.updateRequest(id, status, adminNote);
   if (!(await checkSqlAvailability())) {
-    return localStore.getRequestById(id);
+    throw new Error('The persistent database is unavailable. The request status was not saved.');
   }
   try {
     const updates: any = { status };
@@ -762,22 +778,27 @@ export async function updateRequestDb(id: string, status: string, adminNote?: st
       .set(updates)
       .where(eq(songRequests.id, id))
       .returning();
-    return updated[0] || localStore.getRequestById(id);
+    if (!updated[0]) throw new Error('Song request not found or no longer available.');
+    localStore.updateRequest(id, status, adminNote);
+    return updated[0];
   } catch (error) {
     noteDbError('updateRequestDb', error);
-    return localStore.getRequestById(id);
+    throw error;
   }
 }
 
 export async function deleteRequestDb(id: string) {
-  localStore.deleteRequest(id);
-  if (!(await checkSqlAvailability())) return true;
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The request was not deleted.');
+  }
   try {
-    await db.delete(songRequests).where(eq(songRequests.id, id));
+    const deleted = await db.delete(songRequests).where(eq(songRequests.id, id)).returning({ id: songRequests.id });
+    if (!deleted.length) throw new Error('Song request not found.');
+    localStore.deleteRequest(id);
     return true;
   } catch (error) {
     noteDbError('deleteRequestDb', error);
-    return true;
+    throw error;
   }
 }
 

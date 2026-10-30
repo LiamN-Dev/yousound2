@@ -177,10 +177,7 @@ const MainAppContent: React.FC = () => {
             ) : (
               <>
                 {/* Manual Song Upload Studio */}
-                <ManualSongUploader
-                  onOpenAuth={() => setIsAuthOpen(true)}
-                  onEditSong={(song) => setUploaderEditSong(song)}
-                />
+                {isAdmin && <ManualSongUploader />}
 
                 {/* Personalized Bar: "Songs You Might Like" */}
                 <PersonalizedBar onOpenPlaylistModal={handleOpenPlaylistModal} />

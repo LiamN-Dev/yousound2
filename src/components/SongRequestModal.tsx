@@ -8,15 +8,12 @@ import {
   Music,
   Send,
   Sparkles,
-  Link as LinkIcon,
   CheckCircle2,
   Clock,
   XCircle,
   ListPlus,
-  Image as ImageIcon,
   ShieldCheck,
   Headphones,
-  ExternalLink,
   Trash2,
   Radio,
   Lightbulb,
@@ -30,29 +27,6 @@ interface SongRequestModalProps {
   /** Which section to show when the popup opens */
   initialMode?: 'song' | 'feature' | 'bug' | 'mine';
 }
-
-const PRESET_COVERS = [
-  {
-    name: 'Lo-fi Study',
-    url: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=500&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Synthwave Sunset',
-    url: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=500&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Vinyl Mood',
-    url: 'https://images.unsplash.com/photo-1539185441755-769473a23570?w=500&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Neon Cyber',
-    url: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
-  },
-  {
-    name: 'Coffee Chill',
-    url: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=500&auto=format&fit=crop&q=80',
-  },
-];
 
 const STAGE_LABELS = ['Submitted', 'In progress', 'Finished'];
 
@@ -311,9 +285,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
   const [activeTab, setActiveTab] = useState<'submit' | 'my-requests'>('submit');
 
   // Form fields as requested:
-  // Optional source link, cover art image address, initial guess for title, initial guess for artist
-  const [webLink, setWebLink] = useState('');
-  const [coverUrl, setCoverUrl] = useState(PRESET_COVERS[0].url);
+  // Song details supplied by the requester; artwork is added by an administrator during Drive upload.
   const [songTitle, setSongTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [genre, setGenre] = useState('Vibe / Chill');
@@ -321,40 +293,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
 
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Live check of the pasted link, so people know right away if it will work
-  const [linkCheck, setLinkCheck] = useState<{
-    state: 'idle' | 'checking' | 'ok' | 'bad';
-    text?: string;
-    title?: string;
-    thumbnail?: string;
-  }>({ state: 'idle' });
-
-  useEffect(() => {
-    const text = webLink.trim();
-    if (!text) {
-      setLinkCheck({ state: 'idle' });
-      return;
-    }
-    setLinkCheck({ state: 'checking' });
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      const r = await storage.previewYouTube(text);
-      if (cancelled) return;
-      if (r.valid) {
-        setLinkCheck({ state: 'ok', title: r.title, thumbnail: r.thumbnail });
-        // Pre-fill the guesses when they are still empty
-        if (r.title) setSongTitle((prev) => prev || r.title || '');
-        if (r.author) setArtist((prev) => prev || r.author || '');
-      } else {
-        setLinkCheck({ state: 'bad', text: r.reason });
-      }
-    }, 600);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [webLink]);
 
   if (!isOpen) return null;
 
@@ -394,14 +332,11 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
       await submitSongRequest({
         songTitle: songTitle.trim(),
         artist: artist.trim() || 'Unknown Artist',
-        webLink: linkCheck.state === 'ok' ? webLink.trim() : '',
-        coverUrl: coverUrl.trim() || PRESET_COVERS[0].url,
         genre: genre.trim(),
         notes: notes.trim() || undefined,
         requestType: 'song',
       });
 
-      setWebLink('');
       setSongTitle('');
       setArtist('');
       setNotes('');
@@ -529,45 +464,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
               </p>
             </div>
 
-            {/* 1. Optional source link */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-                <LinkIcon className="w-3.5 h-3.5 text-rose-400" />
-                <span>Optional YouTube reference link</span>
-              </label>
-              <input
-                type="text"
-                placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
-                value={webLink}
-                onChange={(e) => setWebLink(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-              />
-
-              {linkCheck.state === 'checking' && (
-                <span className="text-[11px] text-slate-400 mt-1.5 block">Checking the link...</span>
-              )}
-              {linkCheck.state === 'bad' && (
-                <div className="mt-1.5 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-200">
-                  {linkCheck.text}
-                </div>
-              )}
-              {linkCheck.state === 'ok' && (
-                <div className="mt-1.5 flex items-center gap-2.5 p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-                  {linkCheck.thumbnail && (
-                    <img src={linkCheck.thumbnail} alt="" className="w-14 h-8 rounded-md object-cover shrink-0" />
-                  )}
-                  <div className="min-w-0 text-[11px]">
-                    <p className="text-emerald-300 font-semibold">This link works</p>
-                    {linkCheck.title && <p className="text-slate-300 truncate">{linkCheck.title}</p>}
-                  </div>
-                </div>
-              )}
-
-              <div className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
-                Optional: add a YouTube link to help the administrator identify the requested track. The link is only a reference; YouSong does not download or convert audio from it.
-              </div>
-            </div>
-
             {/* 2. Initial Guess for Title & Artist */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -598,56 +494,8 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
               </div>
             </div>
 
-            {/* 3. Cover Art Image Address */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Cover Art Image Address *</span>
-                </label>
-                <span className="text-[10px] text-slate-500">Preset or direct image URL</span>
-              </div>
-
-              <div className="flex gap-3 items-center mb-2.5">
-                <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-950 border border-white/10 shrink-0 shadow-inner">
-                  <img
-                    src={coverUrl || PRESET_COVERS[0].url}
-                    alt="Cover Preview"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = PRESET_COVERS[0].url;
-                    }}
-                  />
-                </div>
-                <div className="flex-1">
-                  <input
-                    type="url"
-                    placeholder="https://example.com/artwork.jpg"
-                    value={coverUrl}
-                    onChange={(e) => setCoverUrl(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Quick Preset Selector */}
-              <div className="flex flex-wrap gap-1.5">
-                {PRESET_COVERS.map((preset) => (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    onClick={() => setCoverUrl(preset.url)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all ${
-                      coverUrl === preset.url
-                        ? 'bg-cyan-500 text-slate-950 font-bold'
-                        : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    {preset.name}
-                  </button>
-                ))}
-              </div>
+            <div className="rounded-xl border border-white/10 bg-slate-950/50 p-3 text-[11px] leading-5 text-slate-400">
+              Cover artwork is added by the administrator when the MP3 is uploaded. Both files are stored in the site's Google Drive.
             </div>
 
             {/* Genre & Notes */}
@@ -656,19 +504,14 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Genre / Mood
                 </label>
-                <select
+                <input
+                  type="text"
+                  placeholder="e.g. Lo-fi hip-hop, ambient, synthwave, worship..."
                   value={genre}
                   onChange={(e) => setGenre(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:border-cyan-500 transition-colors"
-                >
-                  <option value="Vibe / Chill">Vibe / Chill</option>
-                  <option value="Lo-Fi & Study">Lo-Fi & Study</option>
-                  <option value="Synthwave & Retro">Synthwave & Retro</option>
-                  <option value="Acoustic & Coffee">Acoustic & Coffee</option>
-                  <option value="Ambient & Deep">Ambient & Deep</option>
-                  <option value="Anime & Soundtracks">Anime & Soundtracks</option>
-                  <option value="Instrumental">Instrumental</option>
-                </select>
+                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                  maxLength={80}
+                />
               </div>
 
               <div>
@@ -723,11 +566,9 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                   className="p-3.5 rounded-2xl border border-slate-800 bg-slate-950/70 flex items-start justify-between gap-3 text-xs"
                 >
                   <div className="flex items-start gap-3 min-w-0">
-                    <img
-                      src={req.coverUrl || PRESET_COVERS[0].url}
-                      alt={req.songTitle}
-                      className="w-12 h-12 rounded-xl object-cover shrink-0 border border-white/10"
-                    />
+                    <div className="w-12 h-12 rounded-xl shrink-0 border border-white/10 bg-slate-900 flex items-center justify-center text-cyan-400/70">
+                      <Music className="w-5 h-5" />
+                    </div>
                     <div className="space-y-1 min-w-0">
                       <div className="font-bold text-white truncate text-sm">
                         {req.songTitle}
@@ -736,17 +577,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                         <p className="text-[11px] text-slate-400">
                           {req.artist}
                         </p>
-                      )}
-                      {req.webLink && (
-                        <a
-                          href={req.webLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-[10px] text-cyan-400 hover:underline"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>YouTube Source</span>
-                        </a>
                       )}
                       {req.adminNote && (
                         <div className="mt-1 p-2 rounded-lg bg-blue-950/60 border border-blue-800/40 text-[11px] text-blue-300">

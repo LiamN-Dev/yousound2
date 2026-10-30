@@ -454,8 +454,6 @@ class StorageService {
   async createRequest(data: {
     songTitle: string;
     artist?: string;
-    webLink?: string;
-    coverUrl?: string;
     notes?: string;
     requestedByUserId?: string;
     requestedByUsername: string;
@@ -463,13 +461,11 @@ class StorageService {
     genre?: string;
   }): Promise<SongRequest> {
     const tempId = `req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const defaultCover = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
     const newReq: SongRequest = {
       id: tempId,
       songTitle: data.songTitle.trim(),
       artist: (data.artist || '').trim(),
-      webLink: (data.webLink || '').trim(),
-      coverUrl: (data.coverUrl || defaultCover).trim(),
+      coverUrl: '',
       notes: (data.notes || '').trim(),
       requestedByUserId: data.requestedByUserId || 'guest',
       requestedByUsername: data.requestedByUsername.trim() || 'User',
@@ -479,30 +475,21 @@ class StorageService {
       genre: (data.genre || 'Vibe / Chill').trim(),
     };
 
-    this.requests.unshift(newReq);
+    const res = await fetch('/api/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(newReq),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !result.success || !result.request) {
+      throw new Error(result.error || 'The server did not save this song request.');
+    }
+    const savedRequest = result.request as SongRequest;
+    this.requests = [savedRequest, ...this.requests.filter((request) => request.id !== savedRequest.id)];
     this.saveRequests();
     this.notify();
-
-    try {
-      const res = await fetch('/api/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newReq),
-      });
-      if (res.ok) {
-        const result = await res.json();
-        if (result.request) {
-          const idx = this.requests.findIndex((r) => r.id === tempId);
-          if (idx !== -1) this.requests[idx] = result.request;
-          this.saveRequests();
-          this.notify();
-          return result.request;
-        }
-      }
-    } catch (e) {
-      console.error('Create request error:', e);
-    }
-    return newReq;
+    return savedRequest;
   }
 
   async adminUpdateRequest(id: string, updates: Partial<SongRequest>): Promise<SongRequest | null> {
@@ -566,37 +553,38 @@ class StorageService {
   }
 
   async updateRequestStatus(id: string, status: SongRequest['status'], adminNote?: string): Promise<boolean> {
-    const r = this.requests.find((item) => item.id === id);
-    if (!r) return false;
-    r.status = status;
-    if (adminNote !== undefined) r.adminNote = adminNote;
-    if (status === 'approved' || status === 'declined' || status === 'staging' || status === 'published') {
-      r.reviewedAt = new Date().toISOString();
+    const res = await fetch(`/api/admin/requests/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ status, adminNote }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success || !data.request) {
+      throw new Error(data.error || 'The server did not save the request status.');
     }
+
+    const idx = this.requests.findIndex((item) => item.id === id);
+    if (idx !== -1) this.requests[idx] = data.request as SongRequest;
+    else this.requests.unshift(data.request as SongRequest);
     this.saveRequests();
     this.notify();
-    try {
-      await fetch(`/api/admin/requests/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, adminNote }),
-      });
-    } catch (e) {
-      console.error('Update request status error:', e);
-    }
     return true;
   }
 
   async deleteRequest(id: string, keepSong: boolean = false): Promise<boolean> {
-    this.requests = this.requests.filter((r) => r.id !== id);
+    const res = await fetch(`/api/admin/requests/${encodeURIComponent(id)}${keepSong ? '?keepSong=1' : ''}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'The server did not delete the request.');
+    }
+
+    this.requests = this.requests.filter((request) => request.id !== id);
     this.saveRequests();
     this.notify();
-
-    try {
-      await fetch(`/api/admin/requests/${id}${keepSong ? '?keepSong=1' : ''}`, { method: 'DELETE' });
-    } catch (e) {
-      console.error('Delete request error:', e);
-    }
     return true;
   }
 
@@ -1270,61 +1258,33 @@ class StorageService {
     updates: Partial<Song>,
     tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
   ): Promise<boolean> {
-    if (!songIds || songIds.length === 0) return false;
-
-    // Apply locally first for zero-latency response
-    this.songs = this.songs.map((song) => {
-      if (!songIds.includes(song.id)) return song;
-      let nextTags = song.tags ? [...song.tags] : [];
-
-      if (tagOperation && tagOperation.tags) {
-        if (tagOperation.action === 'set') {
-          nextTags = [...tagOperation.tags];
-        } else if (tagOperation.action === 'add') {
-          const set = new Set(nextTags.map((t) => t.toLowerCase()));
-          tagOperation.tags.forEach((t) => {
-            const clean = t.trim();
-            if (clean && !set.has(clean.toLowerCase())) {
-              nextTags.push(clean);
-              set.add(clean.toLowerCase());
-            }
-          });
-        } else if (tagOperation.action === 'remove') {
-          const toRemove = new Set(tagOperation.tags.map((t) => t.trim().toLowerCase()));
-          nextTags = nextTags.filter((t) => !toRemove.has(t.trim().toLowerCase()));
-        }
-      }
-
-      return {
-        ...song,
-        ...updates,
-        ...(tagOperation ? { tags: nextTags } : {}),
-      };
-    });
-
-    this.saveSongs();
-    this.notify();
+    const ids = Array.from(new Set((songIds || []).filter(Boolean)));
+    if (!ids.length) return false;
 
     try {
       const res = await fetch('/api/songs/bulk-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ songIds, updates, tagOperation }),
+        credentials: 'same-origin',
+        body: JSON.stringify({ songIds: ids, updates, tagOperation }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.songs && Array.isArray(data.songs)) {
-          const map = new Map(data.songs.map((s: Song) => [s.id, s]));
-          this.songs = this.songs.map((s) => (map.has(s.id) ? (map.get(s.id) as Song) : s));
-          this.saveSongs();
-          this.notify();
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !Array.isArray(data.songs)) {
+        throw new Error(data.error || 'The server did not confirm the batch update.');
       }
-    } catch (e) {
-      console.error('Bulk update songs error:', e);
-    }
 
-    return true;
+      const updatedById = new Map((data.songs as Song[]).map((song) => [song.id, song]));
+      if (updatedById.size !== ids.length) {
+        throw new Error('The server updated fewer songs than selected. Refresh the library before trying again.');
+      }
+      this.songs = this.songs.map((song) => updatedById.get(song.id) || song);
+      this.saveSongs();
+      this.notify();
+      return true;
+    } catch (error) {
+      console.error('Bulk update songs error:', error);
+      return false;
+    }
   }
 
   async deleteSong(songId: string): Promise<boolean> {
@@ -2265,25 +2225,6 @@ class StorageService {
       console.error('getOrCreateAppealThread error:', e);
     }
     return null;
-  }
-
-  // --- YouTube link check (used by the request form and the admin studio) ---
-  async previewYouTube(url: string): Promise<{
-    valid: boolean;
-    reason?: string;
-    videoId?: string;
-    title?: string;
-    author?: string;
-    thumbnail?: string;
-    checked?: boolean;
-  }> {
-    try {
-      const res = await fetch(`/api/youtube/preview?url=${encodeURIComponent(url)}`);
-      if (!res.ok) return { valid: false, reason: 'Could not check the link right now. Please try again.' };
-      return await res.json();
-    } catch {
-      return { valid: false, reason: 'Could not reach the server to check the link.' };
-    }
   }
 
   // --- Feature requests & bug reports ---

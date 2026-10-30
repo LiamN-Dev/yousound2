@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { storage } from '../services/storage';
-import { generateToneWavUrl } from '../utils/audioGenerator';
 import { Song, User, PopupType, BannerColorTheme, SongRequest, SongBadgeType } from '../types';
 import { handleImageFallback } from '../utils/artworkHelper';
 import { EditSongModal } from './EditSongModal';
@@ -54,13 +53,6 @@ import {
   Database,
 } from 'lucide-react';
 
-const COVER_PRESETS = [
-  { name: 'Turquoise Ripples', url: '/src/assets/images/chill_ambient_wave_1791054604455.jpg' },
-  { name: 'Study Desk Glass', url: '/src/assets/images/lofi_study_glass_1791054585559.jpg' },
-  { name: 'Synthwave Prism', url: '/src/assets/images/synthwave_prism_sound_1791054595636.jpg' },
-  { name: 'Electric Pulse', url: '/src/assets/images/electric_energy_liquid_1791054613304.jpg' },
-];
-
 export const AdminPanel: React.FC = () => {
   const {
     currentUser,
@@ -82,27 +74,11 @@ export const AdminPanel: React.FC = () => {
     deletePopup,
   } = useAuth();
 
-  const { allSongs, adminAllSongs, addNewSong, deleteSong, updateSong, playSong, clearAllSongs, autoTagRules } = useAudio();
+  const { allSongs, adminAllSongs, deleteSong, updateSong, playSong, clearAllSongs, autoTagRules } = useAudio();
 
   const [adminTab, setAdminTab] = useState<
     'songs' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'maintenance' | 'popups' | 'database'
   >('songs');
-
-  // Song Studio State
-  const [uploadMode, setUploadMode] = useState<'gdrive' | 'upload' | 'url' | 'synth'>('gdrive');
-  const [adminGdriveUrl, setAdminGdriveUrl] = useState('');
-  const [isAdminPullingDrive, setIsAdminPullingDrive] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newArtist, setNewArtist] = useState('');
-  const [newGenre, setNewGenre] = useState('Lo-Fi');
-  const [newTags, setNewTags] = useState('study, focus');
-  const [newAlbum, setNewAlbum] = useState('Single');
-  const [newAudioUrl, setNewAudioUrl] = useState('');
-  const [newCoverUrl, setNewCoverUrl] = useState(COVER_PRESETS[0].url);
-  const [customCoverUrl, setCustomCoverUrl] = useState('');
-  const [coverMode, setCoverMode] = useState<'preset' | 'url' | 'file'>('preset');
-  const [newDuration, setNewDuration] = useState(0);
-  const [songFeedback, setSongFeedback] = useState<string | null>(null);
 
   // Edit Song Modal State
   const [editingSong, setEditingSong] = useState<Song | null>(null);
@@ -216,136 +192,13 @@ export const AdminPanel: React.FC = () => {
   const [suspendReasonInput, setSuspendReasonInput] = useState('Terms of service violation');
   const [unsuspendingUser, setUnsuspendingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
-  const [requestTabFilter, setRequestTabFilter] = useState<'all' | 'song' | 'feature'>('all');
 
   const pendingUsers = allUsers.filter((u) => !u.isApproved);
   const approvedUsers = allUsers.filter((u) => u.isApproved);
   const pendingRequests = songRequests.filter((r) => r.status === 'pending');
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const coverInputRef = useRef<HTMLInputElement | null>(null);
-
   // Dynamic Genres calculation
   const activeGenres = Array.from(new Set(allSongs.map((s) => s.genre).filter(Boolean))).sort();
-
-  // Process MP3 / Audio file
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-    setNewTitle(cleanTitle);
-    if (!newArtist) setNewArtist('Admin Upload');
-
-    // Auto-detect duration locally
-    const tempUrl = URL.createObjectURL(file);
-    const audioObj = new Audio(tempUrl);
-    audioObj.onloadedmetadata = () => {
-      if (audioObj.duration && isFinite(audioObj.duration)) {
-        setNewDuration(Math.round(audioObj.duration));
-      }
-      URL.revokeObjectURL(tempUrl);
-    };
-
-    setSongFeedback(`Uploading audio file "${file.name}" to server and saving permanently to database...`);
-    try {
-      const uploadRes = await storage.uploadAudioFile(file);
-      if (uploadRes.success && uploadRes.audioUrl) {
-        setNewAudioUrl(uploadRes.audioUrl);
-        setSongFeedback(`✓ Uploaded & saved permanently: "${file.name}"! Fill details below and click Publish.`);
-      } else {
-        setSongFeedback(`❌ Audio upload issue: ${uploadRes.error || 'Server error'}. Please try again or paste a stream URL.`);
-      }
-    } catch (err: any) {
-      setSongFeedback(`❌ Network error uploading audio: ${err.message}. Please try again.`);
-    }
-  };
-
-  // Custom cover upload
-  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setSongFeedback(`Uploading cover image "${file.name}"...`);
-    const uploadRes = await storage.uploadCoverFile(file);
-    if (uploadRes.success && uploadRes.coverUrl) {
-      setNewCoverUrl(uploadRes.coverUrl);
-      setSongFeedback('✓ Custom cover image uploaded and ready!');
-    } else {
-      setSongFeedback(`Cover upload failed: ${uploadRes.error || 'Server error'}`);
-    }
-  };
-
-  // Manual Publish Handler
-  const handleManualPublish = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim() || !newArtist.trim() || !newAudioUrl.trim()) {
-      setSongFeedback('Please provide a Song Title, Artist, and load an audio file or URL.');
-      return;
-    }
-
-    const parsedTags = newTags
-      .split(',')
-      .map((t) => t.trim().toLowerCase())
-      .filter(Boolean);
-
-    const published = await addNewSong({
-      title: newTitle.trim(),
-      artist: newArtist.trim(),
-      album: newAlbum.trim() || 'Single',
-      genre: newGenre.trim() || 'General',
-      tags: parsedTags.length > 0 ? parsedTags : [newGenre.trim().toLowerCase()],
-      duration: Number(newDuration) || 180,
-      audioUrl: newAudioUrl.trim(),
-      coverUrl: newCoverUrl.trim() || COVER_PRESETS[0].url,
-      featured: true,
-    });
-
-    setSongFeedback(`Successfully published "${published.title}" by ${published.artist} (${published.genre})!`);
-    setNewTitle('');
-    setNewArtist('');
-    setNewAudioUrl('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    setTimeout(() => setSongFeedback(null), 3500);
-  };
-
-  // Web Audio Tone Synthesizer
-  const handleGenerateSynthTone = (type: 'lofi' | 'synthwave' | 'ambient' | 'chill') => {
-    const toneDataUri = generateToneWavUrl(440, 24, type);
-    const titleMap = {
-      lofi: 'Procedural Rain Study Chords',
-      synthwave: 'Liquid Neon Cyber Pulse',
-      ambient: 'Crystal Waters Relaxation',
-      chill: 'Golden Afternoon Chimes',
-    };
-    const coverMap = {
-      lofi: COVER_PRESETS[1].url,
-      synthwave: COVER_PRESETS[2].url,
-      ambient: COVER_PRESETS[0].url,
-      chill: COVER_PRESETS[3].url,
-    };
-    const genreMap = {
-      lofi: 'Lo-Fi',
-      synthwave: 'Synthwave',
-      ambient: 'Ambient',
-      chill: 'Acoustic',
-    };
-
-    addNewSong({
-      title: titleMap[type],
-      artist: 'YouSong Tone Synthesizer',
-      album: 'Procedural Series',
-      genre: genreMap[type],
-      tags: ['synthesized', genreMap[type].toLowerCase(), 'study'],
-      duration: 24,
-      audioUrl: toneDataUri,
-      coverUrl: coverMap[type],
-      featured: true,
-    });
-
-    setSongFeedback(`Synthesized and added "${titleMap[type]}" to library!`);
-    setTimeout(() => setSongFeedback(null), 3000);
-  };
 
   // Save User Edit
   const handleSaveUserEdit = async (e: React.FormEvent) => {
@@ -675,22 +528,6 @@ export const AdminPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Feedback banner */}
-      {songFeedback && (
-        <div className="mb-6 p-4 rounded-2xl bg-cyan-500/15 border border-cyan-400/30 text-cyan-200 text-xs flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span>{songFeedback}</span>
-          </div>
-          <button
-            onClick={() => setSongFeedback(null)}
-            className="text-cyan-400 hover:text-white text-xs underline ml-4"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
       <AdminDatabaseWarning />
 
       {/* TAB 1: SONG STUDIO & CATALOG */}
@@ -724,8 +561,8 @@ export const AdminPanel: React.FC = () => {
             </span>
           </div>
 
-          {/* Song Studio (YouTube links and verified audio links) */}
-          <ManualSongUploader onOpenAuth={() => {}} onEditSong={(song) => setEditingSong(song)} />
+          {/* Google Drive-only MP3 and artwork uploader */}
+          <ManualSongUploader />
 
           {/* Enhanced Admin Song Management Studio: Search, Bulk Tags, Mass Editing, Visibility & Spotlight */}
           <AdminSongManager
@@ -743,7 +580,7 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: REQUESTS INBOX (SONGS & APP FEATURES) */}
+      {/* TAB 2: SONG REQUESTS */}
       {adminTab === 'requests' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="liquid-glass-surface rounded-3xl p-6 sm:p-7 border border-white/10">
@@ -751,10 +588,10 @@ export const AdminPanel: React.FC = () => {
               <div>
                 <h2 className="text-lg font-bold text-white font-display mb-1 flex items-center gap-2">
                   <ListPlus className="w-5 h-5 text-cyan-400" />
-                  <span>YouSong Moderation & Conversion Pipeline</span>
+                  <span>YouSong Song Requests & Publishing</span>
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Review a request, convert permitted audio to MP3 once, upload it to Google Drive, preview the staged file, then publish. Playback streams from Drive instead of through this app host.
+                  Review a request, approve it, then upload its MP3 and cover image directly to Google Drive. Preview both files before publishing.
                 </p>
               </div>
             </div>
