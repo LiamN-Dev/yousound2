@@ -1249,6 +1249,7 @@ app.post('/api/songs', async (req: Request, res: Response) => {
     if (!songData.title || !songData.artist || !songData.audioUrl || !songData.coverUrl) {
       return res.status(400).json({ error: 'Title, artist, Google Drive audio, and Google Drive cover are required.' });
     }
+    if (!(await checkSqlAvailability())) return res.status(503).json({ error: 'The persistent database is unavailable. No song was saved.' });
     const audioUrl = String(songData.audioUrl);
     const coverUrl = String(songData.coverUrl);
     if (!/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+/i.test(audioUrl)) {
@@ -1981,6 +1982,7 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
         return res.status(400).json({ error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
       }
 
+      if (!(await checkSqlAvailability())) return res.status(503).json({ error: 'The persistent database is unavailable. The song was not published.' });
       const songId = `song-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newSong = await insertSongDb({
         id: songId,
