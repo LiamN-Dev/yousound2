@@ -370,63 +370,75 @@ export async function updateSongDb(id: string, updates: any) {
 
 export async function bulkUpdateSongsDb(
   songIds: string[],
-  updates: {
-    genre?: string;
-    typeMood?: string;
-    tagsToAdd?: string[];
-    tagsToRemove?: string[];
-  },
-  _tagOperation?: string
+  updates: Record<string, any>,
+  tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
 ) {
-  localStore.bulkUpdateSongs(songIds, updates);
+  const allowedColumns = new Set([
+    'title', 'artist', 'album', 'genre', 'typeMood', 'duration', 'audioUrl', 'coverUrl',
+    'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
+    'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'autoReleaseOnDrop',
+    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
+    'isScheduledForDeletion', 'scheduledDeletionAt',
+  ]);
+  const cleanUpdates: Record<string, any> = {};
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (key === 'badgeCustomText') cleanUpdates.badgeMessage = value;
+    else if (allowedColumns.has(key) && value !== undefined) cleanUpdates[key] = value;
+  }
+
+  const ids = Array.from(new Set(songIds.map(String).filter(Boolean)));
+  if (!ids.length) return [];
   if (!(await checkSqlAvailability())) {
-    return localStore.bulkUpdateSongs(songIds, updates);
-  }
-  try {
-    const list = await db.select().from(songs).where(inArray(songs.id, songIds));
-    const results = [];
-    for (const song of list) {
-      const updatePayload: any = {};
-      if (updates.genre !== undefined && updates.genre.trim()) {
-        updatePayload.genre = updates.genre.trim();
-      }
-      if (updates.typeMood !== undefined && updates.typeMood.trim()) {
-        updatePayload.typeMood = updates.typeMood.trim();
-      }
-      let currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
-      if (updates.tagsToAdd && updates.tagsToAdd.length > 0) {
-        for (const t of updates.tagsToAdd) {
-          const clean = t.trim().toLowerCase();
-          if (clean && !currentTags.includes(clean)) currentTags.push(clean);
+    const localSongs = localStore.getSongs().filter((song: any) => ids.includes(String(song.id)));
+    const localUpdates: Record<string, any> = { ...cleanUpdates };
+    for (const song of localSongs) {
+      const currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
+      if (tagOperation) {
+        const requested = Array.from(new Set((tagOperation.tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
+        if (tagOperation.action === 'set') localUpdates.tags = requested;
+        else if (tagOperation.action === 'add') localUpdates.tags = Array.from(new Map([...currentTags, ...requested].map((tag) => [tag.toLowerCase(), tag])).values());
+        else if (tagOperation.action === 'remove') {
+          const remove = new Set(requested.map((tag) => tag.toLowerCase()));
+          localUpdates.tags = currentTags.filter((tag) => !remove.has(String(tag).toLowerCase()));
         }
+        localStore.updateSong(song.id, { ...localUpdates });
+      } else {
+        localStore.updateSong(song.id, { ...localUpdates });
       }
-      if (updates.tagsToRemove && updates.tagsToRemove.length > 0) {
-        const removeSet = new Set(updates.tagsToRemove.map((t) => t.trim().toLowerCase()));
-        currentTags = currentTags.filter((t) => !removeSet.has(t.toLowerCase()));
-      }
-      updatePayload.tags = currentTags;
-      const res = await db.update(songs).set(updatePayload).where(eq(songs.id, song.id)).returning();
-      if (res[0]) results.push(res[0]);
     }
-    return results;
-  } catch (error) {
-    noteDbError('bulkUpdateSongsDb', error);
-    return localStore.bulkUpdateSongs(songIds, updates);
+    return localStore.getSongs().filter((song: any) => ids.includes(String(song.id)));
   }
-}
 
-export async function deleteSongDb(id: string) {
-  localStore.deleteSong(id);
-  if (!(await checkSqlAvailability())) return true;
-  try {
-    await db.delete(songs).where(eq(songs.id, id));
-    return true;
-  } catch (error) {
-    noteDbError('deleteSongDb', error);
-    return true;
+  const existing = await db.select().from(songs).where(inArray(songs.id, ids));
+  const results: any[] = [];
+  for (const song of existing) {
+    const updatePayload: Record<string, any> = { ...cleanUpdates };
+    if (tagOperation) {
+      const currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
+      const requested = Array.from(new Set((tagOperation.tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
+      if (tagOperation.action === 'set') updatePayload.tags = requested;
+      else if (tagOperation.action === 'add') {
+        const merged = new Map(currentTags.map((tag) => [String(tag).toLowerCase(), tag]));
+        requested.forEach((tag) => merged.set(tag.toLowerCase(), tag));
+        updatePayload.tags = Array.from(merged.values());
+      } else if (tagOperation.action === 'remove') {
+        const remove = new Set(requested.map((tag) => tag.toLowerCase()));
+        updatePayload.tags = currentTags.filter((tag) => !remove.has(String(tag).toLowerCase()));
+      }
+    }
+    if (Object.keys(updatePayload).length === 0) {
+      results.push(song);
+      continue;
+    }
+    const updated = await db.update(songs).set(updatePayload).where(eq(songs.id, song.id)).returning();
+    if (updated[0]) results.push(updated[0]);
   }
+  // Update the local cache only after the database writes have succeeded.
+  for (const song of results) {
+    localStore.updateSong(song.id, song);
+  }
+  return results;
 }
-
 export async function bulkDeleteSongsDb(songIds: string[]) {
   localStore.bulkDeleteSongs(songIds);
   if (!(await checkSqlAvailability())) return true;
