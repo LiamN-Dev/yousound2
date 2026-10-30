@@ -384,14 +384,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (linkCheck.state === 'checking') {
-      setFeedback('Hold on, the link is still being checked.');
-      return;
-    }
-    if (linkCheck.state !== 'ok') {
-      setFeedback(linkCheck.text || 'Please paste a link to one YouTube video.');
-      return;
-    }
     if (!songTitle.trim()) {
       setFeedback('Please provide your initial guess for the song title.');
       return;
@@ -402,7 +394,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
       await submitSongRequest({
         songTitle: songTitle.trim(),
         artist: artist.trim() || 'Unknown Artist',
-        webLink: webLink.trim(),
+        webLink: linkCheck.state === 'ok' ? webLink.trim() : '',
         coverUrl: coverUrl.trim() || PRESET_COVERS[0].url,
         genre: genre.trim(),
         notes: notes.trim() || undefined,
