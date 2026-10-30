@@ -1771,12 +1771,12 @@ app.post('/api/requests', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Title is required' });
     }
     let storedLink = String(webLink || '').trim();
-    if (requestType !== 'feature') {
+    if (requestType !== 'feature' && storedLink) {
       const linkCheck = checkYouTubeLink(storedLink);
       if (!linkCheck.videoId) {
         return res.status(400).json({ error: linkCheck.message });
       }
-      // Save the clean YouTube address, not the Google redirect wrapper
+      // Optional source link is retained for admin reference only; it is never downloaded or converted.
       storedLink = `https://www.youtube.com/watch?v=${linkCheck.videoId}`;
     }
 
