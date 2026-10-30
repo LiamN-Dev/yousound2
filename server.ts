@@ -1389,18 +1389,18 @@ app.get('/api/songs', async (req: Request, res: Response) => {
 
 app.post('/api/songs', async (req: Request, res: Response) => {
   try {
-    const songData = req.body;
-    if (!songData.title || !songData.artist || !songData.audioUrl) {
-      return res.status(400).json({ error: 'Title, artist, and audio are required' });
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    const songData = req.body || {};
+    if (!songData.title || !songData.artist || !songData.audioUrl || !songData.coverUrl) {
+      return res.status(400).json({ error: 'Title, artist, Google Drive audio, and Google Drive cover are required.' });
     }
-
-    let audioUrl = songData.audioUrl;
-    if (typeof audioUrl === 'string' && audioUrl.startsWith('data:audio/')) {
-      try {
-        audioUrl = await persistInlineAudioDataUri(audioUrl, songData.title);
-      } catch (audioError: any) {
-        return res.status(400).json({ error: audioError.message || 'Could not persist inline audio' });
-      }
+    const audioUrl = String(songData.audioUrl);
+    const coverUrl = String(songData.coverUrl);
+    if (!/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+/i.test(audioUrl)) {
+      return res.status(400).json({ error: 'New library audio must be uploaded to the site Google Drive first.' });
+    }
+    if (!/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(coverUrl)) {
+      return res.status(400).json({ error: 'New library artwork must be uploaded to the site Google Drive first.' });
     }
 
     const newSong = {
@@ -1413,7 +1413,7 @@ app.post('/api/songs', async (req: Request, res: Response) => {
       typeMood: songData.typeMood || 'Instrumental',
       duration: Number(songData.duration) || 180,
       audioUrl,
-      coverUrl: songData.coverUrl || '/src/assets/images/lofi_study_glass_1791054585559.jpg',
+      coverUrl,
       addedAt: new Date().toISOString(),
       plays: 0,
       featured: !!songData.featured,
@@ -1460,6 +1460,7 @@ app.post('/api/songs/:id/duration', async (req: Request, res: Response) => {
 
 app.patch('/api/songs/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     const updates = { ...req.body };
     if (typeof updates.audioUrl === 'string' && updates.audioUrl.startsWith('data:audio/')) {
@@ -1797,6 +1798,7 @@ app.post('/api/requests', async (req: Request, res: Response) => {
 // Admin edits song title, artist info, cover art, or notes before any conversion happens
 app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     const {
       songTitle,
@@ -2087,6 +2089,7 @@ app.post('/api/admin/requests/:id/approve-and-process', (_req: Request, res: Res
 app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { isPublished } = req.body || {};
     const requestItem = await getRequestByIdDb(id);
     if (!requestItem) return res.status(404).json({ error: 'Request not found' });
