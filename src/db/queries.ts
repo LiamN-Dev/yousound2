@@ -391,24 +391,7 @@ export async function bulkUpdateSongsDb(
   const ids = Array.from(new Set(songIds.map(String).filter(Boolean)));
   if (!ids.length) return [];
   if (!(await checkSqlAvailability())) {
-    const localSongs = localStore.getSongs().filter((song: any) => ids.includes(String(song.id)));
-    const localUpdates: Record<string, any> = { ...cleanUpdates };
-    for (const song of localSongs) {
-      const currentTags = Array.isArray(song.tags) ? [...song.tags] : [];
-      if (tagOperation) {
-        const requested = Array.from(new Set((tagOperation.tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
-        if (tagOperation.action === 'set') localUpdates.tags = requested;
-        else if (tagOperation.action === 'add') localUpdates.tags = Array.from(new Map([...currentTags, ...requested].map((tag) => [tag.toLowerCase(), tag])).values());
-        else if (tagOperation.action === 'remove') {
-          const remove = new Set(requested.map((tag) => tag.toLowerCase()));
-          localUpdates.tags = currentTags.filter((tag) => !remove.has(String(tag).toLowerCase()));
-        }
-        localStore.updateSong(song.id, { ...localUpdates });
-      } else {
-        localStore.updateSong(song.id, { ...localUpdates });
-      }
-    }
-    return localStore.getSongs().filter((song: any) => ids.includes(String(song.id)));
+    throw new Error('The persistent database is unavailable. No bulk changes were saved.');
   }
 
   const existing = await db.select().from(songs).where(inArray(songs.id, ids));
