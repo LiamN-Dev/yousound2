@@ -537,63 +537,6 @@ class StorageService {
     }
   }
 
-  async adminApproveAndProcess(
-    id: string,
-    metadata: { songTitle: string; artist: string; coverUrl?: string; genre?: string; rightsConfirmed?: boolean },
-    googleAccessToken?: string
-  ): Promise<{ success: boolean; request?: SongRequest; error?: string }> {
-    const idx = this.requests.findIndex((item) => item.id === id);
-    if (idx !== -1) {
-      this.requests[idx] = {
-        ...this.requests[idx],
-        ...metadata,
-        status: 'processing',
-        processingProgress: 'Extracting audio with yt-dlp...',
-      };
-      this.saveRequests();
-      this.notify();
-    }
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (googleAccessToken) {
-        headers['Authorization'] = `Bearer ${googleAccessToken}`;
-      }
-
-      const res = await fetch(`/api/admin/requests/${id}/approve-and-process`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          ...metadata,
-          googleAccessToken,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Conversion failed');
-      }
-
-      if (data.request && idx !== -1) {
-        this.requests[idx] = data.request;
-        this.saveRequests();
-        this.notify();
-      }
-      return { success: true, request: data.request };
-    } catch (err: any) {
-      console.error('Approve and process error:', err);
-      if (idx !== -1) {
-        this.requests[idx].status = 'pending';
-        this.requests[idx].processingError = err.message || 'Processing failed';
-        this.saveRequests();
-        this.notify();
-      }
-      return { success: false, error: err.message };
-    }
-  }
-
   async adminPublishRequest(id: string, isPublished: boolean, hideVideo: boolean = false): Promise<{ success: boolean; request?: SongRequest; error?: string }> {
     try {
       const res = await fetch(`/api/admin/requests/${id}/publish`, {
