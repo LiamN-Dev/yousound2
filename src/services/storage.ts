@@ -2235,25 +2235,6 @@ class StorageService {
     return null;
   }
 
-  // --- YouTube link check (used by the request form and the admin studio) ---
-  async previewYouTube(url: string): Promise<{
-    valid: boolean;
-    reason?: string;
-    videoId?: string;
-    title?: string;
-    author?: string;
-    thumbnail?: string;
-    checked?: boolean;
-  }> {
-    try {
-      const res = await fetch(`/api/youtube/preview?url=${encodeURIComponent(url)}`);
-      if (!res.ok) return { valid: false, reason: 'Could not check the link right now. Please try again.' };
-      return await res.json();
-    } catch {
-      return { valid: false, reason: 'Could not reach the server to check the link.' };
-    }
-  }
-
   // --- Feature requests & bug reports ---
   async submitFeedback(payload: {
     type: 'feature' | 'bug';
