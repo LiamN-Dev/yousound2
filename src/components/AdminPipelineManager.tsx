@@ -524,12 +524,12 @@ export const AdminPipelineManager: React.FC = () => {
                   <div className="flex flex-row flex-wrap xl:max-w-64 xl:justify-end gap-2">
                     <button type="button" onClick={() => saveRequestDraft(request)} disabled={busy} className={`${buttonClass} border-white/10 bg-white/[0.04] text-slate-200`}><RefreshCw className="h-3 w-3" /> Save details</button>
                     {!isFeature && ['pending', 'processing'].includes(request.status) && (
-                      <>
-                        <button type="button" onClick={() => approveRequest(request)} disabled={busy} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}>
-                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />} Approve song for upload
-                        </button>
-                        <button type="button" onClick={() => declineRequest(request)} disabled={busy} className={`${buttonClass} border-rose-400/25 bg-rose-500/10 text-rose-200`}><XCircle className="h-3.5 w-3.5" /> Decline</button>
-                      </>
+                      <button type="button" onClick={() => approveRequest(request)} disabled={busy} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}>
+                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />} Approve song for upload
+                      </button>
+                    )}
+                    {['pending', 'processing'].includes(request.status) && (
+                      <button type="button" onClick={() => declineRequest(request)} disabled={busy} className={`${buttonClass} border-rose-400/25 bg-rose-500/10 text-rose-200`}><XCircle className="h-3.5 w-3.5" /> Decline</button>
                     )}
                     {request.status === 'staging' && (
                       <button type="button" onClick={() => publishRequest(request, true)} disabled={busy || !request.driveFileId || !String(request.audioUrl || '').startsWith('https://drive.google.com/uc?export=download&id=')} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}><Send className="h-3.5 w-3.5" /> Publish</button>
