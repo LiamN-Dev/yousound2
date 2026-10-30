@@ -219,12 +219,12 @@ export async function uploadImageToGoogleDrive(
   try {
     const folderId = await getOrCreateDriveFolder(accessToken, 'YouSong Artwork');
     const boundary = '-------YouSongImageBoundary' + Date.now();
-    const delimiter = `\\r\\n--${boundary}\\r\\n`;
-    const closeDelimiter = `\\r\\n--${boundary}--`;
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
     const metadata: any = { name: `${safeName}${extension}`, mimeType: mimeType.toLowerCase() };
     if (folderId && folderId !== 'root') metadata.parents = [folderId];
     const requestBody = Buffer.concat([
-      Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\\r\\n\\r\\n' + JSON.stringify(metadata) + delimiter + `Content-Type: ${mimeType.toLowerCase()}\\r\\n\\r\\n`),
+      Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) + delimiter + `Content-Type: ${mimeType.toLowerCase()}\r\n\r\n`),
       buffer,
       Buffer.from(closeDelimiter),
     ]);
