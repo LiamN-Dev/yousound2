@@ -100,7 +100,7 @@ import {
   purgeClosedFeedbackDb,
   clearClosedFeedbackDb,
 } from './src/db/feedback.ts';
-import { convertLocalAudioToMp3, extractAudioFromYouTube, uploadMp3ToGoogleDrive } from './src/services/audioPipeline.ts';
+import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile } from './src/services/audioPipeline.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -1765,53 +1765,31 @@ app.get('/api/requests', async (req: Request, res: Response) => {
 
 app.post('/api/requests', async (req: Request, res: Response) => {
   try {
-    const {
-      songTitle,
-      artist,
-      webLink,
-      coverUrl,
-      notes,
-      requestType,
-      genre,
-    } = req.body;
-    const requestedByUserId = getAuthUser(req).uid;
-    const requestedByUsername = getAuthUser(req).username;
-
-    if (!songTitle || !songTitle.trim()) {
-      return res.status(400).json({ error: 'Title is required' });
+    const { songTitle, artist, notes, genre } = req.body || {};
+    const authUser = getAuthUser(req);
+    if (!authUser) return res.status(401).json({ error: 'Please log in again.' });
+    if (!songTitle || !String(songTitle).trim()) {
+      return res.status(400).json({ error: 'Title is required.' });
     }
-    let storedLink = String(webLink || '').trim();
-    if (requestType !== 'feature' && storedLink) {
-      const linkCheck = checkYouTubeLink(storedLink);
-      if (!linkCheck.videoId) {
-        return res.status(400).json({ error: linkCheck.message });
-      }
-      // Optional source link is retained for admin reference only; it is never downloaded or converted.
-      storedLink = `https://www.youtube.com/watch?v=${linkCheck.videoId}`;
-    }
-
-    const defaultCover = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
 
     const newReq = await createRequestDb({
       id: `req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      songTitle: songTitle.trim(),
-      artist: (artist || '').trim(),
-      webLink: storedLink,
-      coverUrl: (coverUrl || defaultCover).trim(),
-      notes: (notes || '').trim(),
-      requestedByUserId: requestedByUserId || 'guest',
-      requestedByUsername: (requestedByUsername || 'Listener').trim(),
+      songTitle: String(songTitle).trim(),
+      artist: String(artist || '').trim(),
+      notes: String(notes || '').trim(),
+      requestedByUserId: authUser.uid,
+      requestedByUsername: authUser.username || 'Listener',
       createdAt: new Date().toISOString(),
-      status: 'pending', // Lands immediately in holding queue awaiting admin review
-      requestType: requestType === 'feature' ? 'feature' : 'song',
-      genre: (genre || 'Vibe / Chill').trim(),
+      status: 'pending',
+      requestType: 'song',
+      genre: String(genre || 'Vibe / Chill').trim().slice(0, 80),
     });
 
-    console.log(`[SongPipeline] New song request submitted to holding queue: "${newReq.songTitle}" by ${newReq.requestedByUsername}`);
-    res.json({ success: true, request: newReq });
+    console.log(`[SongPipeline] New Google Drive-only song request: "${newReq.songTitle}" by ${newReq.requestedByUsername}`);
+    return res.json({ success: true, request: newReq });
   } catch (error: any) {
     console.error('Create request error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 });
 
@@ -1823,7 +1801,6 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
     const {
       songTitle,
       artist,
-      webLink,
       coverUrl,
       notes,
       genre,
@@ -1841,7 +1818,6 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
     const updates: any = {};
     if (songTitle !== undefined) updates.songTitle = songTitle.trim();
     if (artist !== undefined) updates.artist = artist.trim();
-    if (webLink !== undefined) updates.webLink = webLink.trim();
     if (coverUrl !== undefined) updates.coverUrl = coverUrl.trim();
     if (notes !== undefined) updates.notes = notes.trim();
     if (genre !== undefined) updates.genre = genre.trim();
@@ -1871,102 +1847,6 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
   }
 });
 
-
-// ----------------- YOUTUBE EMBED HELPERS -----------------
-// Songs from requests are played through the official YouTube embedded player.
-// We only store the video ID as audioUrl = "youtube:VIDEO_ID" (no downloading / converting).
-/**
- * Chromebook / Google share links wrap the real address, e.g.
- *   https://www.google.com/goto?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D...
- *   https://www.google.com/url?q=https://youtu.be/...
- * Peel those off so the real YouTube link is used.
- */
-function unwrapRedirect(input: string, depth = 0): string {
-  if (depth > 3) return input;
-  try {
-    const u = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
-    const host = u.hostname.replace(/^www\./, '');
-    const isGoogle = host === 'google.com' || host.endsWith('.google.com');
-    if (isGoogle && (u.pathname === '/goto' || u.pathname === '/url' || u.pathname === '/amp/s')) {
-      const inner = u.searchParams.get('url') || u.searchParams.get('q');
-      if (inner) return unwrapRedirect(inner.trim(), depth + 1);
-    }
-  } catch (_) {}
-  return input;
-}
-
-function extractYouTubeVideoId(input: string): string | null {
-  const raw = unwrapRedirect((input || '').trim());
-  if (!raw) return null;
-  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
-  try {
-    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-    const host = u.hostname.replace(/^www\./, '').replace(/^m\./, '').replace(/^music\./, '');
-    if (host === 'youtu.be') {
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
-    }
-    if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
-      const v = u.searchParams.get('v');
-      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
-      const parts = u.pathname.split('/').filter(Boolean);
-      if (['shorts', 'embed', 'live', 'v'].includes(parts[0]) && /^[A-Za-z0-9_-]{11}$/.test(parts[1] || '')) {
-        return parts[1];
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
-type YouTubeCheck = { videoId: string | null; message: string };
-
-/** Explains in plain words why a pasted link can or cannot be used. */
-function checkYouTubeLink(input: string): YouTubeCheck {
-  const raw = unwrapRedirect((input || '').trim());
-  if (!raw) return { videoId: null, message: 'Paste a YouTube link first.' };
-  const id = extractYouTubeVideoId(raw);
-  if (id) return { videoId: id, message: '' };
-
-  try {
-    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-    const host = u.hostname.replace(/^www\./, '').replace(/^m\./, '').replace(/^music\./, '');
-    const isYt = host === 'youtube.com' || host === 'youtu.be' || host === 'youtube-nocookie.com';
-    if (!host.includes('.')) {
-      return {
-        videoId: null,
-        message: 'That does not look like a link. Copy it from the YouTube address bar or the Share button.',
-      };
-    }
-    if (!isYt) {
-      return {
-        videoId: null,
-        message: 'Only YouTube links work. Spotify, SoundCloud, Apple Music and other sites are not supported.',
-      };
-    }
-    const first = u.pathname.split('/').filter(Boolean)[0] || '';
-    if (first === 'playlist' || (u.searchParams.get('list') && !u.searchParams.get('v'))) {
-      return {
-        videoId: null,
-        message: 'That is a playlist link. Open the one song you want and copy the link from that video.',
-      };
-    }
-    if (first === 'channel' || first === 'c' || first === 'user' || first.startsWith('@')) {
-      return {
-        videoId: null,
-        message: 'That is a channel link. Open the one song you want and copy the link from that video.',
-      };
-    }
-    return {
-      videoId: null,
-      message: 'That YouTube link does not point to a single video. Open the song and copy its link.',
-    };
-  } catch {
-    return {
-      videoId: null,
-      message: 'That does not look like a link. Copy it from the YouTube address bar or the Share button.',
-    };
-  }
-}
 
 // ----------------- SITE-WIDE GOOGLE DRIVE CONNECTION -----------------
 // One Google Drive account is connected to the site. OAuth refresh tokens are encrypted
@@ -2085,153 +1965,41 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
   }
 });
 
-// Songs created by the approved request pipeline carry a marker tag; the exact direct-Drive
-// URL pattern is also recognized to avoid re-uploading tracks migrated by earlier releases.
-function isSiteManagedDriveSong(song: any): boolean {
-  if (Array.isArray(song?.tags) && song.tags.includes('drive-mp3')) return true;
-  const audioUrl = String(song?.audioUrl || '');
-  return /^https:\/\/drive\.google\.com\/uc\?export=download&id=[^&]+/i.test(audioUrl);
-}
-
-app.get('/api/admin/google-drive/migration-candidates', async (_req: Request, res: Response) => {
-  try {
-    const songs = await getSongsDb() as any[];
-    const candidates = songs
-      .filter((song) => typeof song.audioUrl === 'string' && song.audioUrl.trim() && !isSiteManagedDriveSong(song))
-      .map((song) => ({ id: String(song.id), title: String(song.title || 'Untitled'), artist: String(song.artist || 'Unknown Artist'), duration: Number(song.duration) || 0 }))
-      .sort((a, b) => a.title.localeCompare(b.title));
-    return res.json({ success: true, candidates, remainingNonDriveSongs: candidates.length });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, error: error?.message || 'Could not load songs that still need migration.' });
-  }
-});
-
-// Convert existing library items in batches. The original URL stays intact on failures.
-// Successful items are tagged so subsequent batches safely skip them.
-app.post('/api/admin/google-drive/migrate-songs', async (req: Request, res: Response) => {
-  if (!isAdminReq(req)) return res.status(403).json({ error: 'Admin only' });
-  if (req.body?.rightsConfirmed !== true) return res.status(400).json({ error: 'Confirm you own or have permission to re-host all selected audio before migrating.' });
-  try {
-    const songs = await getSongsDb() as any[];
-    const limit = Math.max(1, Math.min(10, Number(req.body?.limit) || 3));
-    const excludedIds = new Set(Array.isArray(req.body?.excludeIds) ? req.body.excludeIds.map(String) : []);
-    const candidates = songs.filter((song) => typeof song.audioUrl === 'string' && song.audioUrl && !isSiteManagedDriveSong(song) && !excludedIds.has(String(song.id))).slice(0, limit);
-    const results: any[] = [];
-    for (const song of candidates) {
-      let tempFilePath: string | null = null;
-      try {
-        let source = String(song.audioUrl).trim();
-        if (source.startsWith('data:audio/')) {
-          // Preserve legacy embedded audio by moving it to the existing durable media store first.
-          source = await persistInlineAudioDataUri(source, song.title || song.id);
-          await updateSongDb(song.id, { audioUrl: source });
-        }
-        if (source.startsWith('youtube:')) source = `https://www.youtube.com/watch?v=${source.slice('youtube:'.length)}`;
-        if (source.startsWith('/')) {
-          const base = String(process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || 'https://yousound.onrender.com').replace(/\/$/, '');
-          source = `${base}${source}`;
-        }
-        if (!/^https?:\/\//i.test(source)) throw new Error('This source is not a downloadable HTTP(S) URL.');
-        const extracted = await extractAudioFromYouTube(source, `library_${String(song.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`);
-        tempFilePath = extracted.tempFilePath;
-        const accessToken = await getDriveAccessToken();
-        const driveAudio = await uploadMp3ToGoogleDrive(extracted.tempFilePath, song.title || 'Track', song.artist || 'Unknown Artist', accessToken);
-        tempFilePath = null;
-        const tags = Array.isArray(song.tags) ? song.tags.filter((tag: string) => tag !== 'drive-mp3') : [];
-        await updateSongDb(song.id, {
-          audioUrl: driveAudio.streamingUrl,
-          duration: driveAudio.duration || song.duration || extracted.duration,
-          tags: [...new Set([...tags, 'drive-mp3'])],
-        });
-        results.push({ id: song.id, title: song.title, status: 'migrated', driveFileId: driveAudio.fileId });
-      } catch (error: any) {
-        if (tempFilePath && fs.existsSync(tempFilePath)) { try { fs.unlinkSync(tempFilePath); } catch {} }
-        results.push({ id: song.id, title: song.title, status: 'failed', error: error.message || String(error) });
-      }
-    }
-    const refreshedSongs = await getSongsDb() as any[];
-    const remainingNonDriveSongs = refreshedSongs.filter((song) => typeof song.audioUrl === 'string' && song.audioUrl && !isSiteManagedDriveSong(song)).length;
-    return res.json({ success: true, totalSongs: songs.length, attempted: candidates.length, results, remainingNonDriveSongs });
-  } catch (error: any) { return res.status(500).json({ error: error.message || 'Song migration failed.' }); }
-});
-
-// Manual fallback for sources that YouTube blocks from the Render server. An administrator
-// uploads an audio file they own or are licensed to re-host; it is transcoded to MP3, uploaded
-// to the site's Google Drive, and only then replaces the existing song URL.
-app.post('/api/admin/google-drive/migrate-uploaded-audio', (req: Request, res: Response) => {
-  uploadAudio.single('audio')(req, res, async (uploadError: any) => {
-    let inputPath: string | null = req.file?.path || null;
-    let convertedPath: string | null = null;
+// Admin uploads both request assets on the website. Temporary files are immediately moved to Drive.
+app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) => {
+  const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
+  upload(req, res, async (uploadError: any) => {
+    const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
+    const audioFile = files.audio?.[0];
+    const coverFile = files.cover?.[0];
+    let audioTempPath: string | null = audioFile?.path || null;
+    let coverTempPath: string | null = coverFile?.path || null;
+    let uploadedAudioId: string | null = null;
+    let uploadedCoverId: string | null = null;
+    let accessToken: string | null = null;
     try {
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message || 'Audio upload failed. Maximum supported upload size is 100 MB.' });
+      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message || 'Upload failed.' });
       if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-      if (String(req.body?.rightsConfirmed || '').toLowerCase() !== 'true') {
-        return res.status(400).json({ success: false, error: 'Confirm that you own or have permission to re-host this audio.' });
+      if (!audioFile || !coverFile || !audioTempPath || !coverTempPath) {
+        return res.status(400).json({ success: false, error: 'Choose both an MP3 audio file and a cover image.' });
       }
-      const songId = String(req.body?.songId || '').trim();
-      if (!songId) return res.status(400).json({ success: false, error: 'Choose the library song this audio file belongs to.' });
-      if (!req.file || !inputPath) return res.status(400).json({ success: false, error: 'Choose an audio file to upload.' });
-
-      const song = (await getSongsDb() as any[]).find((item) => String(item.id) === songId);
-      if (!song) return res.status(404).json({ success: false, error: 'The selected song no longer exists. Reload the migration list.' });
-      if (isSiteManagedDriveSong(song)) return res.status(409).json({ success: false, error: 'This song already uses the site Google Drive archive.' });
-      if (!String(req.file.mimetype || '').toLowerCase().startsWith('audio/') && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|aiff?)$/i.test(req.file.originalname || '')) {
-        return res.status(400).json({ success: false, error: 'The selected file does not look like an audio file.' });
+      if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
+        return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
       }
-
-      const converted = await convertLocalAudioToMp3(inputPath, `manual_${songId}`);
-      convertedPath = converted.tempFilePath;
-      const accessToken = await getDriveAccessToken();
-      const driveAudio = await uploadMp3ToGoogleDrive(converted.tempFilePath, song.title || 'Track', song.artist || 'Unknown Artist', accessToken);
-      convertedPath = null; // upload helper removes its local temp file on success or failure
-
-      const tags = Array.isArray(song.tags) ? song.tags.filter((tag: string) => tag !== 'drive-mp3') : [];
-      await updateSongDb(song.id, {
-        audioUrl: driveAudio.streamingUrl,
-        duration: driveAudio.duration || converted.duration || song.duration || 180,
-        tags: [...new Set([...tags, 'drive-mp3'])],
-      });
-      return res.json({ success: true, id: song.id, title: song.title, driveFileId: driveAudio.fileId, audioUrl: driveAudio.streamingUrl, remainingNonDriveSongs: (await getSongsDb() as any[]).filter((item) => item.audioUrl && !isSiteManagedDriveSong(item)).length });
-    } catch (error: any) {
-      console.error('[DriveMigration] Manual audio upload failed:', error?.message || error);
-      return res.status(500).json({ success: false, error: error?.message || 'Could not upload this audio to Google Drive.' });
-    } finally {
-      if (inputPath && fs.existsSync(inputPath)) { try { fs.unlinkSync(inputPath); } catch {} }
-      if (convertedPath && fs.existsSync(convertedPath)) { try { fs.unlinkSync(convertedPath); } catch {} }
-    }
-  });
-});
-
-// Direct request upload: administrators upload an MP3 file to the site Google Drive.
-// No YouTube downloading or audio conversion is performed in the request workflow.
-app.post('/api/admin/requests/:id/upload-audio', (req: Request, res: Response) => {
-  uploadAudio.single('audio')(req, res, async (uploadError: any) => {
-    let tempFilePath: string | null = req.file?.path || null;
-    try {
-      if (uploadError) {
-        return res.status(400).json({ success: false, error: uploadError.message || 'MP3 upload failed. Maximum file size is 100 MB.' });
+      if (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
       }
-      if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-      if (!req.file || !tempFilePath) return res.status(400).json({ success: false, error: 'Choose an MP3 file to upload.' });
-      if (!/\.mp3$/i.test(req.file.originalname || '') || (req.file.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(req.file.mimetype.toLowerCase()))) {
-        return res.status(400).json({ success: false, error: 'Please upload an MP3 file. This workflow does not convert audio.' });
-      }
-
       const requestItem = await getRequestByIdDb(req.params.id);
       if (!requestItem) return res.status(404).json({ success: false, error: 'Request not found.' });
-      if (requestItem.status !== 'approved') {
-        return res.status(409).json({ success: false, error: 'Approve this request for upload before selecting its MP3.' });
-      }
+      if (requestItem.status !== 'approved') return res.status(409).json({ success: false, error: 'Approve this request for upload before selecting its files.' });
 
-      const accessToken = await getDriveAccessToken();
-      const driveAudio = await uploadMp3ToGoogleDrive(
-        tempFilePath,
-        requestItem.songTitle || 'Track',
-        requestItem.artist || 'Unknown Artist',
-        accessToken
-      );
-      // The Drive helper deletes the temporary local file after the upload.
-      tempFilePath = null;
+      accessToken = await getDriveAccessToken();
+      const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, requestItem.songTitle || 'Track', requestItem.artist || 'Unknown Artist', accessToken);
+      audioTempPath = null;
+      uploadedAudioId = driveAudio.fileId;
+      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
+      coverTempPath = null;
+      uploadedCoverId = driveCover.fileId;
 
       const updated = await updateRequestFullDb(req.params.id, {
         status: 'staging',
@@ -2239,19 +2007,73 @@ app.post('/api/admin/requests/:id/upload-audio', (req: Request, res: Response) =
         stagingAudioUrl: driveAudio.streamingUrl,
         driveFileId: driveAudio.fileId,
         driveFolderId: driveAudio.folderId || null,
+        coverUrl: driveCover.imageUrl,
         duration: driveAudio.duration || requestItem.duration || 180,
-        processingProgress: 'MP3 uploaded to Google Drive. Waiting for the administrator to publish it.',
+        processingProgress: 'MP3 and artwork uploaded to Google Drive. Waiting for the administrator to publish.',
         processingError: null,
       });
-      console.log(`[SongPipeline] Uploaded MP3 for approved request ${req.params.id} to Drive (${driveAudio.fileId}).`);
-      return res.json({ success: true, request: updated, driveFileId: driveAudio.fileId });
+      if (!updated || updated.status !== 'staging') throw new Error('Media uploaded, but the request record could not be updated. Check Drive and database status before retrying.');
+      console.log(`[SongPipeline] Uploaded request media to Drive: ${driveAudio.fileId}, ${driveCover.fileId}`);
+      return res.json({ success: true, request: updated, audioFileId: driveAudio.fileId, coverFileId: driveCover.fileId });
     } catch (error: any) {
-      console.error('[SongPipeline] Direct MP3 request upload failed:', error);
-      return res.status(500).json({ success: false, error: error?.message || 'Could not upload the MP3 to Google Drive.' });
+      console.error('[SongPipeline] Request media upload failed:', error);
+      if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
+      if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+      return res.status(500).json({ success: false, error: error?.message || 'Could not upload request files to Google Drive.' });
     } finally {
-      if (tempFilePath && fs.existsSync(tempFilePath)) {
-        try { fs.unlinkSync(tempFilePath); } catch {}
+      if (audioTempPath && fs.existsSync(audioTempPath)) { try { fs.unlinkSync(audioTempPath); } catch {} }
+      if (coverTempPath && fs.existsSync(coverTempPath)) { try { fs.unlinkSync(coverTempPath); } catch {} }
+    }
+  });
+});
+
+// Manual library upload: both files go directly to Google Drive; this endpoint stores no media bytes in the DB.
+app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
+  const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
+  upload(req, res, async (uploadError: any) => {
+    const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
+    const audioFile = files.audio?.[0];
+    const coverFile = files.cover?.[0];
+    let audioTempPath: string | null = audioFile?.path || null;
+    let coverTempPath: string | null = coverFile?.path || null;
+    let uploadedAudioId: string | null = null;
+    let uploadedCoverId: string | null = null;
+    let accessToken: string | null = null;
+    try {
+      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message || 'Upload failed.' });
+      if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+      if (!audioFile || !coverFile || !audioTempPath || !coverTempPath) return res.status(400).json({ success: false, error: 'Choose both an MP3 and cover image.' });
+      if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
+        return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
       }
+      if (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
+      }
+      accessToken = await getDriveAccessToken();
+      const trackTitle = String(req.body?.title || audioFile.originalname.replace(/\.mp3$/i, '')).trim();
+      const trackArtist = String(req.body?.artist || 'Unknown Artist').trim();
+      const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, trackTitle, trackArtist, accessToken);
+      audioTempPath = null;
+      uploadedAudioId = driveAudio.fileId;
+      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
+      coverTempPath = null;
+      uploadedCoverId = driveCover.fileId;
+      return res.json({
+        success: true,
+        audioUrl: driveAudio.streamingUrl,
+        coverUrl: driveCover.imageUrl,
+        audioFileId: driveAudio.fileId,
+        coverFileId: driveCover.fileId,
+        duration: driveAudio.duration,
+      });
+    } catch (error: any) {
+      console.error('[LibraryUpload] Drive media upload failed:', error);
+      if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
+      if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+      return res.status(500).json({ success: false, error: error?.message || 'Could not upload media to Google Drive.' });
+    } finally {
+      if (audioTempPath && fs.existsSync(audioTempPath)) { try { fs.unlinkSync(audioTempPath); } catch {} }
+      if (coverTempPath && fs.existsSync(coverTempPath)) { try { fs.unlinkSync(coverTempPath); } catch {} }
     }
   });
 });
@@ -2273,8 +2095,8 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
       if (requestItem.status !== 'staging') {
         return res.status(409).json({ error: 'Only a request with an uploaded MP3 can be published. Upload an MP3 directly to Google Drive first.' });
       }
-      if (!requestItem.driveFileId || !String(requestItem.audioUrl || '').startsWith('https://drive.google.com/uc?export=download&id=')) {
-        return res.status(400).json({ error: 'This request does not have a verified Google Drive MP3. Reprocess it before publishing.' });
+      if (!requestItem.driveFileId || !String(requestItem.audioUrl || '').startsWith('https://drive.google.com/uc?export=download&id=') || !String(requestItem.coverUrl || '').startsWith('https://lh3.googleusercontent.com/d/')) {
+        return res.status(400).json({ error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
       }
 
       const songId = `song-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -2286,7 +2108,7 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
         genre: requestItem.genre || 'Vibe / Chill',
         duration: requestItem.duration || 180,
         audioUrl: requestItem.audioUrl,
-        coverUrl: requestItem.coverUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80',
+        coverUrl: requestItem.coverUrl,
         addedAt: new Date().toISOString(),
         plays: 0,
         featured: false,
@@ -3000,50 +2822,6 @@ app.post('/api/admin/database/self-test', async (_req: Request, res: Response) =
   const allOk = results.every((r) => r.ok);
   if (allOk) clearDbError();
   res.json({ ok: allOk, results });
-});
-
-// ----------------- YOUTUBE LINK CHECK -----------------
-// Tells the person (or admin) right away whether a pasted link will work
-app.get('/api/youtube/preview', async (req: Request, res: Response) => {
-  const check = checkYouTubeLink(String(req.query.url || ''));
-  if (!check.videoId) {
-    return res.json({ valid: false, reason: check.message });
-  }
-  const videoId = check.videoId;
-  const thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-  try {
-    const oembed = await fetch(
-      `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`,
-      { signal: AbortSignal.timeout(8000) }
-    );
-    if (oembed.status === 401 || oembed.status === 403) {
-      return res.json({
-        valid: false,
-        videoId,
-        thumbnail,
-        reason:
-          'The owner of this video does not allow it to be played on other sites. Try a different upload, such as the artist\'s official audio or a lyric video.',
-      });
-    }
-    if (oembed.status === 404) {
-      return res.json({ valid: false, videoId, reason: 'That video was not found, or it is private.' });
-    }
-    if (!oembed.ok) {
-      // YouTube did not answer; the link itself looks fine
-      return res.json({ valid: true, videoId, thumbnail, title: '', author: '', checked: false });
-    }
-    const info: any = await oembed.json();
-    res.json({
-      valid: true,
-      videoId,
-      thumbnail,
-      title: String(info?.title || ''),
-      author: String(info?.author_name || '').replace(/\s*-\s*Topic$/i, ''),
-      checked: true,
-    });
-  } catch (err: any) {
-    res.json({ valid: true, videoId, thumbnail, title: '', author: '', checked: false });
-  }
 });
 
 // ----------------- FEATURE REQUESTS & BUG REPORTS -----------------
