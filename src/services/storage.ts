@@ -1270,61 +1270,33 @@ class StorageService {
     updates: Partial<Song>,
     tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
   ): Promise<boolean> {
-    if (!songIds || songIds.length === 0) return false;
-
-    // Apply locally first for zero-latency response
-    this.songs = this.songs.map((song) => {
-      if (!songIds.includes(song.id)) return song;
-      let nextTags = song.tags ? [...song.tags] : [];
-
-      if (tagOperation && tagOperation.tags) {
-        if (tagOperation.action === 'set') {
-          nextTags = [...tagOperation.tags];
-        } else if (tagOperation.action === 'add') {
-          const set = new Set(nextTags.map((t) => t.toLowerCase()));
-          tagOperation.tags.forEach((t) => {
-            const clean = t.trim();
-            if (clean && !set.has(clean.toLowerCase())) {
-              nextTags.push(clean);
-              set.add(clean.toLowerCase());
-            }
-          });
-        } else if (tagOperation.action === 'remove') {
-          const toRemove = new Set(tagOperation.tags.map((t) => t.trim().toLowerCase()));
-          nextTags = nextTags.filter((t) => !toRemove.has(t.trim().toLowerCase()));
-        }
-      }
-
-      return {
-        ...song,
-        ...updates,
-        ...(tagOperation ? { tags: nextTags } : {}),
-      };
-    });
-
-    this.saveSongs();
-    this.notify();
+    const ids = Array.from(new Set((songIds || []).filter(Boolean)));
+    if (!ids.length) return false;
 
     try {
       const res = await fetch('/api/songs/bulk-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ songIds, updates, tagOperation }),
+        credentials: 'same-origin',
+        body: JSON.stringify({ songIds: ids, updates, tagOperation }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.songs && Array.isArray(data.songs)) {
-          const map = new Map(data.songs.map((s: Song) => [s.id, s]));
-          this.songs = this.songs.map((s) => (map.has(s.id) ? (map.get(s.id) as Song) : s));
-          this.saveSongs();
-          this.notify();
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !Array.isArray(data.songs)) {
+        throw new Error(data.error || 'The server did not confirm the batch update.');
       }
-    } catch (e) {
-      console.error('Bulk update songs error:', e);
-    }
 
-    return true;
+      const updatedById = new Map((data.songs as Song[]).map((song) => [song.id, song]));
+      if (updatedById.size !== ids.length) {
+        throw new Error('The server updated fewer songs than selected. Refresh the library before trying again.');
+      }
+      this.songs = this.songs.map((song) => updatedById.get(song.id) || song);
+      this.saveSongs();
+      this.notify();
+      return true;
+    } catch (error) {
+      console.error('Bulk update songs error:', error);
+      return false;
+    }
   }
 
   async deleteSong(songId: string): Promise<boolean> {
