@@ -99,6 +99,8 @@ export const songRequests = pgTable('song_requests', {
   adminNote: text('admin_note'),
   requestType: text('request_type').default('song'),
   reviewedAt: text('reviewed_at'),
+  approvedAt: text('approved_at'),
+  estimatedUploadAt: text('estimated_upload_at'),
   audioUrl: text('audio_url'),
   driveFileId: text('drive_file_id'),
   driveFolderId: text('drive_folder_id'),

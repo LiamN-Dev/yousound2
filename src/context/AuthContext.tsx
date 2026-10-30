@@ -41,11 +41,6 @@ interface AuthContextType {
   updateSongRequestStatus: (id: string, status: SongRequestStatus, adminNote?: string) => void;
   deleteSongRequest: (id: string, keepSong?: boolean) => void;
   adminUpdateRequest: (id: string, updates: Partial<SongRequest>) => Promise<SongRequest | null>;
-  adminApproveAndProcess: (
-    id: string,
-    metadata: { songTitle: string; artist: string; coverUrl?: string; genre?: string; rightsConfirmed?: boolean },
-    googleAccessToken?: string
-  ) => Promise<{ success: boolean; request?: SongRequest; error?: string }>;
   adminPublishRequest: (id: string, isPublished: boolean, hideVideo?: boolean) => Promise<{ success: boolean; request?: SongRequest; error?: string }>;
 
   // Admin actions
@@ -251,16 +246,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return updated;
   };
 
-  const adminApproveAndProcess = async (
-    id: string,
-    metadata: { songTitle: string; artist: string; coverUrl?: string; genre?: string; rightsConfirmed?: boolean },
-    googleAccessToken?: string
-  ) => {
-    const result = await storage.adminApproveAndProcess(id, metadata, googleAccessToken);
-    setSongRequests(storage.getRequests());
-    return result;
-  };
-
   const adminPublishRequest = async (id: string, isPublished: boolean, hideVideo: boolean = false) => {
     const result = await storage.adminPublishRequest(id, isPublished, hideVideo);
     setSongRequests(storage.getRequests());
@@ -452,7 +437,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateSongRequestStatus,
         deleteSongRequest,
         adminUpdateRequest,
-        adminApproveAndProcess,
         adminPublishRequest,
         allUsers,
         allPopups,
