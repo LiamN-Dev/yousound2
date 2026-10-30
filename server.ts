@@ -1163,21 +1163,14 @@ app.delete('/api/users/:uid', async (req: Request, res: Response) => {
 // ----------------- SONGS -----------------
 app.get('/api/songs', async (req: Request, res: Response) => {
   try {
-    const songsList = await getSongsDb();
-    // One-time migration of legacy songs that stored their entire WAV/MP3 in audioUrl.
-    // This prevents the library metadata endpoint from retransmitting audio on every refresh.
-    for (const song of songsList as any[]) {
-      if (typeof song.audioUrl !== 'string' || !song.audioUrl.startsWith('data:audio/')) continue;
-      try {
-        const audioUrl = await persistInlineAudioDataUri(song.audioUrl, song.title || song.id);
-        await updateSongDb(song.id, { audioUrl });
-        song.audioUrl = audioUrl;
-      } catch (migrationError) {
-        // Do not accidentally send a multi-megabyte base64 blob to every client if migration fails.
-        console.error(`Could not migrate inline audio for song ${song.id}; omitting it from this response:`, migrationError);
-        song.audioUrl = '';
-      }
-    }
+    const storedSongs = await getSongsDb();
+    // Existing inline-media records are intentionally not migrated. The owner is clearing
+    // legacy songs manually; never return their embedded media bytes to browsers.
+    const songsList = (storedSongs as any[]).map((song) => (
+      typeof song.audioUrl === 'string' && song.audioUrl.startsWith('data:audio/')
+        ? { ...song, audioUrl: '' }
+        : song
+    ));
     const body = JSON.stringify({ songs: songsList });
     const etag = `W/\"${createHash('sha256').update(body).digest('base64url')}\"`;
     res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
