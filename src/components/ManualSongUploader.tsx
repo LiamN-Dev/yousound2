@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useAudio } from '../context/AudioContext';
+import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
 import { CheckCircle, Cloud, Loader2, Music2, Upload, XCircle } from 'lucide-react';
 
 type Feedback = { type: 'success' | 'error' | 'info'; message: string } | null;
 
 export const ManualSongUploader: React.FC = () => {
-  const { addNewSong } = useAudio();
+  const { refreshState } = useAuth();
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [genre, setGenre] = useState('Lo-Fi');
@@ -73,6 +73,11 @@ export const ManualSongUploader: React.FC = () => {
       const form = new FormData();
       form.append('title', title.trim());
       form.append('artist', artist.trim());
+      form.append('genre', genre.trim());
+      form.append('mood', mood.trim());
+      form.append('album', album.trim());
+      form.append('tags', tags);
+      form.append('description', description.trim());
       form.append('audio', audioFile);
       form.append('cover', coverFile);
       const response = await fetch('/api/admin/library/upload-media', {
@@ -83,20 +88,9 @@ export const ManualSongUploader: React.FC = () => {
         throw new Error(data.error || 'Google Drive did not return both media files.');
       }
 
-      await addNewSong({
-        title: title.trim(),
-        artist: artist.trim(),
-        album: album.trim() || 'Single',
-        genre: genre.trim() || 'Other',
-        tags: Array.from(new Set(tags.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))),
-        typeMood: mood.trim() || undefined,
-        duration: Number(data.duration) || 180,
-        audioUrl: data.audioUrl,
-        coverUrl: data.coverUrl,
-        featured: false,
-        description: description.trim(),
-      });
+      if (!data.song?.id) throw new Error('Drive upload completed, but the database did not return a saved library song.');
       await storage.syncWithServer();
+      refreshState();
 
       setTitle('');
       setArtist('');
