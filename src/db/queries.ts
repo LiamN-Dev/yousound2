@@ -714,6 +714,8 @@ export async function updateRequestFullDb(
     status?: string | null;
     adminNote?: string | null;
     reviewedAt?: string | null;
+    approvedAt?: string | null;
+    estimatedUploadAt?: string | null;
     audioUrl?: string | null;
     driveFileId?: string | null;
     driveFolderId?: string | null;
