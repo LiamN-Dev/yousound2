@@ -475,30 +475,21 @@ class StorageService {
       genre: (data.genre || 'Vibe / Chill').trim(),
     };
 
-    this.requests.unshift(newReq);
+    const res = await fetch('/api/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(newReq),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !result.success || !result.request) {
+      throw new Error(result.error || 'The server did not save this song request.');
+    }
+    const savedRequest = result.request as SongRequest;
+    this.requests = [savedRequest, ...this.requests.filter((request) => request.id !== savedRequest.id)];
     this.saveRequests();
     this.notify();
-
-    try {
-      const res = await fetch('/api/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newReq),
-      });
-      if (res.ok) {
-        const result = await res.json();
-        if (result.request) {
-          const idx = this.requests.findIndex((r) => r.id === tempId);
-          if (idx !== -1) this.requests[idx] = result.request;
-          this.saveRequests();
-          this.notify();
-          return result.request;
-        }
-      }
-    } catch (e) {
-      console.error('Create request error:', e);
-    }
-    return newReq;
+    return savedRequest;
   }
 
   async adminUpdateRequest(id: string, updates: Partial<SongRequest>): Promise<SongRequest | null> {
