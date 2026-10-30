@@ -1559,18 +1559,28 @@ app.post('/api/admin/songs/fix-durations', async (req: Request, res: Response) =
   }
 });
 
-// Bulk Update Songs (Bulk Tagging, Visibility/Hidden from users, Spotlight, Genres, Status)
+// Bulk Update Songs. Admin-only; the database helper applies the full allow-listed update payload.
 app.post('/api/songs/bulk-update', async (req: Request, res: Response) => {
   try {
-    const { songIds, updates, tagOperation } = req.body;
-    if (!Array.isArray(songIds) || songIds.length === 0) {
-      return res.status(400).json({ success: false, error: 'songIds array is required' });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const { songIds, updates, tagOperation } = req.body || {};
+    if (!Array.isArray(songIds) || songIds.length === 0 || songIds.some((id: unknown) => typeof id !== 'string' || !id.trim())) {
+      return res.status(400).json({ success: false, error: 'A non-empty songIds array is required.' });
     }
-    const updated = await bulkUpdateSongsDb(songIds, updates || {}, tagOperation);
-    res.json({ success: true, count: updated.length, songs: updated });
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ success: false, error: 'A valid updates object is required.' });
+    }
+    if (tagOperation && (!['add', 'remove', 'set'].includes(tagOperation.action) || !Array.isArray(tagOperation.tags))) {
+      return res.status(400).json({ success: false, error: 'Invalid tag operation.' });
+    }
+    const updated = await bulkUpdateSongsDb(songIds, updates, tagOperation);
+    if (updated.length !== new Set(songIds).size) {
+      return res.status(409).json({ success: false, error: 'Some selected songs were not found. Refresh the library and try again.', count: updated.length, songs: updated });
+    }
+    return res.json({ success: true, count: updated.length, songs: updated });
   } catch (error: any) {
     console.error('Bulk update songs error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: error.message || 'Bulk update failed.' });
   }
 });
 
