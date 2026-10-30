@@ -182,6 +182,8 @@ export interface SongRequest {
   requestType?: 'song' | 'feature';
   featureCategory?: string;
   reviewedAt?: string;
+  approvedAt?: string;
+  estimatedUploadAt?: string;
   audioUrl?: string;
   driveFileId?: string;
   driveFolderId?: string;
