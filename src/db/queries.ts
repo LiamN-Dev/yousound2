@@ -374,7 +374,7 @@ export async function bulkUpdateSongsDb(
   tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
 ) {
   const allowedColumns = new Set([
-    'title', 'artist', 'album', 'genre', 'typeMood', 'duration', 'audioUrl', 'coverUrl',
+    'title', 'artist', 'album', 'genre', 'typeMood', 'duration',
     'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
     'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'autoReleaseOnDrop',
     'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
