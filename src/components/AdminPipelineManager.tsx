@@ -86,7 +86,7 @@ export const AdminPipelineManager: React.FC = () => {
     setEtaDrafts((current) => {
       const next = { ...current };
       for (const request of songRequests) {
-        if (!(request.id in next)) next[request.id] = request.estimatedUploadAt ? new Date(request.estimatedUploadAt).toISOString().slice(0, 16) : '';
+        if (!(request.id in next) || (request.status === 'approved' && !next[request.id] && request.estimatedUploadAt)) next[request.id] = request.estimatedUploadAt ? new Date(request.estimatedUploadAt).toISOString().slice(0, 16) : '';
       }
       for (const id of Object.keys(next)) if (!songRequests.some((request) => request.id === id)) delete next[id];
       return next;
