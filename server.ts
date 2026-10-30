@@ -157,44 +157,6 @@ if (!fs.existsSync(COVERS_DIR)) fs.mkdirSync(COVERS_DIR, { recursive: true });
  * every /api/songs response would resend the whole encoded audio file. Persist the
  * bytes once in media_files and store only the small media URL on the song record.
  */
-const MAX_INLINE_AUDIO_BYTES = 20 * 1024 * 1024;
-async function persistInlineAudioDataUri(dataUri: string, title = 'track'): Promise<string> {
-  const match = /^data:(audio\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\r\n]+)$/.exec(dataUri);
-  if (!match) throw new Error('Audio data URI is malformed or is not base64-encoded audio.');
-
-  const mimeType = match[1].toLowerCase();
-  const base64 = match[2].replace(/[\r\n]/g, '');
-  const buffer = Buffer.from(base64, 'base64');
-  if (!buffer.length) throw new Error('Audio data is empty.');
-  if (buffer.length > MAX_INLINE_AUDIO_BYTES) throw new Error('Inline audio exceeds the 20 MB limit. Upload larger audio files using the audio upload form.');
-  // Reject malformed base64 rather than silently storing a truncated/corrupt file.
-  if (buffer.toString('base64').replace(/=+$/, '') !== base64.replace(/=+$/, '')) {
-    throw new Error('Audio data URI contains invalid base64.');
-  }
-
-  const extensionByMime: Record<string, string> = {
-    'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3',
-    'audio/mp3': 'mp3', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a',
-    'audio/aac': 'aac', 'audio/flac': 'flac', 'audio/webm': 'webm',
-    'audio/wave': 'wav', 'audio/vnd.wave': 'wav',
-  };
-  const ext = extensionByMime[mimeType];
-  if (!ext) throw new Error(`Unsupported inline audio MIME type: ${mimeType}`);
-  const safeStem = (title || 'track').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48) || 'track';
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${safeStem}.${ext}`;
-  const filePath = path.join(AUDIO_DIR, filename);
-
-  fs.writeFileSync(filePath, buffer, { flag: 'wx' });
-  try {
-    // Store a durable database copy as well as the local cache, matching the existing media route.
-    await saveMediaFileDb(filename, buffer.toString('base64'), mimeType, buffer.length);
-  } catch (error) {
-    try { fs.unlinkSync(filePath); } catch (_) { /* best effort cleanup */ }
-    throw error;
-  }
-  return `/api/media/audio/${encodeURIComponent(filename)}`;
-}
-
 const audioStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, AUDIO_DIR),
   filename: (_req, file, cb) => {
@@ -205,18 +167,6 @@ const audioStorage = multer.diskStorage({
 const uploadAudio = multer({
   storage: audioStorage,
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
-});
-
-const coverStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, COVERS_DIR),
-  filename: (_req, file, cb) => {
-    const clean = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${Date.now()}-${clean}`);
-  },
-});
-const uploadCover = multer({
-  storage: coverStorage,
-  limits: { fileSize: 35 * 1024 * 1024 }, // 35MB for animated loop video covers & high-res GIFs
 });
 
 // Helper password hasher (matching frontend)
@@ -1285,7 +1235,7 @@ app.post('/api/songs', async (req: Request, res: Response) => {
       autoReleaseOnDrop: !!songData.autoReleaseOnDrop,
     };
 
-    const inserted = await insertSongDb(newSong);
+    const inserted = await insertSongDb(newSong, true);
     res.json({ success: true, song: inserted });
   } catch (error: any) {
     console.error('Insert song error:', error);
@@ -1946,7 +1896,7 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         plays: 0,
         featured: false,
         description: String(req.body?.description || '').trim(),
-      });
+      }, true);
       return res.json({
         success: true,
         song,
@@ -1998,7 +1948,7 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
         featured: false,
         description: `Requested by ${requestItem.requestedByUsername} via YouSong Pipeline.`,
         tags: [requestItem.genre?.toLowerCase() || 'vibe', 'community', 'drive-mp3'],
-      });
+      }, true);
 
       const updated = await updateRequestFullDb(id, {
         status: 'published',
@@ -2085,6 +2035,7 @@ app.delete('/api/requests/:id', async (req: Request, res: Response) => {
 
 app.delete('/api/admin/requests/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const { id } = req.params;
     const item = await getRequestByIdDb(id);
     // ?keepSong=1 only removes the entry from the admin list; the song stays live in the library
