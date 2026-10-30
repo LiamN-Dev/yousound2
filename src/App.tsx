@@ -177,7 +177,7 @@ const MainAppContent: React.FC = () => {
             ) : (
               <>
                 {/* Manual Song Upload Studio */}
-                <ManualSongUploader />
+                {isAdmin && <ManualSongUploader />}
 
                 {/* Personalized Bar: "Songs You Might Like" */}
                 <PersonalizedBar onOpenPlaylistModal={handleOpenPlaylistModal} />
