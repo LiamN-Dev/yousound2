@@ -278,7 +278,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
 
     if (tagList.length === 0) return;
 
-    if (!(await runBulkUpdate(selectedSongIds, {}, { action: bulkTagMode, tags: tagList }))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, {}, { action: bulkTagMode, tags: tagList }))) return;
     setFeedback(`Updated tags for ${selectedSongIds.length} song(s).`);
     setIsBulkTagModalOpen(false);
     setBulkTagInput('');
@@ -288,21 +288,21 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
   // Quick preset tag addition to selection
   const handleApplyPresetTagToSelection = async (preset: string) => {
     if (selectedSongIds.length === 0) return;
-    if (!(await runBulkUpdate(selectedSongIds, {}, { action: 'add', tags: [preset] }))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, {}, { action: 'add', tags: [preset] }))) return;
     setFeedback(`Applied tag "#${preset}" to ${selectedSongIds.length} song(s)!`);
     setTimeout(() => setFeedback(null), 3000);
   };
 
   // Bulk Spotlight Toggle
   const handleBulkSpotlight = async (enable: boolean) => {
-    if (!(await runBulkUpdate(selectedSongIds, { isSpotlight: enable }))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, { isSpotlight: enable }))) return;
     setFeedback(`${enable ? 'Added' : 'Removed'} ${selectedSongIds.length} song(s) ${enable ? 'to' : 'from'} Spotlight.`);
     setTimeout(() => setFeedback(null), 3000);
   };
 
   // Bulk Hide from Everyone
   const handleBulkHideEveryone = async (hide: boolean) => {
-    if (!(await runBulkUpdate(selectedSongIds, { hiddenFrom: hide ? ['all'] : [] }))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, { hiddenFrom: hide ? ['all'] : [] }))) return;
     setFeedback(`${hide ? 'Hidden' : 'Revealed'} ${selectedSongIds.length} song(s) for everyone.`);
     setTimeout(() => setFeedback(null), 3000);
   };
@@ -362,7 +362,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
       isScheduledForDeletion: true,
       scheduledDeletionAt: new Date().toISOString(),
       hiddenFrom: ['all'],
-    }))) return;;
+    }))) return;
     setIsBulkDeleteModalOpen(false);
     setSelectedSongIds([]);
     setFeedback(`✓ Scheduled ${selectedSongIds.length} song(s) for deletion. Hidden from all listeners.`);
@@ -426,7 +426,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
       }
     }
 
-    if (!(await runBulkUpdate(selectedSongIds, updates, tagOperation))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, updates, tagOperation))) return;
 
     if (massResetPlays) {
       await bulkResetSongPlays(selectedSongIds);
@@ -441,7 +441,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
   // Bulk Genre Change
   const handleApplyBulkGenre = async () => {
     if (!bulkGenreInput.trim()) return;
-    if (!(await runBulkUpdate(selectedSongIds, { genre: bulkGenreInput.trim() }))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, { genre: bulkGenreInput.trim() }))) return;
     setFeedback(`Genre changed to "${bulkGenreInput.trim()}" for ${selectedSongIds.length} song(s).`);
     setIsBulkGenreModalOpen(false);
     setTimeout(() => setFeedback(null), 3000);
@@ -449,7 +449,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
 
   // Bulk Pin/Unpin
   const handleBulkPin = async (pin: boolean) => {
-    if (!(await runBulkUpdate(selectedSongIds, { isPinned: pin }))) return;;
+    if (!(await runBulkUpdate(selectedSongIds, { isPinned: pin }))) return;
     setFeedback(`${pin ? 'Pinned' : 'Unpinned'} ${selectedSongIds.length} song(s).`);
     setTimeout(() => setFeedback(null), 3000);
   };
@@ -459,10 +459,10 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
     if (scheduleType === 'clear') {
       if (!(await runBulkUpdate(selectedSongIds, {
         isDroppingSoon: false,
-        dropDate: undefined,
+        dropDate: null as any,
         isLimitedEdition: false,
-        limitedUntil: undefined,
-      }))) return;;
+        limitedUntil: null as any,
+      }))) return;
       setFeedback(`Cleared drop/removal schedules for ${selectedSongIds.length} song(s).`);
     } else if (scheduleType === 'drop') {
       if (!scheduleDate) return;
@@ -470,7 +470,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
         isDroppingSoon: true,
         dropDate: new Date(scheduleDate).toISOString(),
         autoReleaseOnDrop: true,
-      }))) return;;
+      }))) return;
       setFeedback(`Scheduled ${selectedSongIds.length} song(s) for drop on ${new Date(scheduleDate).toLocaleString()}.`);
     } else if (scheduleType === 'leave') {
       if (!scheduleDate) return;
@@ -478,7 +478,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
         isLimitedEdition: true,
         limitedUntil: new Date(scheduleDate).toISOString(),
         autoRemoveOnExpire: false,
-      }))) return;;
+      }))) return;
       setFeedback(`Scheduled ${selectedSongIds.length} song(s) to leave library on ${new Date(scheduleDate).toLocaleString()}.`);
     }
     setIsBulkScheduleModalOpen(false);
@@ -1221,7 +1221,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
           allUsers={allUsers}
           onSaveVisibility={async (hiddenFrom) => {
             const songIds = visibilityModalSongs.map((s) => s.id);
-            if (!(await runBulkUpdate(songIds, { hiddenFrom }))) return;;
+            if (!(await runBulkUpdate(songIds, { hiddenFrom }))) return;
             setFeedback(`Updated visibility for ${songIds.length} track(s).`);
             setTimeout(() => setFeedback(null), 3000);
           }}
