@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Wrench, Lock, Sparkles, Clock, Activity } from 'lucide-react';
+import { Wrench, Lock, Sparkles, Clock, Activity, X } from 'lucide-react';
 
 interface MaintenanceScreenProps {
   onOpenAdminAuth: () => void;
@@ -8,6 +8,7 @@ interface MaintenanceScreenProps {
 
 export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({ onOpenAdminAuth }) => {
   const { maintenanceState, setMaintenance } = useAuth();
+  const [statusOpen, setStatusOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState<{
     hours: number;
     minutes: number;
@@ -124,17 +125,49 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({ onOpenAdmi
           {maintenanceState.message || 'We are currently updating our audio servers. Please check back shortly!'}
         </div>
 
-        <a
-          href="https://yousound.betteruptime.com/"
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => setStatusOpen(true)}
           className="inline-flex items-center gap-2 px-5 py-2.5 mb-8 -mt-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-semibold transition-colors"
         >
           <Activity className="w-4 h-4" />
-          <span>Check status page</span>
-        </a>
+          <span>View live service status</span>
+        </button>
 
-        {/* Footer Admin Unlock */}
+        {statusOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-2 sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-label="YouSong live service status"
+        >
+          <div className="relative flex h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-700 px-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Activity className="h-4 w-4 text-emerald-400" />
+                YouSong live service status
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusOpen(false)}
+                aria-label="Close status page"
+                className="rounded-lg border border-slate-700 bg-slate-800 p-2 text-slate-300 transition hover:bg-slate-700 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <iframe
+              title="YouSong Better Uptime status"
+              src="https://yousound.betteruptime.com"
+              className="min-h-0 w-full flex-1 border-0 bg-white"
+              loading="lazy"
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Footer Admin Unlock */}
         <div className="pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-xs text-slate-500">
             Audio stream will resume automatically when completed.
