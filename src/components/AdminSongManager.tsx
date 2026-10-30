@@ -256,7 +256,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
     tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
   ): Promise<boolean> => {
     try {
-      const success = if (!(await runBulkUpdate(songIds, updates, tagOperation))) return;;
+      const success = await bulkUpdateSongs(songIds, updates, tagOperation);
       if (!success) {
         setFeedback('Batch update failed. The server did not confirm the changes; refresh the library and try again.');
         return false;
