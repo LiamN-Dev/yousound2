@@ -1603,8 +1603,7 @@ app.post('/api/requests', async (req: Request, res: Response) => {
   }
 });
 
-// Admin Review & Editing Step (Mandatory Gate):
-// Admin edits song title, artist info, cover art, or notes before any conversion happens
+// Admin review step: update request metadata and the estimated upload time before the Drive-only upload.
 app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
@@ -1629,7 +1628,13 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
     const updates: any = {};
     if (songTitle !== undefined) updates.songTitle = songTitle.trim();
     if (artist !== undefined) updates.artist = artist.trim();
-    if (coverUrl !== undefined) updates.coverUrl = coverUrl.trim();
+    if (coverUrl !== undefined) {
+      const normalizedCover = String(coverUrl).trim();
+      if (normalizedCover && !/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(normalizedCover)) {
+        return res.status(400).json({ error: 'Request artwork must be uploaded to the site Google Drive.' });
+      }
+      updates.coverUrl = normalizedCover;
+    }
     if (notes !== undefined) updates.notes = notes.trim();
     if (genre !== undefined) updates.genre = genre.trim();
     if (adminNote !== undefined) updates.adminNote = adminNote;
