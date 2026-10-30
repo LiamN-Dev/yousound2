@@ -233,161 +233,16 @@ function toIsoString(val: any): string | null {
 }
 
 // ----------------- MEDIA UPLOADS & STREAMING -----------------
-// Audio File Upload (Multipart Form Data)
-app.post('/api/upload/audio', (req: Request, res: Response) => {
-  uploadAudio.single('audio')(req, res, async (err: any) => {
-    if (err) {
-      console.error('Audio upload error:', err);
-      return res.status(400).json({ success: false, error: err.message || 'Audio upload failed' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No audio file provided' });
-    }
-    const filename = req.file.filename;
-    const audioUrl = `/api/media/audio/${filename}`;
-
-    // Persist permanently into PostgreSQL so it NEVER gets erased across container restarts or 4-hour timeouts
-    // Extract exact duration using music-metadata
-    let duration = 0;
-    try {
-      const mm = await import('music-metadata');
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const meta = await mm.parseBuffer(fileBuffer);
-      if (meta.format?.duration && isFinite(meta.format.duration)) {
-        duration = Math.round(meta.format.duration);
-      }
-      const base64Data = fileBuffer.toString('base64');
-      const mime = req.file.mimetype || 'audio/mpeg';
-      await saveMediaFileDb(filename, base64Data, mime, req.file.size);
-    } catch (saveErr) {
-      console.error('Failed to parse or persist audio into PostgreSQL database:', saveErr);
-    }
-
-    return res.json({
-      success: true,
-      audioUrl,
-      filename,
-      duration,
-      originalName: req.file.originalname,
-      size: req.file.size,
+// Legacy media-to-database uploads for song audio and cover art are disabled.
+// New track media must be uploaded using the Google Drive-only admin endpoints.
+for (const route of ['/api/upload/audio', '/api/upload/audio-base64', '/api/upload/cover', '/api/upload/cover-base64']) {
+  app.all(route, (_req: Request, res: Response) => {
+    return res.status(410).json({
+      success: false,
+      error: 'This song-media upload endpoint has been retired. Use the Google Drive uploader in the admin panel.',
     });
   });
-});
-
-// Audio File Upload Fallback (Base64 JSON - immune to proxy multipart issues)
-app.post('/api/upload/audio-base64', async (req: Request, res: Response) => {
-  try {
-    const { filename, base64 } = req.body;
-    if (!base64) {
-      return res.status(400).json({ success: false, error: 'No audio data provided' });
-    }
-    const cleanName = (filename || 'track.mp3').replace(/[^a-zA-Z0-9.-]/g, '_');
-    const finalFilename = `${Date.now()}-${cleanName}`;
-    const filePath = path.join(AUDIO_DIR, finalFilename);
-    const rawData = base64.replace(/^data:[^;]+;base64,/, '');
-    const buffer = Buffer.from(rawData, 'base64');
-    fs.writeFileSync(filePath, buffer);
-
-    let mimeType = 'audio/mpeg';
-    if (cleanName.endsWith('.wav')) mimeType = 'audio/wav';
-    else if (cleanName.endsWith('.ogg')) mimeType = 'audio/ogg';
-    else if (cleanName.endsWith('.m4a') || cleanName.endsWith('.aac')) mimeType = 'audio/mp4';
-    else if (cleanName.endsWith('.flac')) mimeType = 'audio/flac';
-
-    // Persist permanently into PostgreSQL database
-    await saveMediaFileDb(finalFilename, rawData, mimeType, buffer.length);
-
-    let duration = 0;
-    try {
-      const mm = await import('music-metadata');
-      const meta = await mm.parseBuffer(buffer);
-      if (meta.format?.duration && isFinite(meta.format.duration)) {
-        duration = Math.round(meta.format.duration);
-      }
-    } catch (err) {
-      console.warn('Could not parse audio duration from base64:', err);
-    }
-
-    res.json({
-      success: true,
-      audioUrl: `/api/media/audio/${finalFilename}`,
-      filename: finalFilename,
-      duration,
-      size: buffer.length,
-    });
-  } catch (err: any) {
-    console.error('Base64 audio upload error:', err);
-    res.status(500).json({ success: false, error: err.message || 'Audio upload failed' });
-  }
-});
-
-// Cover Image Upload (Multipart Form Data)
-app.post('/api/upload/cover', (req: Request, res: Response) => {
-  uploadCover.single('cover')(req, res, async (err: any) => {
-    if (err) {
-      console.error('Cover upload error:', err);
-      return res.status(400).json({ success: false, error: err.message || 'Cover upload failed' });
-    }
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No cover image file provided' });
-    }
-    const filename = req.file.filename;
-    const coverUrl = `/api/media/cover/${filename}`;
-
-    // Persist permanently into PostgreSQL
-    try {
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const base64Data = fileBuffer.toString('base64');
-      const mime = req.file.mimetype || 'image/jpeg';
-      await saveMediaFileDb(filename, base64Data, mime, req.file.size);
-    } catch (saveErr) {
-      console.error('Failed to persist cover into PostgreSQL database:', saveErr);
-    }
-
-    return res.json({
-      success: true,
-      coverUrl,
-      filename,
-      originalName: req.file.originalname,
-      size: req.file.size,
-    });
-  });
-});
-
-// Cover Image Upload Fallback (Base64 JSON)
-app.post('/api/upload/cover-base64', async (req: Request, res: Response) => {
-  try {
-    const { filename, base64 } = req.body;
-    if (!base64) {
-      return res.status(400).json({ success: false, error: 'No cover data provided' });
-    }
-    const cleanName = (filename || 'cover.jpg').replace(/[^a-zA-Z0-9.-]/g, '_');
-    const finalFilename = `${Date.now()}-${cleanName}`;
-    const filePath = path.join(COVERS_DIR, finalFilename);
-    const rawData = base64.replace(/^data:[^;]+;base64,/, '');
-    const buffer = Buffer.from(rawData, 'base64');
-    fs.writeFileSync(filePath, buffer);
-
-    let mimeType = 'image/jpeg';
-    if (cleanName.endsWith('.png')) mimeType = 'image/png';
-    else if (cleanName.endsWith('.webp')) mimeType = 'image/webp';
-    else if (cleanName.endsWith('.gif')) mimeType = 'image/gif';
-    else if (cleanName.endsWith('.svg')) mimeType = 'image/svg+xml';
-
-    // Persist permanently into PostgreSQL
-    await saveMediaFileDb(finalFilename, rawData, mimeType, buffer.length);
-
-    res.json({
-      success: true,
-      coverUrl: `/api/media/cover/${finalFilename}`,
-      filename: finalFilename,
-      size: buffer.length,
-    });
-  } catch (err: any) {
-    console.error('Base64 cover upload error:', err);
-    res.status(500).json({ success: false, error: err.message || 'Cover upload failed' });
-  }
-});
+}
 
 // Audio Stream Endpoint with HTTP 206 Partial Content (Range) support for scrubbing/seeking
 // Resurrects from PostgreSQL database automatically if ephemeral container disk was cleared
