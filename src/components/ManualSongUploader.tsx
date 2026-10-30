@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAudio } from '../context/AudioContext';
 import { storage } from '../services/storage';
 import { Song } from '../types';
-import { CheckCircle, Cloud, ImagePlus, Loader2, Music2, Upload, XCircle } from 'lucide-react';
+import { CheckCircle, Cloud, Loader2, Music2, Upload, XCircle } from 'lucide-react';
 
 interface ManualSongUploaderProps {
   onOpenAuth: () => void;
@@ -11,7 +11,7 @@ interface ManualSongUploaderProps {
 
 type Feedback = { type: 'success' | 'error' | 'info'; message: string } | null;
 
-export const ManualSongUploader: React.FC<ManualSongUploaderProps> = ({ onOpenAuth }) => {
+export const ManualSongUploader: React.FC<ManualSongUploaderProps> = () => {
   const { addNewSong } = useAudio();
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
@@ -77,6 +77,8 @@ export const ManualSongUploader: React.FC<ManualSongUploaderProps> = ({ onOpenAu
     setFeedback({ type: 'info', message: 'Uploading the MP3 and artwork directly to Google Drive…' });
     try {
       const form = new FormData();
+      form.append('title', title.trim());
+      form.append('artist', artist.trim());
       form.append('audio', audioFile);
       form.append('cover', coverFile);
       const response = await fetch('/api/admin/library/upload-media', {
