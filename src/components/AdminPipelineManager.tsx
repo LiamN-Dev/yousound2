@@ -7,7 +7,6 @@ import {
   CheckCircle,
   Cloud,
   ExternalLink,
-  FileAudio,
   Loader2,
   Music2,
   RefreshCw,
@@ -300,6 +299,22 @@ export const AdminPipelineManager: React.FC = () => {
     }
   };
 
+  const saveUploadEstimate = async (request: SongRequest) => {
+    setWorkingId(request.id);
+    try {
+      const updated = await adminUpdateRequest(request.id, {
+        estimatedUploadAt: etaDrafts[request.id] ? new Date(etaDrafts[request.id]).toISOString() : null,
+      });
+      if (!updated) throw new Error('The upload estimate was not saved.');
+      refreshState();
+      setFeedback({ type: 'success', message: 'Upload estimate saved.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.message || 'Could not save upload estimate.' });
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
   const uploadRequestAudio = async (request: SongRequest) => {
     const file = requestAudioFiles[request.id];
     if (!driveConnected) {
@@ -414,7 +429,7 @@ export const AdminPipelineManager: React.FC = () => {
         </button>
         <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-300">
           <input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} className="mt-1 accent-cyan-400" />
-          I confirm I have the rights or permission to download and re-host the audio I migrate or process.
+          For existing-library migration only: I confirm I have permission to re-host those audio files. This does not apply to the manual MP3 request upload.
         </label>
         <div className="mt-4 border-t border-white/10 pt-4">
           <div className="flex items-center gap-2 text-xs font-semibold text-white"><Upload className="h-4 w-4 text-cyan-300" /> YouTube blocked? Upload an audio file instead</div>
@@ -527,7 +542,7 @@ export const AdminPipelineManager: React.FC = () => {
                     </div>
                     <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Estimated upload time</label>
                     <input type="datetime-local" className={inputClass} value={etaDrafts[request.id] || ''} onChange={(event) => setEtaDrafts((current) => ({ ...current, [request.id]: event.target.value }))} disabled={busy} />
-                    <button type="button" onClick={() => adminUpdateRequest(request.id, { estimatedUploadAt: etaDrafts[request.id] ? new Date(etaDrafts[request.id]).toISOString() : null }).then(() => { refreshState(); setFeedback({ type: 'success', message: 'Upload estimate saved.' }); })} disabled={busy} className={`${buttonClass} mt-2 border-white/10 bg-white/[0.04] text-slate-200`}>Save estimate</button>
+                    <button type="button" onClick={() => saveUploadEstimate(request)} disabled={busy} className={`${buttonClass} mt-2 border-white/10 bg-white/[0.04] text-slate-200`}>Save estimate</button>
                     <div className="mt-3">
                       <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Choose MP3 file (max 100 MB)</label>
                       <input type="file" accept=".mp3,audio/mpeg" onChange={(event) => setRequestAudioFiles((current) => ({ ...current, [request.id]: event.target.files?.[0] || null }))} disabled={busy} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-400/15 file:px-2 file:py-1 file:text-cyan-100`} />
