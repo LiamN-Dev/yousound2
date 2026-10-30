@@ -454,8 +454,6 @@ class StorageService {
   async createRequest(data: {
     songTitle: string;
     artist?: string;
-    webLink?: string;
-    coverUrl?: string;
     notes?: string;
     requestedByUserId?: string;
     requestedByUsername: string;
@@ -463,13 +461,11 @@ class StorageService {
     genre?: string;
   }): Promise<SongRequest> {
     const tempId = `req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const defaultCover = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&auto=format&fit=crop&q=80';
     const newReq: SongRequest = {
       id: tempId,
       songTitle: data.songTitle.trim(),
       artist: (data.artist || '').trim(),
-      webLink: (data.webLink || '').trim(),
-      coverUrl: (data.coverUrl || defaultCover).trim(),
+      coverUrl: '',
       notes: (data.notes || '').trim(),
       requestedByUserId: data.requestedByUserId || 'guest',
       requestedByUsername: data.requestedByUsername.trim() || 'User',
