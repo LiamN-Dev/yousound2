@@ -311,7 +311,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
   const [activeTab, setActiveTab] = useState<'submit' | 'my-requests'>('submit');
 
   // Form fields as requested:
-  // YouTube link, cover art image address, initial guess for title, initial guess for artist
+  // Optional source link, cover art image address, initial guess for title, initial guess for artist
   const [webLink, setWebLink] = useState('');
   const [coverUrl, setCoverUrl] = useState(PRESET_COVERS[0].url);
   const [songTitle, setSongTitle] = useState('');
@@ -529,11 +529,11 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
               </p>
             </div>
 
-            {/* 1. YouTube Link */}
+            {/* 1. Optional source link */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
                 <LinkIcon className="w-3.5 h-3.5 text-rose-400" />
-                <span>YouTube Link *</span>
+                <span>Optional YouTube reference link</span>
               </label>
               <input
                 type="text"
@@ -541,7 +541,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                 value={webLink}
                 onChange={(e) => setWebLink(e.target.value)}
                 className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-                required
               />
 
               {linkCheck.state === 'checking' && (
@@ -565,15 +564,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
               )}
 
               <div className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
-                <p>
-                  <span className="text-slate-400 font-semibold">Works:</span> a link to one YouTube video (youtube.com/watch,
-                  youtu.be, Shorts, or YouTube Music), including the google.com/goto?url=... links Chromebooks create when
-                  you share.
-                </p>
-                <p>
-                  <span className="text-slate-400 font-semibold">Does not work:</span> playlists, channels, Spotify, SoundCloud,
-                  Apple Music, or videos where the owner blocks other sites.
-                </p>
+                Optional: add a YouTube link to help the administrator identify the requested track. The link is only a reference; YouSong does not download or convert audio from it.
               </div>
             </div>
 
