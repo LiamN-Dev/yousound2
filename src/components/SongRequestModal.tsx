@@ -798,7 +798,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                     {req.status === 'staging' && (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-purple-300 bg-purple-950/40 px-2.5 py-1 rounded-full border border-purple-800/50">
                         <Headphones className="w-3 h-3" />
-                        In Staging (Testing)
+                        MP3 uploaded — awaiting publish
                       </span>
                     )}
                     {req.status === 'published' && (
