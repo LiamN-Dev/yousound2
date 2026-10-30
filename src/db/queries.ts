@@ -299,9 +299,10 @@ export async function insertSongDb(songData: {
   weeklyPlaysResetDate?: string;
   isScheduledForDeletion?: boolean;
   scheduledDeletionAt?: string;
-}) {
-  localStore.insertSong(songData);
+}, requirePersistent = false) {
   if (!(await checkSqlAvailability())) {
+    if (requirePersistent) throw new Error('The persistent database is unavailable. The song was not saved.');
+    localStore.insertSong(songData);
     return songData;
   }
   try {
@@ -343,15 +344,15 @@ export async function insertSongDb(songData: {
         scheduledDeletionAt: songData.scheduledDeletionAt || null,
       })
       .returning();
-    return inserted[0] || songData;
+  
+    if (!inserted[0]) throw new Error('The database did not return the new song.');
+    localStore.insertSong(inserted[0]);
+    return inserted[0];
   } catch (error) {
-    // Undo the optimistic local insert so a failed persistent write cannot surface a broken Drive URL.
-    localStore.deleteSong(songData.id);
     noteDbError('insertSongDb', error);
     throw error;
   }
 }
-
 export async function updateSongDb(id: string, updates: any) {
   localStore.updateSong(id, updates);
   if (!(await checkSqlAvailability())) {
