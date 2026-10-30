@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Headphones,
   ExternalLink,
+  Trash2,
   Radio,
   Lightbulb,
   Bug,
@@ -298,7 +299,8 @@ const FeedbackForm: React.FC<{ kind: 'feature' | 'bug' }> = ({ kind }) => {
 };
 
 export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onClose, initialMode = 'song' }) => {
-  const { currentUser, songRequests, submitSongRequest } = useAuth();
+  const { currentUser, songRequests, submitSongRequest, refreshState } = useAuth();
+  const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [mode, setMode] = useState<'song' | 'feature' | 'bug' | 'mine'>(initialMode);
   const feedbackState = useSyncExternalStore(subscribeFeedback, getFeedbackState);
 
@@ -360,6 +362,25 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
     currentUser ? r.requestedByUserId === currentUser.id : r.requestedByUsername === 'Guest User'
   );
 
+  const deleteMyRequest = async (requestId: string, title: string) => {
+    if (!window.confirm(`Delete your request for “${title}”?`)) return;
+    setDeletingRequestId(requestId);
+    try {
+      const response = await fetch(`/api/requests/${encodeURIComponent(requestId)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not delete this request.');
+      await storage.syncWithServer();
+      refreshState();
+    } catch (error: any) {
+      setFeedback(error?.message || 'Could not delete this request.');
+    } finally {
+      setDeletingRequestId(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -392,7 +413,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
       setSongTitle('');
       setArtist('');
       setNotes('');
-      setFeedback('Your song request was successfully placed into the Holding Queue. An admin will review and approve it before audio processing begins.');
+      setFeedback('Your song request was submitted. You can follow its review and upload status under My Requests.');
       setActiveTab('my-requests');
     } catch (err: any) {
       setFeedback(err.message || 'Submission failed');
@@ -759,10 +780,19 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                         Holding Queue (Review Gate)
                       </span>
                     )}
+                    {req.status === 'approved' && (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-300 bg-emerald-950/40 px-2.5 py-1 rounded-full border border-emerald-800/50">
+                        <Clock className="w-3 h-3" />
+                        Approved — waiting for upload
+                      </span>
+                    )}
+                    {req.status === 'approved' && req.estimatedUploadAt && (
+                      <span className="text-[10px] text-slate-400 text-right">Estimated upload: {new Date(req.estimatedUploadAt).toLocaleString()}</span>
+                    )}
                     {req.status === 'processing' && (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-cyan-300 bg-cyan-950/40 px-2.5 py-1 rounded-full border border-cyan-800/50 animate-pulse">
                         <Radio className="w-3 h-3" />
-                        Being Checked
+                        Being processed
                       </span>
                     )}
                     {req.status === 'staging' && (
@@ -782,6 +812,11 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
                         <XCircle className="w-3 h-3" />
                         Declined
                       </span>
+                    )}
+                    {req.status !== 'published' && (
+                      <button type="button" onClick={() => deleteMyRequest(req.id, req.songTitle)} disabled={deletingRequestId === req.id} className="mt-1 inline-flex items-center gap-1 rounded-lg border border-rose-400/20 bg-rose-500/[0.06] px-2 py-1 text-[10px] text-rose-300 hover:bg-rose-500/10 disabled:opacity-40">
+                        {deletingRequestId === req.id ? 'Deleting…' : <><Trash2 className="h-3 w-3" /> Delete request</>}
+                      </button>
                     )}
                   </div>
                 </div>
