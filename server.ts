@@ -1820,6 +1820,7 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       status,
       adminNote,
       duration,
+      estimatedUploadAt,
     } = req.body;
 
     const existingReq = await getRequestByIdDb(id);
@@ -1835,7 +1836,20 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
     if (notes !== undefined) updates.notes = notes.trim();
     if (genre !== undefined) updates.genre = genre.trim();
     if (adminNote !== undefined) updates.adminNote = adminNote;
-    if (status !== undefined) updates.status = status;
+    if (estimatedUploadAt !== undefined) {
+      const parsedEta = estimatedUploadAt ? new Date(estimatedUploadAt) : null;
+      if (parsedEta && Number.isNaN(parsedEta.getTime())) return res.status(400).json({ error: 'Estimated upload time is invalid.' });
+      updates.estimatedUploadAt = parsedEta ? parsedEta.toISOString() : null;
+    }
+    if (status !== undefined) {
+      updates.status = status;
+      if (status === 'approved') {
+        updates.approvedAt = new Date().toISOString();
+        updates.reviewedAt = new Date().toISOString();
+        updates.processingProgress = 'Approved and waiting for an administrator to upload the audio file.';
+        updates.processingError = null;
+      }
+    }
     if (typeof duration === 'number' && duration >= 5 && duration <= 43200) updates.duration = Math.round(duration);
 
     const updated = await updateRequestFullDb(id, updates);
