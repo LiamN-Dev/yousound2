@@ -346,7 +346,7 @@ export async function insertSongDb(songData: {
     return inserted[0] || songData;
   } catch (error) {
     noteDbError('insertSongDb', error);
-    return songData;
+    throw error;
   }
 }
 
