@@ -562,7 +562,7 @@ export const AdminPanel: React.FC = () => {
           </div>
 
           {/* Google Drive-only MP3 and artwork uploader */}
-          <ManualSongUploader onOpenAuth={() => {}} onEditSong={(song) => setEditingSong(song)} />
+          <ManualSongUploader />
 
           {/* Enhanced Admin Song Management Studio: Search, Bulk Tags, Mass Editing, Visibility & Spotlight */}
           <AdminSongManager
