@@ -310,7 +310,7 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: 'Choose an MP3 file first.' });
       return;
     }
-    if (!/\\.mp3$/i.test(file.name) || (file.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(file.type.toLowerCase()))) {
+    if (!/\.mp3$/i.test(file.name) || (file.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(file.type.toLowerCase()))) {
       setFeedback({ type: 'error', message: 'This upload accepts MP3 files only. No conversion will be performed.' });
       return;
     }
@@ -501,7 +501,7 @@ export const AdminPipelineManager: React.FC = () => {
 
                   <div className="flex flex-row flex-wrap xl:max-w-64 xl:justify-end gap-2">
                     <button type="button" onClick={() => saveRequestDraft(request)} disabled={busy} className={`${buttonClass} border-white/10 bg-white/[0.04] text-slate-200`}><RefreshCw className="h-3 w-3" /> Save details</button>
-                    {!isFeature && request.status === 'pending' && (
+                    {!isFeature && ['pending', 'processing'].includes(request.status) && (
                       <>
                         <button type="button" onClick={() => approveRequest(request)} disabled={busy} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}>
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />} Approve song for upload
