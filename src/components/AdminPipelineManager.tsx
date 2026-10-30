@@ -74,11 +74,21 @@ export const AdminPipelineManager: React.FC = () => {
       const next = { ...current };
       for (const request of songRequests) {
         if (!next[request.id]) next[request.id] = getDraft(request);
-      if (!(request.id in etaDrafts)) setEtaDrafts((current) => ({ ...current, [request.id]: request.estimatedUploadAt ? new Date(request.estimatedUploadAt).toISOString().slice(0, 16) : '' }));
       }
       for (const id of Object.keys(next)) {
         if (!songRequests.some((request) => request.id === id)) delete next[id];
       }
+      return next;
+    });
+  }, [songRequests]);
+
+  useEffect(() => {
+    setEtaDrafts((current) => {
+      const next = { ...current };
+      for (const request of songRequests) {
+        if (!(request.id in next)) next[request.id] = request.estimatedUploadAt ? new Date(request.estimatedUploadAt).toISOString().slice(0, 16) : '';
+      }
+      for (const id of Object.keys(next)) if (!songRequests.some((request) => request.id === id)) delete next[id];
       return next;
     });
   }, [songRequests]);
