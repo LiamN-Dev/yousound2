@@ -29,6 +29,13 @@ type MigrationCandidate = { id: string; title: string; artist: string; duration:
 
 
 
+function toDateTimeLocal(value?: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 function getDraft(request: SongRequest): RequestDraft {
   return {
     songTitle: request.songTitle || '',
@@ -85,7 +92,7 @@ export const AdminPipelineManager: React.FC = () => {
     setEtaDrafts((current) => {
       const next = { ...current };
       for (const request of songRequests) {
-        if (!(request.id in next) || (request.status === 'approved' && !next[request.id] && request.estimatedUploadAt)) next[request.id] = request.estimatedUploadAt ? new Date(request.estimatedUploadAt).toISOString().slice(0, 16) : '';
+        if (!(request.id in next) || (request.status === 'approved' && !next[request.id] && request.estimatedUploadAt)) next[request.id] = toDateTimeLocal(request.estimatedUploadAt);
       }
       for (const id of Object.keys(next)) if (!songRequests.some((request) => request.id === id)) delete next[id];
       return next;
