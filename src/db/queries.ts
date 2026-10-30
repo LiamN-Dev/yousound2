@@ -428,6 +428,21 @@ export async function bulkUpdateSongsDb(
   }
   return results;
 }
+export async function deleteSongDb(id: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The song was not deleted.');
+  }
+  try {
+    const deleted = await db.delete(songs).where(eq(songs.id, id)).returning({ id: songs.id });
+    if (!deleted.length) throw new Error('Song not found.');
+    localStore.deleteSong(id);
+    return true;
+  } catch (error) {
+    noteDbError('deleteSongDb', error);
+    throw error;
+  }
+}
+
 export async function bulkDeleteSongsDb(songIds: string[]) {
   localStore.bulkDeleteSongs(songIds);
   if (!(await checkSqlAvailability())) return true;
@@ -708,12 +723,12 @@ export async function createRequestDb(data: {
 export async function updateRequestFullDb(
   id: string,
   updates: {
-    songTitle?: string | null;
+    songTitle?: string;
     artist?: string | null;
     webLink?: string | null;
     coverUrl?: string | null;
     notes?: string | null;
-    status?: string | null;
+    status?: string;
     adminNote?: string | null;
     reviewedAt?: string | null;
     approvedAt?: string | null;
@@ -722,7 +737,7 @@ export async function updateRequestFullDb(
     driveFileId?: string | null;
     driveFolderId?: string | null;
     duration?: number | null;
-    genre?: string | null;
+    genre?: string;
     stagingAudioUrl?: string | null;
     publishedSongId?: string | null;
     publishedAt?: string | null;
