@@ -519,19 +519,22 @@ class StorageService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.request) {
-          if (idx !== -1) this.requests[idx] = data.request;
-          this.saveRequests();
-          this.notify();
-          return data.request;
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'The server rejected the request update.');
+      if (data.request) {
+        if (idx !== -1) this.requests[idx] = data.request;
+        this.saveRequests();
+        this.notify();
+        return data.request;
       }
+      throw new Error('The server did not return the updated request.');
     } catch (e) {
       console.error('Admin update request error:', e);
+      if (idx !== -1) {
+        await this.syncWithServer();
+      }
+      throw e;
     }
-    return idx !== -1 ? this.requests[idx] : null;
   }
 
   async adminApproveAndProcess(
