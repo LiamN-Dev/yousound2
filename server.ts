@@ -2261,7 +2261,7 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
 
     if (isPublished) {
       if (requestItem.status !== 'staging') {
-        return res.status(409).json({ error: 'Only a staged request can be published. Convert it to MP3 and test the stream first.' });
+        return res.status(409).json({ error: 'Only a request with an uploaded MP3 can be published. Upload an MP3 directly to Google Drive first.' });
       }
       if (!requestItem.driveFileId || !String(requestItem.audioUrl || '').startsWith('https://drive.google.com/uc?export=download&id=')) {
         return res.status(400).json({ error: 'This request does not have a verified Google Drive MP3. Reprocess it before publishing.' });
