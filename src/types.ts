@@ -183,7 +183,7 @@ export interface SongRequest {
   featureCategory?: string;
   reviewedAt?: string;
   approvedAt?: string;
-  estimatedUploadAt?: string;
+  estimatedUploadAt?: string | null;
   audioUrl?: string;
   driveFileId?: string;
   driveFolderId?: string;
