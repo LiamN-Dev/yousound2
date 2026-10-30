@@ -1,17 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAudio } from '../context/AudioContext';
 import { storage } from '../services/storage';
-import { Song } from '../types';
 import { CheckCircle, Cloud, Loader2, Music2, Upload, XCircle } from 'lucide-react';
-
-interface ManualSongUploaderProps {
-  onOpenAuth: () => void;
-  onEditSong: (song: Song) => void;
-}
 
 type Feedback = { type: 'success' | 'error' | 'info'; message: string } | null;
 
-export const ManualSongUploader: React.FC<ManualSongUploaderProps> = () => {
+export const ManualSongUploader: React.FC = () => {
   const { addNewSong } = useAudio();
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
