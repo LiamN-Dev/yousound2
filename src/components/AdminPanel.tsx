@@ -1295,7 +1295,7 @@ export const AdminPanel: React.FC = () => {
       {/* TAB 6: MAINTENANCE MODE */}
       {adminTab === 'maintenance' && (
         <div className="space-y-6 animate-in fade-in">
-          <div className="liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-white/10">
+          <div className="ys-admin-dark-panel liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-white/10">
             <h2 className="text-lg font-bold text-white font-display mb-2 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-400" />
               Maintenance Mode & Countdown Timer

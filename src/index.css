@@ -810,3 +810,16 @@ html:not(.dark) [class*="bg-slate-900"].text-slate-700,
 html:not(.dark) [class*="bg-slate-800"].text-slate-700,
 html:not(.dark) .admin-studio > .liquid-glass-surface:first-child .text-slate-700,
 html:not(.dark) .admin-studio section.liquid-glass-surface .text-slate-700 { color: #e2e8f0 !important; }
+
+
+/* The Maintenance workspace uses the same navy panel as the rest of Admin Studio. */
+.admin-studio .ys-admin-dark-panel {
+  color: #e5edf8;
+  background: linear-gradient(145deg, #172943 0%, #101b2d 58%, #0d1727 100%);
+  border-color: rgba(96, 165, 250, .20);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, .14);
+}
+.dark .admin-studio .ys-admin-dark-panel {
+  background: linear-gradient(145deg, rgba(22, 34, 54, .98), rgba(14, 23, 39, .98));
+  border-color: rgba(96, 165, 250, .20);
+}
