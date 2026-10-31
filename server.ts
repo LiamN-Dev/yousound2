@@ -1628,6 +1628,10 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
 // before storage in system_settings, so the browser never owns the long-lived credential.
 const DRIVE_TOKEN_SETTING = 'site_google_drive_refresh_token_v1';
 const DRIVE_STATE_SETTING = 'site_google_drive_oauth_state_v1';
+const DRIVE_LIBRARY_SCOPE_VERSION_SETTING = 'site_google_drive_library_scope_version_v2';
+const DRIVE_LIBRARY_SCOPE_VERSION = '2';
+const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_METADATA_READ_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 function driveClientId(): string { return String(process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim(); }
 function driveClientSecret(): string { return String(process.env.GOOGLE_CLIENT_SECRET || '').trim(); }
 function driveRedirectUri(): string {
@@ -1688,7 +1692,19 @@ app.get('/api/admin/google-drive/status', async (req: Request, res: Response) =>
     driveEncryptionKey();
     const encrypted = await getPersistentSettingDb<string>(DRIVE_TOKEN_SETTING);
     if (encrypted) decryptDriveToken(encrypted); // catches a changed/missing encryption key before a migration starts
-    return res.json({ connected: Boolean(encrypted), accountMode: 'site-wide', redirectUri: driveRedirectUri(), configured: true, storageReady: true, storage: 'postgresql' });
+    const grantedScopeVersion = await getPersistentSettingDb<string>(DRIVE_LIBRARY_SCOPE_VERSION_SETTING);
+    const libraryAccessReady = Boolean(encrypted && grantedScopeVersion === DRIVE_LIBRARY_SCOPE_VERSION);
+    return res.json({
+      connected: Boolean(encrypted),
+      libraryAccessReady,
+      reconnectRequired: Boolean(encrypted && !libraryAccessReady),
+      accountMode: 'site-wide',
+      redirectUri: driveRedirectUri(),
+      configured: true,
+      storageReady: true,
+      storage: 'postgresql',
+      libraryAccess: 'read-only file metadata',
+    });
   } catch (error: any) {
     return res.status(200).json({ connected: false, accountMode: 'site-wide', redirectUri: driveRedirectUri(), configured, storageReady: false, error: error.message || 'Persistent Google Drive storage is not available.' });
   }
@@ -1700,13 +1716,31 @@ app.get('/api/admin/google-drive/auth-url', async (req: Request, res: Response) 
     if (!driveClientId() || !driveClientSecret()) return res.status(500).json({ error: 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Render.' });
     driveEncryptionKey(); // fail early if encryption is not configured
     const nonce = randomBytes(24).toString('base64url');
-    const payload = Buffer.from(JSON.stringify({ nonce, exp: Date.now() + 10 * 60 * 1000 })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ nonce, exp: Date.now() + 10 * 60 * 1000, scopeVersion: DRIVE_LIBRARY_SCOPE_VERSION })).toString('base64url');
     const state = `${payload}.${signDriveState(payload)}`;
     await setPersistentSettingDb(DRIVE_STATE_SETTING, state);
-    const params = new URLSearchParams({ client_id: driveClientId(), redirect_uri: driveRedirectUri(), response_type: 'code', access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', scope: 'https://www.googleapis.com/auth/drive.file', state });
+    const params = new URLSearchParams({
+      client_id: driveClientId(),
+      redirect_uri: driveRedirectUri(),
+      response_type: 'code',
+      access_type: 'offline',
+      prompt: 'consent',
+      include_granted_scopes: 'true',
+      scope: DRIVE_FILE_SCOPE + ' ' + DRIVE_METADATA_READ_SCOPE,
+      state,
+    });
     return res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
   } catch (error: any) { return res.status(500).json({ error: error.message || 'Could not start Google OAuth.' }); }
 });
+
+async function getGrantedDriveScopes(accessToken: string): Promise<Set<string>> {
+  const response = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken), {
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error('Google could not verify the Drive permissions granted to this connection (' + response.status + ').');
+  return new Set(String(data.scope || '').split(/\\s+/).filter(Boolean));
+}
 
 app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Response) => {
   try {
@@ -1720,17 +1754,44 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
     if (!savedState || savedState !== state) return res.status(400).send('OAuth state expired or already used. Return to YouSong and reconnect Google Drive.');
     const stateData = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!stateData.exp || Date.now() > stateData.exp) return res.status(400).send('OAuth request expired. Return to YouSong and reconnect Google Drive.');
+    if (String(stateData.scopeVersion || '') !== DRIVE_LIBRARY_SCOPE_VERSION) return res.status(400).send('This Google Drive authorization request is outdated. Return to YouSong and start the Drive connection again.');
     const code = String(req.query.code || ''); if (!code) return res.status(400).send('Google did not return an authorization code.');
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: driveClientId(), client_secret: driveClientSecret(), redirect_uri: driveRedirectUri(), grant_type: 'authorization_code' }) });
     const tokens: any = await tokenRes.json().catch(() => ({}));
     if (!tokenRes.ok || !tokens.access_token) return res.status(502).send(`Google token exchange failed (${tokenRes.status}). Check the OAuth client and exact redirect URI in Google Cloud Console.`);
+    const grantedScopes = await getGrantedDriveScopes(String(tokens.access_token));
+    if (!grantedScopes.has(DRIVE_METADATA_READ_SCOPE)) {
+      return res.status(403).send('Google did not grant YouSong read-only access to Drive file names and details. Return to the site and approve the additional Drive metadata permission so the folder selector can search existing files.');
+    }
     let refreshToken = tokens.refresh_token as string | undefined;
     if (!refreshToken) {
       const prior = await getPersistentSettingDb<string>(DRIVE_TOKEN_SETTING);
       if (prior) refreshToken = decryptDriveToken(prior);
     }
     if (!refreshToken) return res.status(502).send('Google did not issue an offline refresh token. Keep access_type=offline, authorize with consent, and check Google Auth Platform → Audience.');
+
+    const refreshCheck = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: driveClientId(),
+        client_secret: driveClientSecret(),
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const refreshedTokens: any = await refreshCheck.json().catch(() => ({}));
+    if (!refreshCheck.ok || !refreshedTokens.access_token) {
+      return res.status(502).send('Google granted the new permission but the site could not verify its saved refresh token. Reconnect Google Drive and approve the requested permissions again.');
+    }
+    const refreshedScopes = await getGrantedDriveScopes(String(refreshedTokens.access_token));
+    if (!refreshedScopes.has(DRIVE_METADATA_READ_SCOPE)) {
+      return res.status(502).send('The saved Google Drive connection did not retain read-only access to file details. Reconnect Drive and approve the additional permission.');
+    }
+
     await setPersistentSettingDb(DRIVE_TOKEN_SETTING, encryptDriveToken(refreshToken));
+    await setPersistentSettingDb(DRIVE_LIBRARY_SCOPE_VERSION_SETTING, DRIVE_LIBRARY_SCOPE_VERSION);
     await setPersistentSettingDb(DRIVE_STATE_SETTING, null);
     const base = String(process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || 'https://yousound.onrender.com').replace(/\/$/, '');
     return res.redirect(`${base}/?driveConnected=1`);
@@ -1909,10 +1970,10 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         song,
         // Include top-level URLs as well as the canonical song object so clients
         // can validate the uploaded media without guessing the response shape.
-        audioUrl: driveAudio.streamingUrl,
-        coverUrl: driveCover.imageUrl,
-        audioFileId: driveAudio.fileId,
-        coverFileId: driveCover.fileId,
+        audioUrl,
+        coverUrl,
+        audioFileId: audioDriveId || uploadedAudioId,
+        coverFileId: coverDriveId || uploadedCoverId,
       });
     } catch (error: any) {
       console.error('[LibraryUpload] Drive media upload failed:', error);
@@ -1952,58 +2013,75 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     return res.status(400).json({ success: false, error: 'Choose an audio or image library.' });
   }
 
-  const searchTerm = String(req.query.q || '').trim().slice(0, 100);
-  const pageToken = String(req.query.pageToken || '').trim().slice(0, 2048);
+  const searchTerm = String(req.query.q || '').trim().slice(0, 100).toLowerCase();
+  const requestedPageToken = String(req.query.pageToken || '').trim().slice(0, 2048);
   try {
+    const scopeVersion = await getPersistentSettingDb<string>(DRIVE_LIBRARY_SCOPE_VERSION_SETTING);
+    if (scopeVersion !== DRIVE_LIBRARY_SCOPE_VERSION) {
+      return res.status(409).json({
+        success: false,
+        code: 'DRIVE_REAUTHORIZE_REQUIRED',
+        error: 'Reconnect the site Google Drive account and approve read-only access to file names and details before searching existing Drive folders.',
+      });
+    }
+
     const accessToken = await getDriveAccessToken();
     const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
     const folderId = await getDriveLibraryFolderId(accessToken, folderName);
-    const escapedSearch = searchTerm.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const typeQuery = kind === 'audio'
-      ? "(mimeType='audio/mpeg' or mimeType='audio/mp3' or name contains '.mp3')"
-      : "(mimeType='image/jpeg' or mimeType='image/png' or mimeType='image/webp' or mimeType='image/gif' or name contains '.jpg' or name contains '.jpeg' or name contains '.png' or name contains '.webp' or name contains '.gif')";
-    const queryParts = [`'${folderId}' in parents`, 'trashed=false', typeQuery];
-    if (escapedSearch) queryParts.push(`name contains '${escapedSearch}'`);
-
+    const query = `'${folderId}' in parents and trashed=false`;
     const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
-    driveUrl.searchParams.set('q', queryParts.join(' and '));
+    driveUrl.searchParams.set('q', query);
     driveUrl.searchParams.set('pageSize', '100');
     driveUrl.searchParams.set('orderBy', 'name');
     driveUrl.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,size,modifiedTime)');
     driveUrl.searchParams.set('supportsAllDrives', 'true');
     driveUrl.searchParams.set('includeItemsFromAllDrives', 'true');
-    if (pageToken) driveUrl.searchParams.set('pageToken', pageToken);
 
-    const driveResponse = await fetch(driveUrl, {
-      headers: { Authorization: 'Bearer ' + accessToken },
-      signal: AbortSignal.timeout(20_000),
-    });
-    const data: any = await driveResponse.json().catch(() => ({}));
-    if (!driveResponse.ok) {
-      const reason = data?.error?.message ? String(data.error.message).slice(0, 300) : 'Google Drive rejected the folder listing.';
-      throw new Error(reason);
-    }
-
+    const files: any[] = [];
+    let pageToken = requestedPageToken;
+    let nextPageToken: string | null = null;
+    let scans = 0;
+    const maxScansPerRequest = 10;
     const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-    const files = (Array.isArray(data.files) ? data.files : []).filter((file: any) => {
-      const name = String(file?.name || '').toLowerCase();
-      const mimeType = String(file?.mimeType || '').toLowerCase();
-      if (kind === 'audio') return name.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3';
-      return supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
-    }).map((file: any) => ({
-      id: String(file.id),
-      name: String(file.name || 'Untitled file'),
-      mimeType: String(file.mimeType || ''),
-      size: file.size ? String(file.size) : null,
-      modifiedTime: file.modifiedTime || null,
-    }));
 
-    return res.json({
-      success: true,
-      folder: folderName,
-      files,
-      nextPageToken: data.nextPageToken || null,
-    });
+    do {
+      if (pageToken) driveUrl.searchParams.set('pageToken', pageToken);
+      else driveUrl.searchParams.delete('pageToken');
+
+      const driveResponse = await fetch(driveUrl, {
+        headers: { Authorization: 'Bearer ' + accessToken },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data: any = await driveResponse.json().catch(() => ({}));
+      if (!driveResponse.ok) {
+        const reason = data?.error?.message ? String(data.error.message).slice(0, 300) : 'Google Drive rejected the folder listing.';
+        throw new Error(reason);
+      }
+
+      const pageFiles = Array.isArray(data.files) ? data.files : [];
+      for (const file of pageFiles) {
+        const name = String(file?.name || '');
+        const lowerName = name.toLowerCase();
+        const mimeType = String(file?.mimeType || '').toLowerCase();
+        const supported = kind === 'audio'
+          ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
+          : supportedImageTypes.has(mimeType) || /\\.(jpe?g|png|webp|gif)$/i.test(name);
+        if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
+        files.push({
+          id: String(file.id),
+          name: name || 'Untitled file',
+          mimeType: String(file.mimeType || ''),
+          size: file.size ? String(file.size) : null,
+          modifiedTime: file.modifiedTime || null,
+        });
+      }
+
+      pageToken = String(data.nextPageToken || '');
+      nextPageToken = pageToken || null;
+      scans += 1;
+    } while (files.length < 100 && nextPageToken && scans < maxScansPerRequest);
+
+    return res.json({ success: true, folder: folderName, files, nextPageToken, scannedPages: scans });
   } catch (error: any) {
     console.error('[DriveLibraryPicker] Could not list Google Drive files:', error?.message || error);
     return res.status(502).json({
