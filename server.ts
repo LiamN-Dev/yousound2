@@ -1961,7 +1961,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     const escapedSearch = searchTerm.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const typeQuery = kind === 'audio'
       ? "(mimeType='audio/mpeg' or mimeType='audio/mp3' or name contains '.mp3')"
-      : "(mimeType='image/jpeg' or mimeType='image/png' or mimeType='image/webp' or mimeType='image/gif')";
+      : "(mimeType='image/jpeg' or mimeType='image/png' or mimeType='image/webp' or mimeType='image/gif' or name contains '.jpg' or name contains '.jpeg' or name contains '.png' or name contains '.webp' or name contains '.gif')";
     const queryParts = [`'${folderId}' in parents`, 'trashed=false', typeQuery];
     if (escapedSearch) queryParts.push(`name contains '${escapedSearch}'`);
 

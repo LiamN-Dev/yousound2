@@ -178,7 +178,7 @@ const DriveLibraryPicker: React.FC<{
               {loadingMore ? 'Loading…' : 'Load more files'}
             </button>
           )}
-          <p className="text-[9px] text-slate-500">Selecting a file reuses it in place. The MP3 or image is not uploaded again.</p>
+          <p className="text-[9px] text-slate-500">Selecting a file reuses it in place. The media is not uploaded again. Only files accessible to the site's Google Drive connection appear here.</p>
         </div>
       )}
     </div>
