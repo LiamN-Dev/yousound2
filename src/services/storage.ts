@@ -1014,6 +1014,7 @@ class StorageService {
       adminNote?: string;
       colorAccent?: string;
       dailyListenLimit?: number | null;
+      christmasMode?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
     try {
