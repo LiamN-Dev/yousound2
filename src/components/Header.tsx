@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSongRequest,
 }) => {
   const feedbackUnread = useSyncExternalStore(subscribeFeedback, getFeedbackState).unreadCount;
-  const { currentUser, isAdmin, bannerConfig, logout, unreadChatCount, markChatsRead } = useAuth();
+  const { currentUser, isAdmin, maintenanceState, bannerConfig, logout, unreadChatCount, markChatsRead } = useAuth();
   const { userFavorites, userPlaylists } = useAudio();
   const { theme, toggleTheme } = useTheme();
   const [showChatBlockedModal, setShowChatBlockedModal] = useState(false);
@@ -73,6 +73,10 @@ export const Header: React.FC<HeaderProps> = ({
   const handleChatTabClick = () => {
     if (currentUser?.chatBlocked && !isAdmin) {
       setShowChatBlockedModal(true);
+      return;
+    }
+    if (maintenanceState.tabMaintenance?.chat?.enabled && !isAdmin) {
+      setActiveTab('chat');
       return;
     }
     markChatsRead();

@@ -308,10 +308,12 @@ const MainAppContent: React.FC = () => {
       <PlayerBar />
 
       {/* 5-Second Side Popup Notification for incoming chats */}
-      <ChatSideNotification
-        isChatActive={activeTab === 'chat'}
-        onOpenChat={() => setActiveTab('chat')}
-      />
+      {!maintenanceState.tabMaintenance?.chat?.enabled || isAdmin ? (
+        <ChatSideNotification
+          isChatActive={activeTab === 'chat'}
+          onOpenChat={() => setActiveTab('chat')}
+        />
+      ) : null}
 
       {/* Full Screen Visualizer Modal */}
       <VisualizerModal />
