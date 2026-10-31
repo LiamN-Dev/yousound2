@@ -374,7 +374,7 @@ export const AdminPanel: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Upload your MP3s, configure streaming URLs, manage user accounts, configure maintenance mode, and manage music requests.
+                Upload MP3s directly to the site's Google Drive, manage user accounts, configure maintenance mode, and review music requests.
               </p>
             </div>
           </div>

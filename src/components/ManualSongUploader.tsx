@@ -61,7 +61,7 @@ export const ManualSongUploader: React.FC = () => {
     if (!/\.mp3$/i.test(audioFile.name) || (audioFile.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.type.toLowerCase()))) {
       return setFeedback({ type: 'error', message: 'Only MP3 audio files are accepted. This uploader does not convert audio.' });
     }
-    if (audioFile.size > 100 * 1024 * 1024) return setFeedback({ type: 'error', message: 'The MP3 must be 100 MB or smaller.' });
+    if (audioFile.size > 150 * 1024 * 1024) return setFeedback({ type: 'error', message: 'The MP3 must be 150 MB or smaller.' });
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverFile.type.toLowerCase()) || coverFile.size > 25 * 1024 * 1024) {
       return setFeedback({ type: 'error', message: 'Use a JPG, PNG, WEBP, or GIF cover no larger than 25 MB.' });
     }
@@ -83,12 +83,24 @@ export const ManualSongUploader: React.FC = () => {
       const response = await fetch('/api/admin/library/upload-media', {
         method: 'POST', credentials: 'same-origin', body: form,
       });
-      const data = await response.json();
-      if (!response.ok || !data.success || !data.audioUrl || !data.coverUrl) {
-        throw new Error(data.error || 'Google Drive did not return both media files.');
+      const responseText = await response.text();
+      let data: any = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch { /* Host/proxy may return HTML for a rejected request. */ }
+      if (!response.ok || !data.success) {
+        const statusMessage = response.status === 413
+          ? 'The hosting layer rejected this upload before the app could process it. The app limit is 150 MB; check the deployed service/proxy body-size limit.'
+          : 'Upload request failed (' + response.status + ').';
+        throw new Error(data.error || statusMessage);
       }
 
-      if (!data.song?.id) throw new Error('Drive upload completed, but the database did not return a saved library song.');
+      // The server's canonical contract returns the created song object. Accept
+      // top-level URLs too for compatibility with an older deployed backend.
+      const song = data.song;
+      const audioUrl = data.audioUrl || song?.audioUrl;
+      const coverUrl = data.coverUrl || song?.coverUrl;
+      if (!song?.id || !audioUrl || !coverUrl) {
+        throw new Error('Drive uploaded the files, but the server did not return a complete saved song. Check the server log before retrying to avoid duplicate files.');
+      }
       await storage.syncWithServer();
       refreshState();
 
@@ -145,7 +157,7 @@ export const ManualSongUploader: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
-            <label className="mb-2 block text-[11px] font-semibold text-slate-300">MP3 audio file * <span className="font-normal text-slate-500">(max 100 MB)</span></label>
+            <label className="mb-2 block text-[11px] font-semibold text-slate-300">MP3 audio file * <span className="font-normal text-slate-500">(max 150 MB)</span></label>
             <input type="file" accept=".mp3,audio/mpeg" className={fileClass} onChange={(event) => setAudioFile(event.target.files?.[0] || null)} />
             {audioFile && <p className="mt-2 text-[10px] text-slate-400">{audioFile.name} · {(audioFile.size / (1024 * 1024)).toFixed(1)} MB</p>}
           </div>

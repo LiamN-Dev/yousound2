@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { PlaybackRouter } from '../services/playbackEngine';
 import { Song, Playlist, RepeatMode, SpotlightConfig, AutoTagRule } from '../types';
 import { storage } from '../services/storage';
 import { useAuth } from './AuthContext';
@@ -68,7 +67,7 @@ const AudioContext = createContext<AudioContextType | undefined>(undefined);
 
 export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
-  const audioRef = useRef<PlaybackRouter | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const playAttemptRef = useRef(0);
 
   const [allSongs, setAllSongs] = useState<Song[]>(() => storage.getSongs(currentUser));
@@ -105,7 +104,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const handleTrackEndRef = useRef<() => void>(() => {});
   const currentSongRef = useRef<Song | null>(null);
   // The audio listeners below are created once, so they read the latest user role through a ref
-  const errorStreakRef = useRef(0); // consecutive playback errors (stops the auto-skip from looping)
   const userRoleRef = useRef<string | undefined>(currentUser?.role);
   userRoleRef.current = currentUser?.role;
 
@@ -115,7 +113,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Initialize audio element
   useEffect(() => {
-    const audio = new PlaybackRouter();
+    const audio = new Audio();
+    audio.preload = 'metadata';
     audioRef.current = audio;
 
     const handleTimeUpdate = () => {
@@ -123,7 +122,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const handleLoadedMetadata = () => {
-      errorStreakRef.current = 0; // playback is working again
       if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
         const measured = Math.round(audio.duration);
         setDuration(audio.duration);
@@ -152,42 +150,27 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.warn('Audio playback error for URL:', audio.src);
       setIsPlaying(false);
       if (currentSongRef.current) {
-        const reason = audio.lastError || 'The audio stream or file could not be loaded.';
+        const reason = 'The audio stream or file could not be loaded.';
         setPlaybackError(`Unable to play "${currentSongRef.current.title}". ${reason}`);
       }
-      // A broken YouTube video should not leave the player stuck: move on to the next song
-      // (at most twice in a row, so a blocked network cannot cause an endless loop).
-      if (audio.isYouTube && errorStreakRef.current < 2) {
-        errorStreakRef.current += 1;
-        setTimeout(() => handleTrackEndRef.current(), 2500);
-      }
-    };
-
-    // YouTube can be paused/resumed from inside its own player; keep our play button in sync
-    const handleStateChange = () => {
-      setIsPlaying(audio.isPlaying);
     };
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
-    audio.addEventListener('statechange', handleStateChange);
 
     return () => {
-      audio.destroy();
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
-      audio.removeEventListener('statechange', handleStateChange);
     };
   }, []);
 
-  // Only admins get the Hide / Show video control
-  useEffect(() => {
-    audioRef.current?.setAdminControls(currentUser?.role === 'admin');
-  }, [currentUser]);
 
   // Sync user data & subscribe to database changes
   useEffect(() => {
@@ -231,7 +214,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (attemptId !== playAttemptRef.current) return;
         if (!allowance.allowed) {
           // A denied next-track attempt should not falsely mark an already playing track as paused.
-          setIsPlaying(audio.isPlaying);
+          setIsPlaying(!audio.paused);
           setPlaybackError(allowance.error || 'Your daily listen allowance could not be verified.');
           return;
         }

@@ -166,7 +166,7 @@ const audioStorage = multer.diskStorage({
 });
 const uploadAudio = multer({
   storage: audioStorage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  limits: { fileSize: 150 * 1024 * 1024, files: 2 }, // 150 MB MP3; cover images are separately limited to 25 MB.
 });
 
 // Helper password hasher (matching frontend)
@@ -1788,7 +1788,16 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
     let uploadedCoverId: string | null = null;
     let accessToken: string | null = null;
     try {
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message || 'Upload failed.' });
+      if (uploadError) {
+        const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
+        return res.status(tooLarge ? 413 : 400).json({
+          success: false,
+          code: uploadError.code || 'UPLOAD_FAILED',
+          error: tooLarge
+            ? 'The selected file exceeds the 150 MB upload limit. Cover images are limited to 25 MB.'
+            : uploadError.message || 'Upload failed.',
+        });
+      }
       if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
       if (!audioFile || !coverFile || !audioTempPath || !coverTempPath) {
         return res.status(400).json({ success: false, error: 'Choose both an MP3 audio file and a cover image.' });
@@ -1851,7 +1860,16 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
     let uploadedCoverId: string | null = null;
     let accessToken: string | null = null;
     try {
-      if (uploadError) return res.status(400).json({ success: false, error: uploadError.message || 'Upload failed.' });
+      if (uploadError) {
+        const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
+        return res.status(tooLarge ? 413 : 400).json({
+          success: false,
+          code: uploadError.code || 'UPLOAD_FAILED',
+          error: tooLarge
+            ? 'The selected file exceeds the 150 MB upload limit. Cover images are limited to 25 MB.'
+            : uploadError.message || 'Upload failed.',
+        });
+      }
       if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
       if (!audioFile || !coverFile || !audioTempPath || !coverTempPath) return res.status(400).json({ success: false, error: 'Choose both an MP3 and cover image.' });
       if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
@@ -1898,6 +1916,10 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       return res.json({
         success: true,
         song,
+        // Include top-level URLs as well as the canonical song object so clients
+        // can validate the uploaded media without guessing the response shape.
+        audioUrl: driveAudio.streamingUrl,
+        coverUrl: driveCover.imageUrl,
         audioFileId: driveAudio.fileId,
         coverFileId: driveCover.fileId,
       });
@@ -1909,6 +1931,37 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
     } finally {
       if (audioTempPath && fs.existsSync(audioTempPath)) { try { fs.unlinkSync(audioTempPath); } catch {} }
       if (coverTempPath && fs.existsSync(coverTempPath)) { try { fs.unlinkSync(coverTempPath); } catch {} }
+    }
+  });
+});
+
+// Upload a replacement cover directly to the site's Drive account from the song editor.
+app.post('/api/admin/library/upload-cover', (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  uploadAudio.single('cover')(req, res, async (uploadError: any) => {
+    const coverFile = req.file;
+    const tempPath = coverFile?.path || null;
+    try {
+      if (uploadError) {
+        const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
+        return res.status(tooLarge ? 413 : 400).json({
+          success: false,
+          code: uploadError.code || 'UPLOAD_FAILED',
+          error: tooLarge ? 'The cover image exceeds the 25 MB limit.' : uploadError.message || 'Cover upload failed.',
+        });
+      }
+      if (!coverFile || !tempPath) return res.status(400).json({ success: false, error: 'Choose a cover image.' });
+      if (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
+      }
+      const accessToken = await getDriveAccessToken();
+      const driveCover = await uploadImageToGoogleDrive(tempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
+      return res.json({ success: true, coverUrl: driveCover.imageUrl, fileId: driveCover.fileId });
+    } catch (error: any) {
+      console.error('[LibraryCoverUpload] Drive upload failed:', error);
+      return res.status(500).json({ success: false, error: error?.message || 'Could not upload the cover image to Google Drive.' });
+    } finally {
+      if (tempPath && fs.existsSync(tempPath)) { try { fs.unlinkSync(tempPath); } catch {} }
     }
   });
 });
@@ -2615,7 +2668,7 @@ app.post('/api/admin/database/self-test', async (_req: Request, res: Response) =
       artist: 'System',
       genre: 'Test',
       duration: 1,
-      audioUrl: 'youtube:aaaaaaaaaaa',
+      audioUrl: 'https://example.com/test.mp3',
       coverUrl: 'https://example.com/x.jpg',
       addedAt: new Date().toISOString(),
     });

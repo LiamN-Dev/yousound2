@@ -202,8 +202,8 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: 'Audio upload accepts MP3 files only. No conversion is performed.' });
       return;
     }
-    if (audio.size > 100 * 1024 * 1024) {
-      setFeedback({ type: 'error', message: 'The MP3 is larger than the 100 MB limit.' });
+    if (audio.size > 150 * 1024 * 1024) {
+      setFeedback({ type: 'error', message: 'The MP3 is larger than the 150 MB limit.' });
       return;
     }
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(cover.type.toLowerCase()) || cover.size > 25 * 1024 * 1024) {
@@ -220,8 +220,15 @@ export const AdminPipelineManager: React.FC = () => {
       const response = await fetch(`/api/admin/requests/${encodeURIComponent(request.id)}/upload-media`, {
         method: 'POST', credentials: 'same-origin', body: form,
       });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Drive upload failed.');
+      const responseText = await response.text();
+      let data: any = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch { /* A reverse proxy can return HTML for HTTP 413. */ }
+      if (!response.ok || !data.success) {
+        const statusMessage = response.status === 413
+          ? 'The hosting layer rejected this upload before the app could process it. The app limit is 150 MB; check the deployed service/proxy body-size limit.'
+          : 'Drive upload failed (' + response.status + ').';
+        throw new Error(data.error || statusMessage);
+      }
       setRequestAudioFiles((current) => ({ ...current, [request.id]: null }));
       setRequestCoverFiles((current) => ({ ...current, [request.id]: null }));
       await storage.syncWithServer();
@@ -294,7 +301,7 @@ export const AdminPipelineManager: React.FC = () => {
           <div className="max-w-3xl">
             <div className="flex items-center gap-2 text-sm font-bold text-white"><Cloud className="h-4 w-4 text-cyan-300" /> Google Drive media library</div>
             <p className="mt-1 text-xs leading-5 text-slate-300">Approve a song, choose its MP3 and thumbnail here, and upload both files to the site's Google Drive. The files are not saved in Supabase. Preview the Drive-hosted media and publish when ready.</p>
-            <p className="mt-2 text-[11px] leading-5 text-slate-400">MP3: up to 100 MB. Artwork: JPG, PNG, WEBP, or GIF, up to 25 MB. The database stores metadata and Drive references only.</p>
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">MP3: up to 150 MB. Artwork: JPG, PNG, WEBP, or GIF, up to 25 MB. The database stores metadata and Drive references only.</p>
           </div>
           <button type="button" onClick={requestGoogleToken} disabled={connectingDrive} className={`${buttonClass} shrink-0 ${driveConnected ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/15 text-cyan-100'}`}>
             {connectingDrive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Cloud className="h-3.5 w-3.5" />}
@@ -366,7 +373,7 @@ export const AdminPipelineManager: React.FC = () => {
                     <button type="button" onClick={() => saveUploadEstimate(request)} disabled={busy} className={`${buttonClass} mt-2 border-white/10 bg-white/[0.04] text-slate-200`}>Save estimate</button>
                     <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">MP3 audio file (max 100 MB)</label>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">MP3 audio file (max 150 MB)</label>
                         <input type="file" accept=".mp3,audio/mpeg" onChange={(event) => setRequestAudioFiles((current) => ({ ...current, [request.id]: event.target.files?.[0] || null }))} disabled={busy} className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-400/15 file:px-2 file:py-1 file:text-cyan-100`} />
                         {requestAudioFiles[request.id] && <div className="mt-1 text-[10px] text-slate-400">{requestAudioFiles[request.id]?.name}</div>}
                       </div>

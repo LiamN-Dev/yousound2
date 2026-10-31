@@ -1,25 +1,31 @@
 # YouSong
 
-YouSong is a React/Vite frontend with a long-running Express server, PostgreSQL/Supabase persistence, Google Drive-backed audio, and per-user daily listening limits.
+YouSong is a React/Vite music library with an Express backend, PostgreSQL/Supabase persistence, and site-wide Google Drive storage for uploaded music.
 
 ## Deploy on Render
 
-This app runs `yt-dlp`, `ffmpeg`, and `ffprobe` subprocesses. Use Render's **Docker** runtime so the included `Dockerfile` installs those tools and the YouTube JavaScript runtime. The Dockerfile also builds the Vite frontend and starts the Express server.
+Deploy the repository root as a **Docker Web Service** using `./Dockerfile`. The container installs Node.js dependencies and FFmpeg/ffprobe (used to read track duration), builds the frontend, and starts the Express server.
 
-Read [`RENDER_FIX_GUIDE.md`](./RENDER_FIX_GUIDE.md) for the deployment settings and Google Drive environment variables. Do not put secrets in the repository or frontend build variables.
+See [RENDER_FIX_GUIDE.md](./RENDER_FIX_GUIDE.md) for the exact deployment checks and environment variables. Keep database credentials, Google OAuth secrets, and encryption keys in Render's environment settings, never in Git.
 
 ## Local development
 
-Requirements: Node.js 22+, Python 3, `ffmpeg`/`ffprobe`, and `yt-dlp` with `yt-dlp-ejs` installed.
+Requirements: Node.js 22+ and FFmpeg/ffprobe.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Set your existing database and Google Drive environment variables in a local environment file that is not committed to Git. Keep `.env` and `.env.local` out of version control.
+Create a local environment file for the existing PostgreSQL/Supabase connection and Google Drive OAuth settings. Keep `.env` and `.env.local` out of version control.
 
+## Music uploads
 
-## Optional private YouTube conversion worker
+Administrators upload MP3s and cover images through the site. The server transfers the files to the connected site-wide Google Drive account using resumable, chunked uploads. The library database stores song metadata and Drive references, not the audio bytes.
 
-The `converter-service/` folder can be deployed as a separate Render Docker Web Service. Configure `CONVERTER_API_KEY` on that service and matching `YT_AUDIO_API_URL` / `YT_AUDIO_API_KEY` on the main app. See `FEATURE_SETUP.md` for exact settings and limitations.
+- MP3 maximum: **150 MB**.
+- Cover image maximum: **25 MB** (JPG, PNG, WEBP, or GIF).
+- Uploaded audio is made readable by link so the browser's audio player can play it directly from Drive.
+- Drive uploads use resumable sessions and 8 MB chunks to avoid loading an entire large song into server memory.
+
+The music library player uses normal audio files and stream URLs. There is no video-source or video-conversion pipeline.

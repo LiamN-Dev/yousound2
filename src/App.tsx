@@ -224,7 +224,7 @@ const MainAppContent: React.FC = () => {
                           Your Music Library is Empty
                         </h3>
                         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                          All songs were cleared for your manual uploads. Use the Manual Song Upload Studio above to upload your MP3 files or add audio stream URLs!
+                          Your library is empty. Use the Manual Song Upload Studio above to upload MP3 files and cover art directly to Google Drive.
                         </p>
                       </>
                     ) : (
