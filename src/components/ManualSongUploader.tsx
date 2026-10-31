@@ -194,6 +194,9 @@ export const ManualSongUploader: React.FC = () => {
   const [genre, setGenre] = useState('Lo-Fi');
   const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
   const [driveFilenameStatus, setDriveFilenameStatus] = useState<'idle' | 'loading' | 'loaded' | 'unavailable'>('idle');
+  const [audioDriveFilename, setAudioDriveFilename] = useState('');
+  const [autoMatchedArtworkId, setAutoMatchedArtworkId] = useState('');
+  const [artworkMatchMessage, setArtworkMatchMessage] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -236,11 +239,13 @@ export const ManualSongUploader: React.FC = () => {
   useEffect(() => {
     if (!audioDriveFileId) {
       setDriveFilenameStatus('idle');
+      setAudioDriveFilename(audioFile?.name || '');
       return;
     }
     if (titleManuallyEdited) return;
     if (audioDriveSelection) {
       setTitle(titleFromAudioFilename(audioDriveSelection.name));
+      setAudioDriveFilename(audioDriveSelection.name);
       setDriveFilenameStatus('loaded');
       return;
     }
@@ -259,6 +264,7 @@ export const ManualSongUploader: React.FC = () => {
         if (!response.ok || !data.success || !data.title) throw new Error(data.error || 'Drive filename unavailable.');
         if (active && !titleManuallyEdited) {
           setTitle(String(data.title).slice(0, 150));
+          setAudioDriveFilename(String(data.fileName || ''));
           setDriveFilenameStatus('loaded');
         }
       } catch {
@@ -271,6 +277,59 @@ export const ManualSongUploader: React.FC = () => {
       controller.abort();
     };
   }, [audioDriveFileId, audioDriveSelection, titleManuallyEdited]);
+
+  // A filename ID lets the uploader locate exactly one matching image in the Artwork folder.
+  useEffect(() => {
+    const filename = audioDriveFilename || '';
+    const code = filename.match(/\s-\s([0-9]{3})(?=\.[^.]+$)/i)?.[1];
+
+    const manuallySelectedArtwork = Boolean(
+      coverFile ||
+      coverDriveLink.trim() ||
+      (coverDriveSelection && coverDriveSelection.id !== autoMatchedArtworkId)
+    );
+    if (autoMatchedArtworkId && coverDriveSelection?.id === autoMatchedArtworkId) {
+      setCoverDriveSelection(null);
+      setAutoMatchedArtworkId('');
+    }
+    if (!code) {
+      setArtworkMatchMessage('');
+      return;
+    }
+    if (manuallySelectedArtwork) return;
+
+    const controller = new AbortController();
+    let active = true;
+    setArtworkMatchMessage('Looking for artwork with Media ID ' + code + '…');
+    void (async () => {
+      try {
+        const response = await fetch('/api/admin/library/artwork-for-code/' + encodeURIComponent(code), {
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not search the Artwork folder.');
+        if (!active) return;
+        const matches = Array.isArray(data.files) ? data.files : [];
+        if (matches.length === 1) {
+          setCoverFile(null);
+          setCoverDriveLink('');
+          setCoverDriveSelection(matches[0]);
+          setAutoMatchedArtworkId(matches[0].id);
+          setArtworkMatchMessage('Artwork matched automatically: ' + matches[0].name);
+        } else if (matches.length > 1) {
+          setArtworkMatchMessage('Multiple artwork files use ID ' + code + '. Select the correct image manually.');
+        } else {
+          setArtworkMatchMessage('No artwork with ID ' + code + ' was found. Select or upload a cover image.');
+        }
+      } catch (matchError: any) {
+        if (active && !controller.signal.aborted) {
+          setArtworkMatchMessage(matchError?.message || 'Artwork lookup failed. Select the image manually.');
+        }
+      }
+    })();
+    return () => { active = false; controller.abort(); };
+  }, [audioDriveFilename]);
 
   const refreshDriveStatus = async () => {
     try {
@@ -308,8 +367,10 @@ export const ManualSongUploader: React.FC = () => {
     if (!title.trim()) return setFeedback({ type: 'error', message: 'Enter a song title.' });
     if (!artist.trim()) return setFeedback({ type: 'error', message: 'Enter an artist.' });
     const useDriveLinks = Boolean(audioDriveFileId && coverDriveFileId && !audioFile && !coverFile);
-    if ((!audioDriveFileId && !audioFile) || (!coverDriveFileId && !coverFile)) {
-      return setFeedback({ type: 'error', message: 'Choose an MP3 and cover image using a Drive folder selection, a share link, or a direct upload.' });
+    const selectedAudioFilename = audioDriveFilename || audioDriveSelection?.name || audioFile?.name || '';
+    const audioFilenameHasMediaId = /\s-\s[0-9]{3}(?=\.[^.]+$)/i.test(selectedAudioFilename);
+    if ((!audioDriveFileId && !audioFile) || (!coverDriveFileId && !coverFile && !audioFilenameHasMediaId)) {
+      return setFeedback({ type: 'error', message: 'Choose an MP3 and artwork, or use an audio filename with a three-digit ID so YouSong can find the matching artwork automatically.' });
     }
     if (audioFile && audioDriveFileId) return setFeedback({ type: 'error', message: 'Choose either a Drive MP3 or a local MP3, not both.' });
     if (coverFile && coverDriveFileId) return setFeedback({ type: 'error', message: 'Choose either Drive artwork or a local image, not both.' });
@@ -369,7 +430,10 @@ export const ManualSongUploader: React.FC = () => {
       setDescription('');
       setTags('');
       setAudioFile(null);
+      setAudioDriveFilename('');
       setCoverFile(null);
+      setAutoMatchedArtworkId('');
+      setArtworkMatchMessage('');
       setAudioDriveLink('');
       setCoverDriveLink('');
       setAudioDriveSelection(null);
@@ -426,6 +490,7 @@ export const ManualSongUploader: React.FC = () => {
             <input type="file" accept=".mp3,audio/mpeg" className={fileClass} onChange={(event) => {
               const file = event.target.files?.[0] || null;
               setAudioFile(file);
+              setAudioDriveFilename(file?.name || '');
               setAudioDriveLink('');
               setAudioDriveSelection(null);
               if (file && !titleManuallyEdited) setTitle(titleFromAudioFilename(file.name));
@@ -436,6 +501,7 @@ export const ManualSongUploader: React.FC = () => {
               disabled={!driveLibraryReady || uploading}
               onSelect={(file) => {
                 setAudioFile(null);
+                setAudioDriveFilename(file.name);
                 setAudioDriveLink('');
                 setAudioDriveSelection(file);
                 setDriveFilenameStatus('loaded');
@@ -445,10 +511,11 @@ export const ManualSongUploader: React.FC = () => {
             {audioDriveSelection && <p className="text-[10px] text-emerald-300">Using existing MP3: {audioDriveSelection.name}</p>}
             <div className="border-t border-white/10 pt-2">
               <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive share link</label>
-              <input className={fieldClass} value={audioDriveLink} onChange={(event) => { setAudioDriveLink(event.target.value); setAudioDriveSelection(null); if (event.target.value) setAudioFile(null); }} placeholder="https://drive.google.com/file/d/..." />
+              <input className={fieldClass} value={audioDriveLink} onChange={(event) => { setAudioDriveLink(event.target.value); setAudioDriveFilename(''); setAudioDriveSelection(null); if (event.target.value) setAudioFile(null); }} placeholder="https://drive.google.com/file/d/..." />
               {audioDriveFileId && driveFilenameStatus === 'loading' && <p className="mt-1 text-[10px] text-slate-400">Reading filename from Google Drive…</p>}
               {audioDriveFileId && driveFilenameStatus === 'loaded' && <p className="mt-1 text-[10px] text-emerald-300">Song title filled from the Drive filename.</p>}
               {audioDriveFileId && driveFilenameStatus === 'unavailable' && <p className="mt-1 text-[10px] text-amber-300">Drive did not expose the filename. Enter the title manually.</p>}
+              {artworkMatchMessage && <p className={'mt-1 text-[10px] ' + (artworkMatchMessage.startsWith('Artwork matched') ? 'text-emerald-300' : 'text-amber-300')}>{artworkMatchMessage}</p>}
             </div>
             {audioPreviewUrl ? (
               <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-3 space-y-2">
@@ -478,13 +545,15 @@ export const ManualSongUploader: React.FC = () => {
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-2">
             <label className="block text-[11px] font-semibold text-slate-300">Thumbnail / cover *</label>
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className={fileClass} onChange={(event) => { setCoverFile(event.target.files?.[0] || null); setCoverDriveLink(''); setCoverDriveSelection(null); }} />
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className={fileClass} onChange={(event) => { setCoverFile(event.target.files?.[0] || null); setArtworkMatchMessage(''); setAutoMatchedArtworkId(''); setCoverDriveLink(''); setCoverDriveSelection(null); }} />
             {coverFile && <p className="text-[10px] text-slate-400">{coverFile.name}</p>}
             <DriveLibraryPicker
               kind="image"
               disabled={!driveLibraryReady || uploading}
               onSelect={(file) => {
                 setCoverFile(null);
+                setAutoMatchedArtworkId('');
+                setArtworkMatchMessage('');
                 setCoverDriveLink('');
                 setCoverDriveSelection(file);
               }}
@@ -492,7 +561,7 @@ export const ManualSongUploader: React.FC = () => {
             {coverDriveSelection && <p className="text-[10px] text-emerald-300">Using existing artwork: {coverDriveSelection.name}</p>}
             <div className="border-t border-white/10 pt-2">
               <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive image share link</label>
-              <input className={fieldClass} value={coverDriveLink} onChange={(event) => { setCoverDriveLink(event.target.value); setCoverDriveSelection(null); if (event.target.value) setCoverFile(null); }} placeholder="https://drive.google.com/file/d/..." />
+              <input className={fieldClass} value={coverDriveLink} onChange={(event) => { setCoverDriveLink(event.target.value); setArtworkMatchMessage(''); setAutoMatchedArtworkId(''); setCoverDriveSelection(null); if (event.target.value) setCoverFile(null); }} placeholder="https://drive.google.com/file/d/..." />
             </div>
             {coverImagePreviewUrl ? (
               <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-3 space-y-2">

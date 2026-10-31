@@ -66,6 +66,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
 
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
+  const [mediaCode, setMediaCode] = useState('');
+  const [savingChanges, setSavingChanges] = useState(false);
   const [genre, setGenre] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [duration, setDuration] = useState(180);
@@ -110,6 +112,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     if (song) {
       setTitle(song.title);
       setArtist(song.artist);
+      setMediaCode(String(song.mediaCode || ''));
       setGenre(song.genre);
       setTagsInput(song.tags ? song.tags.join(', ') : '');
       setDuration(song.duration);
@@ -195,6 +198,9 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     try {
       const form = new FormData();
       form.append('cover', file);
+      form.append('songId', String(song?.id || ''));
+      form.append('mediaCode', String(song?.mediaCode || mediaCode || ''));
+      form.append('title', title.trim());
       const response = await fetch('/api/admin/library/upload-cover', {
         method: 'POST',
         credentials: 'same-origin',
@@ -225,10 +231,19 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !artist.trim()) {
       setFeedback('Title and Artist cannot be empty.');
+      return;
+    }
+    const nextMediaCode = mediaCode.trim();
+    if (nextMediaCode && !/^[0-9]{3}$/.test(nextMediaCode)) {
+      setFeedback('Media ID must be exactly three digits, including leading zeroes.');
+      return;
+    }
+    if (song.mediaCode && !nextMediaCode) {
+      setFeedback('This song already has a Media ID. Enter another three-digit number instead of removing it.');
       return;
     }
 
@@ -240,6 +255,29 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       .split(',')
       .map((t) => t.trim().toLowerCase())
       .filter((t) => t.length > 0);
+    
+    const currentMediaCode = String(song.mediaCode || '');
+    const mediaAssetsNeedSync = Boolean(nextMediaCode) && (
+      nextMediaCode !== currentMediaCode || title.trim() !== song.title || artist.trim() !== song.artist
+    );
+    setSavingChanges(true);
+    if (mediaAssetsNeedSync) {
+      try {
+        const response = await fetch('/api/admin/library/songs/' + encodeURIComponent(song.id) + '/media-id', {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mediaCode: nextMediaCode, title: title.trim(), artist: artist.trim() }),
+        });
+        const data: any = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not update the Media ID and Google Drive filenames.');
+      } catch (mediaError: any) {
+        setFeedback(mediaError?.message || 'The Media ID change failed. Song details were not saved.');
+        setSavingChanges(false);
+        return;
+      }
+    }
+
 
     let computedHiddenFrom: string[] | undefined = undefined;
     if (visibilityMode === 'hidden_all') {
@@ -256,6 +294,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     updateSong(song.id, {
       title: title.trim(),
       artist: artist.trim(),
+      mediaCode: nextMediaCode || undefined,
       genre: genre.trim() || 'General',
       tags: parsedTags.length > 0 ? parsedTags : [genre.trim().toLowerCase()],
       duration: Number(duration) || 180,
@@ -285,7 +324,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       spotlightNote: spotlightNote.trim() || undefined,
     });
 
-    setFeedback('Song updated successfully! Selection tabs refreshed.');
+    setFeedback('Song updated successfully. Drive filenames and Media ID are synchronized.');
+    setSavingChanges(false);
     setTimeout(() => {
       setFeedback(null);
       onClose();
@@ -379,6 +419,27 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                   <span className="text-[10px] text-slate-400">Verify audio stream works</span>
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-blue-200 dark:border-blue-500/20 bg-blue-50/70 dark:bg-blue-500/[0.06] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">Admin Media ID</label>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">One three-digit number identifies this song's audio and artwork in Google Drive.</p>
+              </div>
+              <span className="font-mono text-lg font-bold tabular-nums text-blue-700 dark:text-blue-200">{mediaCode || '—'}</span>
+            </div>
+            <div className="mt-3 flex flex-col sm:flex-row gap-2">
+              <input
+                value={mediaCode}
+                onChange={(event) => setMediaCode(event.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
+                inputMode="numeric"
+                maxLength={3}
+                placeholder="Enter 000–999"
+                className="w-full sm:max-w-40 px-3 py-2.5 text-sm font-mono tracking-widest rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 self-center">Saving a changed ID renames both linked Drive files. Retired IDs cannot be reused.</p>
             </div>
           </div>
 
@@ -1017,10 +1078,11 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
             </button>
             <button
               type="submit"
-              className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+              disabled={savingChanges}
+              className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-bold text-xs shadow-md transition-all active:scale-95"
             >
-              <Save className="w-3.5 h-3.5" />
-              Save Changes
+              {savingChanges ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              {savingChanges ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>

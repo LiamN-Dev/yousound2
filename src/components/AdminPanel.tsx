@@ -12,8 +12,10 @@ import { AdminFeedbackManager } from './AdminFeedbackManager';
 import { AdminDatabaseWarning } from './AdminDatabaseWarning';
 import { ManualSongUploader } from './ManualSongUploader';
 import { AdminDatabaseManager } from './AdminDatabaseManager';
+import { AdminMediaIdManager } from './AdminMediaIdManager';
 import {
   Shield,
+  Hash,
   Music,
   Users,
   UserCheck,
@@ -77,7 +79,7 @@ export const AdminPanel: React.FC = () => {
   const { allSongs, adminAllSongs, deleteSong, updateSong, playSong, clearAllSongs, autoTagRules } = useAudio();
 
   const [adminTab, setAdminTab] = useState<
-    'songs' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'maintenance' | 'popups' | 'database'
+    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'maintenance' | 'popups' | 'database'
   >('songs');
 
   // Edit Song Modal State
@@ -356,7 +358,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in">
+    <div className="admin-studio max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in">
       {/* Admin Top Header Banner */}
       <div className="relative liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-amber-400/30 shadow-sm mb-8 overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
@@ -398,7 +400,7 @@ export const AdminPanel: React.FC = () => {
         </div>
 
         {/* Tab Controls */}
-        <div className="flex items-center gap-1.5 mt-6 pt-4 border-t border-slate-200 dark:border-white/10 overflow-x-auto">
+        <div data-admin-nav="true" className="flex items-center gap-1.5 mt-6 pt-4 border-t border-slate-200 dark:border-white/10 overflow-x-auto">
           <button
             onClick={() => setAdminTab('songs')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
@@ -409,6 +411,16 @@ export const AdminPanel: React.FC = () => {
           >
             <Music className="w-3.5 h-3.5" />
             Song Studio & Catalog ({adminAllSongs.length})
+          </button>
+
+          <button
+            onClick={() => setAdminTab('mediaids')}
+            className={adminTab === 'mediaids'
+              ? "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all bg-blue-600 text-white shadow-md shadow-blue-600/20"
+              : "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.05]"}
+          >
+            <Hash className="w-3.5 h-3.5" />
+            Media ID Bank
           </button>
 
           <button
@@ -529,6 +541,16 @@ export const AdminPanel: React.FC = () => {
       </div>
 
       <AdminDatabaseWarning />
+
+      {adminTab === 'mediaids' && (
+        <AdminMediaIdManager
+          songs={adminAllSongs}
+          onEditSong={(song) => {
+            setAdminTab('songs');
+            setEditingSong(song);
+          }}
+        />
+      )}
 
       {/* TAB 1: SONG STUDIO & CATALOG */}
       {adminTab === 'songs' && (

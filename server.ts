@@ -42,6 +42,10 @@ import {
   setSettingDb,
   getPersistentSettingDb,
   setPersistentSettingDb,
+  getMediaIdsDb,
+  getMediaIdByCodeDb,
+  reserveMediaIdDb,
+  saveMediaIdDb,
   saveMediaFileDb,
   getMediaFileDb,
   recordUserLoginDb,
@@ -371,7 +375,7 @@ function extractDriveFileId(inputUrl: string): string | null {
 
   try {
     const url = new URL(trimmed);
-    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com'].includes(url.hostname.toLowerCase())) return null;
+    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com', 'lh3.googleusercontent.com'].includes(url.hostname.toLowerCase())) return null;
     const segments = url.pathname.split('/').filter(Boolean);
     const dIndex = segments.indexOf('d');
     const id = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
@@ -1739,7 +1743,7 @@ async function getGrantedDriveScopes(accessToken: string): Promise<Set<string>> 
   });
   const data: any = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error('Google could not verify the Drive permissions granted to this connection (' + response.status + ').');
-  return new Set(String(data.scope || '').split(/\\s+/).filter(Boolean));
+  return new Set(String(data.scope || '').split(/\s+/).filter(Boolean));
 }
 
 app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Response) => {
@@ -1849,6 +1853,7 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
       coverTempPath = null;
       uploadedCoverId = driveCover.fileId;
 
+      await saveMediaIdDb({ code: mediaCode, status: 'reserved', requestId: req.params.id, title: requestItem.songTitle || 'Song', artist: requestItem.artist || 'Unknown Artist', audioFileId: driveAudio.fileId, artworkFileId: driveCover.fileId });
       const updated = await updateRequestFullDb(req.params.id, {
         status: 'staging',
         mediaCode,
@@ -1876,19 +1881,1907 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
   });
 });
 
-async function generateSongMediaCode(): Promise<string> {
-  const [songs, requests] = await Promise.all([getSongsDb(), getRequestsDb()]);
-  const usedCodes = new Set([
-    ...(Array.isArray(songs) ? songs : []),
-    ...(Array.isArray(requests) ? requests : []),
-  ].map((item: any) => String(item?.mediaCode || '').trim())
-    .filter((code: string) => /^\d{3}$/.test(code)));
-  for (let attempt = 0; attempt < 1000; attempt += 1) {
-    const candidate = String(randomBytes(2).readUInt16BE(0) % 1000).padStart(3, '0');
-    if (!usedCodes.has(candidate)) return candidate;
-  }
-  throw new Error('All 1,000 three-digit song identifiers are in use.');
+function extractMediaCodeFromName(filename: unknown): string | null {
+  const match = String(filename || '').trim().match(/\s-\s([0-9]{3})(?=\.[^.]+$)/i);
+  return match?.[1] || null;
 }
+
+async function getDriveFileMetadata(fileId: string, accessToken: string): Promise<{ id: string; name: string; mimeType: string; size?: string; modifiedTime?: string }> {
+  const url = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
+  url.searchParams.set('fields', 'id,name,mimeType,size,modifiedTime,webViewLink');
+  url.searchParams.set('supportsAllDrives', 'true');
+  const response = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) });
+  const data: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error('Google Drive could not read file metadata (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
+  if (!data.id || !data.name) throw new Error('Google Drive returned incomplete file metadata.');
+  return data;
+}
+
+async function renameDriveFileMetadata(fileId: string, name: string, accessToken: string): Promise<void> {
+  const url = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
+  url.searchParams.set('fields', 'id,name');
+  url.searchParams.set('supportsAllDrives', 'true');
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const data: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error('Google Drive could not rename a file (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
+}
+
+async function findDriveArtworkByCode(code: string, accessToken: string): Promise<Array<{ id: string; name: string; mimeType: string; size?: string; modifiedTime?: string }>> {
+  if (!/^[0-9]{3}$/.test(code)) throw new Error('A valid three-digit Media ID is required.');
+  const folderId = await getDriveLibraryFolderId(accessToken, 'Artwork');
+  const url = new URL('https://www.googleapis.com/drive/v3/files');
+  url.searchParams.set('q', "'" + folderId + "' in parents and trashed=false and name contains '" + code + "'");
+  url.searchParams.set('pageSize', '100');
+  url.searchParams.set('orderBy', 'name');
+  url.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
+  url.searchParams.set('supportsAllDrives', 'true');
+  url.searchParams.set('includeItemsFromAllDrives', 'true');
+  const response = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) });
+  const data: any = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error('Could not search the YouSong Artwork folder (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
+  const suffix = new RegExp('\\s-\\s' + code + '\\.(jpe?g|png|webp|gif)
+
+async function renameDriveSongAsset(fileId: string, kind: 'audio' | 'image', title: string, artist: string, mediaCode: string, accessToken: string): Promise<string> {
+  const metadataUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
+  metadataUrl.searchParams.set('fields', 'id,name,mimeType');
+  metadataUrl.searchParams.set('supportsAllDrives', 'true');
+  const metadataResponse = await fetch(metadataUrl, { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) });
+  const metadata: any = await metadataResponse.json().catch(() => ({}));
+  if (!metadataResponse.ok) throw new Error('Could not read the selected Drive file details (' + metadataResponse.status + '). Check the site Drive access.');
+  const currentName = String(metadata.name || '');
+  const mimeType = String(metadata.mimeType || '').toLowerCase();
+  const imageExtensions: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
+  if (kind === 'audio' && !(/\.mp3$/i.test(currentName) || ['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(mimeType))) throw new Error('The selected audio file is not an MP3.');
+  if (kind === 'image' && !imageExtensions[mimeType] && !/\.(jpe?g|png|webp|gif)$/i.test(currentName)) throw new Error('The selected artwork file is not a supported image.');
+  const extension = kind === 'audio' ? '.mp3' : (path.extname(currentName).toLowerCase() || imageExtensions[mimeType] || '.jpg');
+  const baseName = kind === 'audio' ? title + ' by ' + artist + ' - ' + mediaCode : title + ' - ' + mediaCode;
+  const safeName = (baseName.replace(/[\\/\\\\?%*:|"<>]/g, '_').replace(/\s+/g, ' ').trim() || 'Song') + extension;
+  const renameUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
+  renameUrl.searchParams.set('fields', 'id,name');
+  renameUrl.searchParams.set('supportsAllDrives', 'true');
+  const renameResponse = await fetch(renameUrl, { method: 'PATCH', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: safeName }), signal: AbortSignal.timeout(20_000) });
+  const renamed: any = await renameResponse.json().catch(() => ({}));
+  if (!renameResponse.ok) {
+    const detail = renamed?.error?.message ? String(renamed.error.message).slice(0, 250) : '';
+    throw new Error('Google Drive could not rename the selected ' + kind + ' file (' + renameResponse.status + '). Approve the Drive metadata permission and confirm the connected account can edit this file.' + (detail ? ' ' + detail : ''));
+  }
+  return String(renamed.name || safeName);
+}
+
+// Manual library upload: both files go directly to Google Drive; this endpoint stores no media bytes in the DB.
+app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
+  upload(req, res, async (uploadError: any) => {
+    const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
+    const audioFile = files.audio?.[0];
+    const coverFile = files.cover?.[0];
+    let audioTempPath: string | null = audioFile?.path || null;
+    let coverTempPath: string | null = coverFile?.path || null;
+    let uploadedAudioId: string | null = null;
+    let uploadedCoverId: string | null = null;
+    let accessToken: string | null = null;
+    try {
+      if (uploadError) {
+        const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
+        return res.status(tooLarge ? 413 : 400).json({
+          success: false,
+          code: uploadError.code || 'UPLOAD_FAILED',
+          error: tooLarge
+            ? 'The selected file exceeds the 150 MB upload limit. Cover images are limited to 25 MB.'
+            : uploadError.message || 'Upload failed.',
+        });
+      }
+      if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+      const audioDriveId = extractGoogleDriveFileId(req.body?.audioDriveLink);
+      const coverDriveId = extractGoogleDriveFileId(req.body?.coverDriveLink);
+      if (req.body?.audioDriveLink && !audioDriveId) return res.status(400).json({ success: false, error: 'The selected Drive audio file is not a valid Google Drive file.' });
+      if (req.body?.coverDriveLink && !coverDriveId) return res.status(400).json({ success: false, error: 'The selected Drive artwork file is not a valid Google Drive file.' });
+      if (!audioFile && !audioDriveId) {
+        return res.status(400).json({ success: false, error: 'Choose an MP3 using a file upload, a Drive folder selection, or a share link.' });
+      }
+      if (audioFile && audioDriveId) return res.status(400).json({ success: false, error: 'Choose either a Drive MP3 or a local MP3, not both.' });
+      if (coverFile && coverDriveId) return res.status(400).json({ success: false, error: 'Choose either Drive artwork or a local image, not both.' });
+      if (audioFile && (!audioTempPath || !/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase())))) {
+        return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
+      }
+      if (coverFile && (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase()))) {
+        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
+      }
+      if (!(await checkSqlAvailability())) {
+        return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
+      }
+
+      const title = String(req.body?.title || (audioFile ? audioFile.originalname.replace(/\.mp3$/i, '') : '')).trim();
+      const artist = String(req.body?.artist || '').trim();
+      if (!title || !artist) throw new Error('Song title and artist are required.');
+      if (audioDriveId) accessToken = await getDriveAccessToken();
+      const selectedAudioMetadata = audioDriveId ? await getDriveFileMetadata(audioDriveId, accessToken!) : null;
+      const preferredMediaCode = extractMediaCodeFromName(selectedAudioMetadata?.name || audioFile?.originalname);
+      if (!coverDriveId && !coverFile && !preferredMediaCode) {
+        throw new Error('Choose artwork, or select an audio file whose filename already ends in a three-digit Media ID so YouSong can locate its matching artwork.');
+      }
+      const mediaCode = await generateSongMediaCode(undefined, preferredMediaCode || undefined);
+      const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
+      const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
+
+      let audioUrl = '';
+      let coverUrl = '';
+      let duration = 180;
+      if (audioDriveId) {
+        accessToken = await getDriveAccessToken();
+        await renameDriveSongAsset(audioDriveId, 'audio', title, artist, mediaCode, accessToken);
+        audioUrl = '/api/drive/stream/' + encodeURIComponent(audioDriveId);
+        const suppliedDuration = Number(req.body?.duration);
+        if (Number.isFinite(suppliedDuration) && suppliedDuration > 0 && suppliedDuration <= 24 * 60 * 60) duration = Math.max(1, Math.round(suppliedDuration));
+      } else if (audioFile && audioTempPath) {
+        accessToken = await getDriveAccessToken();
+        const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, title, artist, accessToken, mediaCode);
+        audioTempPath = null;
+        uploadedAudioId = driveAudio.fileId;
+        audioUrl = driveAudio.streamingUrl;
+        duration = driveAudio.duration || duration;
+      }
+
+      let resolvedCoverDriveId = coverDriveId;
+      if (!resolvedCoverDriveId && !coverFile) {
+        accessToken = accessToken || await getDriveAccessToken();
+        const artworkMatches = await findDriveArtworkByCode(mediaCode, accessToken);
+        if (artworkMatches.length > 1) throw new Error('More than one artwork file has Media ID ' + mediaCode + '. Remove or rename the duplicate files in the Artwork folder.');
+        if (artworkMatches.length === 1) resolvedCoverDriveId = artworkMatches[0].id;
+        else throw new Error('No artwork file ending in - ' + mediaCode + ' was found. Select the artwork manually or add the matching image to the Artwork folder.');
+      }
+      if (resolvedCoverDriveId) {
+        accessToken = accessToken || await getDriveAccessToken();
+        await renameDriveSongAsset(resolvedCoverDriveId, 'image', title, artist, mediaCode, accessToken);
+        coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(resolvedCoverDriveId);
+      } else if (coverFile && coverTempPath) {
+        accessToken = accessToken || await getDriveAccessToken();
+        const coverExtension = path.extname(coverFile.originalname || '') || ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[String(coverFile.mimetype || '').toLowerCase()] || '.jpg';
+        const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken, title + ' - ' + mediaCode + coverExtension);
+        coverTempPath = null;
+        uploadedCoverId = driveCover.fileId;
+        coverUrl = driveCover.imageUrl;
+      }
+
+      const id = `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const song = await insertSongDb({
+        id,
+        title,
+        artist,
+        mediaCode,
+        album: '',
+        genre,
+        tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
+        duration,
+        audioUrl,
+        coverUrl,
+        addedAt: new Date().toISOString(),
+        plays: 0,
+        featured: false,
+        description: String(req.body?.description || '').trim(),
+      }, true);
+      await saveMediaIdDb({ code: mediaCode, status: 'assigned', songId: id, title, artist, audioFileId: audioDriveId || uploadedAudioId, artworkFileId: resolvedCoverDriveId || uploadedCoverId });
+      return res.json({
+        success: true,
+        song,
+        // Include top-level URLs as well as the canonical song object so clients
+        // can validate the uploaded media without guessing the response shape.
+        audioUrl,
+        coverUrl,
+        audioFileId: audioDriveId || uploadedAudioId,
+        coverFileId: (typeof resolvedCoverDriveId !== 'undefined' ? resolvedCoverDriveId : coverDriveId) || uploadedCoverId,
+      });
+    } catch (error: any) {
+      console.error('[LibraryUpload] Drive media upload failed:', error);
+      if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
+      if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+      return res.status(500).json({ success: false, error: error?.message || 'Could not upload media to Google Drive.' });
+    } finally {
+      if (audioTempPath && fs.existsSync(audioTempPath)) { try { fs.unlinkSync(audioTempPath); } catch {} }
+      if (coverTempPath && fs.existsSync(coverTempPath)) { try { fs.unlinkSync(coverTempPath); } catch {} }
+    }
+  });
+});
+
+// Import existing, publicly shareable Google Drive files without uploading duplicate copies.
+function extractGoogleDriveFileId(raw: unknown): string | null {
+  return extractDriveFileId(String(raw || ''));
+}
+
+function extractDriveFilenameFromHeader(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const encoded = disposition.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)?.[1];
+  const standard = disposition.match(/filename\s*=\s*(?:"((?:\\.|[^"])*)"|([^;]+))/i);
+  let filename = encoded
+    ? encoded.trim().replace(/^["']|["']$/g, '')
+    : standard?.[1] || standard?.[2] || '';
+  if (!filename) return null;
+  try { filename = decodeURIComponent(filename); } catch {}
+  filename = filename.replace(/[\\/]+/g, '_').replace(/[\u0000-\u001f]/g, '').trim();
+  return filename && filename !== '.' && filename !== '..' ? filename.slice(0, 255) : null;
+}
+
+// Admin-only filename search in the site's existing Google Drive media folders.
+app.get('/api/admin/library/drive-files', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  const kind = String(req.query.kind || '');
+  if (kind !== 'audio' && kind !== 'image') {
+    return res.status(400).json({ success: false, error: 'Choose an audio or image library.' });
+  }
+
+  const searchTerm = String(req.query.q || '').trim().slice(0, 100).toLowerCase();
+  const requestedPageToken = String(req.query.pageToken || '').trim().slice(0, 2048);
+  try {
+    const scopeVersion = await getPersistentSettingDb<string>(DRIVE_LIBRARY_SCOPE_VERSION_SETTING);
+    if (scopeVersion !== DRIVE_LIBRARY_SCOPE_VERSION) {
+      return res.status(409).json({
+        success: false,
+        code: 'DRIVE_REAUTHORIZE_REQUIRED',
+        error: 'Reconnect the site Google Drive account and approve permission to view and rename file metadata before searching existing Drive folders.',
+      });
+    }
+
+    const accessToken = await getDriveAccessToken();
+    const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
+    const folderId = await getDriveLibraryFolderId(accessToken, folderName);
+    const query = `'${folderId}' in parents and trashed=false`;
+    const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
+    driveUrl.searchParams.set('q', query);
+    driveUrl.searchParams.set('pageSize', '100');
+    driveUrl.searchParams.set('orderBy', 'name');
+    driveUrl.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,size,modifiedTime)');
+    driveUrl.searchParams.set('supportsAllDrives', 'true');
+    driveUrl.searchParams.set('includeItemsFromAllDrives', 'true');
+
+    const files: any[] = [];
+    let pageToken = requestedPageToken;
+    let nextPageToken: string | null = null;
+    let scans = 0;
+    const maxScansPerRequest = 10;
+    const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+    do {
+      if (pageToken) driveUrl.searchParams.set('pageToken', pageToken);
+      else driveUrl.searchParams.delete('pageToken');
+
+      const driveResponse = await fetch(driveUrl, {
+        headers: { Authorization: 'Bearer ' + accessToken },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data: any = await driveResponse.json().catch(() => ({}));
+      if (!driveResponse.ok) {
+        const reason = data?.error?.message ? String(data.error.message).slice(0, 300) : 'Google Drive rejected the folder listing.';
+        throw new Error(reason);
+      }
+
+      const pageFiles = Array.isArray(data.files) ? data.files : [];
+      for (const file of pageFiles) {
+        const name = String(file?.name || '');
+        const lowerName = name.toLowerCase();
+        const mimeType = String(file?.mimeType || '').toLowerCase();
+        const supported = kind === 'audio'
+          ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
+          : supportedImageTypes.has(mimeType) || /\\.(jpe?g|png|webp|gif)$/i.test(name);
+        if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
+        files.push({
+          id: String(file.id),
+          name: name || 'Untitled file',
+          mimeType: String(file.mimeType || ''),
+          size: file.size ? String(file.size) : null,
+          modifiedTime: file.modifiedTime || null,
+        });
+      }
+
+      pageToken = String(data.nextPageToken || '');
+      nextPageToken = pageToken || null;
+      scans += 1;
+    } while (files.length < 100 && nextPageToken && scans < maxScansPerRequest);
+
+    return res.json({ success: true, folder: folderName, files, nextPageToken, scannedPages: scans });
+  } catch (error: any) {
+    console.error('[DriveLibraryPicker] Could not list Google Drive files:', error?.message || error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the Google Drive media folder. Check the site Drive connection and folder permissions.',
+    });
+  }
+});
+
+// Read selected Drive file metadata through the OAuth connection; no media bytes are downloaded.
+// ----------------- ADMIN MEDIA ID SYSTEM -----------------
+app.get('/api/admin/media-ids', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const [registry, songs] = await Promise.all([getMediaIdsDb(), getSongsDb()]);
+    const used = new Set<string>([
+      ...registry.map((item: any) => String(item.code)),
+      ...songs.map((item: any) => String(item.mediaCode || '')).filter((code: string) => /^[0-9]{3}$/.test(code)),
+    ]);
+    return res.json({
+      success: true, registry, totalSongs: songs.length,
+      assignedSongs: songs.filter((song: any) => /^[0-9]{3}$/.test(String(song.mediaCode || ''))).length,
+      missingSongIds: songs.filter((song: any) => !/^[0-9]{3}$/.test(String(song.mediaCode || ''))).length,
+      availableCount: Math.max(0, 1000 - used.size), capacity: 1000,
+    });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error?.message || 'Could not load the Media ID Bank.' });
+  }
+});
+
+app.post('/api/admin/media-ids/generate', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const count = Math.max(1, Math.min(20, Math.floor(Number(req.body?.count) || 1)));
+    const generated: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const code = await generateSongMediaCode();
+      await saveMediaIdDb({ code, status: 'reserved', title: 'Reserved by administrator' });
+      generated.push(code);
+    }
+    return res.json({ success: true, generated });
+  } catch (error: any) {
+    return res.status(409).json({ success: false, error: error?.message || 'Could not generate Media IDs.' });
+  }
+});
+
+app.get('/api/admin/library/artwork-for-code/:code', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  const code = String(req.params.code || '');
+  if (!/^[0-9]{3}$/.test(code)) return res.status(400).json({ success: false, error: 'Media ID must contain exactly three digits.' });
+  try {
+    const accessToken = await getDriveAccessToken();
+    const files = await findDriveArtworkByCode(code, accessToken);
+    return res.json({ success: true, code, files, matchCount: files.length });
+  } catch (error: any) {
+    return res.status(502).json({ success: false, error: error?.message || 'Could not search the Artwork folder.' });
+  }
+});
+
+app.post('/api/admin/media-ids/backfill', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent Supabase/PostgreSQL database is unavailable. No IDs were assigned.' });
+    const songs = await getSongsDb();
+    const needsDrive = songs.some((song: any) => extractDriveFileId(String(song.audioUrl || '')) || extractDriveFileId(String(song.coverUrl || '')));
+    const accessToken = needsDrive ? await getDriveAccessToken() : '';
+    const results: Array<{ songId: string; title: string; mediaCode?: string; status: 'updated' | 'unchanged' | 'error'; detail: string }> = [];
+    for (const song of songs) {
+      try {
+        const audioFileId = extractDriveFileId(String(song.audioUrl || ''));
+        let artworkFileId = extractDriveFileId(String(song.coverUrl || ''));
+        const audioMetadata = audioFileId ? await getDriveFileMetadata(audioFileId, accessToken) : null;
+        const preferredCode = /^[0-9]{3}$/.test(String(song.mediaCode || '')) ? String(song.mediaCode) : extractMediaCodeFromName(audioMetadata?.name) || undefined;
+        const code = await generateSongMediaCode(song.id, preferredCode);
+        const originalAudioName = audioMetadata?.name || null;
+        const artworkMetadata = artworkFileId ? await getDriveFileMetadata(artworkFileId, accessToken) : null;
+        const originalArtworkName = artworkMetadata?.name || null;
+        let matchedArtwork = false;
+        if (!artworkFileId && !String(song.coverUrl || '').trim()) {
+          const matches = await findDriveArtworkByCode(code, accessToken);
+          if (matches.length > 1) throw new Error('Multiple artwork files match this Media ID. Resolve the duplicates in Drive before continuing.');
+          if (matches.length === 1) { artworkFileId = matches[0].id; matchedArtwork = true; }
+        }
+        try {
+          if (audioFileId) await renameDriveSongAsset(audioFileId, 'audio', song.title, song.artist, code, accessToken);
+          if (artworkFileId) await renameDriveSongAsset(artworkFileId, 'image', song.title, song.artist, code, accessToken);
+        } catch (renameError) {
+          if (audioFileId && originalAudioName) await renameDriveFileMetadata(audioFileId, originalAudioName, accessToken).catch(() => undefined);
+          if (artworkFileId && originalArtworkName) await renameDriveFileMetadata(artworkFileId, originalArtworkName, accessToken).catch(() => undefined);
+          throw renameError;
+        }
+        const coverUrl = matchedArtwork && artworkFileId ? 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(artworkFileId) : song.coverUrl;
+        await updateSongDb(song.id, { mediaCode: code, ...(coverUrl !== song.coverUrl ? { coverUrl } : {}) });
+        await saveMediaIdDb({ code, status: 'assigned', songId: song.id, title: song.title, artist: song.artist, audioFileId, artworkFileId });
+        if (song.mediaCode && song.mediaCode !== code) {
+          const oldRecord = await getMediaIdByCodeDb(String(song.mediaCode));
+          if (oldRecord?.songId === song.id) await saveMediaIdDb({ code: String(song.mediaCode), status: 'retired', title: song.title, artist: song.artist });
+        }
+        const wasAlreadyComplete = song.mediaCode === code && (!audioFileId || extractMediaCodeFromName(originalAudioName) === code) && (!artworkFileId || extractMediaCodeFromName(originalArtworkName || '') === code);
+        results.push({
+          songId: song.id, title: song.title, mediaCode: code,
+          status: wasAlreadyComplete && !matchedArtwork ? 'unchanged' : 'updated',
+          detail: matchedArtwork ? 'Assigned ID and automatically matched artwork from the Artwork folder.'
+            : audioFileId || artworkFileId ? 'Assigned ID and synchronized available Drive filenames.'
+            : 'Assigned an ID. No Google Drive file IDs were available to rename.',
+        });
+      } catch (error: any) {
+        results.push({ songId: song.id, title: song.title, status: 'error', detail: error?.message || 'Could not assign this Media ID.' });
+      }
+    }
+    return res.json({
+      success: true, total: results.length,
+      updatedCount: results.filter((result) => result.status === 'updated').length,
+      unchangedCount: results.filter((result) => result.status === 'unchanged').length,
+      errorCount: results.filter((result) => result.status === 'error').length,
+      results,
+    });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error?.message || 'Media ID backfill could not run.' });
+  }
+});
+
+app.patch('/api/admin/library/songs/:id/media-id', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const song = await getSongByIdDb(req.params.id);
+    if (!song) return res.status(404).json({ success: false, error: 'Song not found.' });
+    const code = String(req.body?.mediaCode || '').trim();
+    if (!/^[0-9]{3}$/.test(code)) return res.status(400).json({ success: false, error: 'Enter exactly three digits, including leading zeroes.' });
+    const title = String(req.body?.title || song.title).trim().slice(0, 150);
+    const artist = String(req.body?.artist || song.artist).trim().slice(0, 150);
+    if (!title || !artist) return res.status(400).json({ success: false, error: 'Song title and artist cannot be empty.' });
+    const [songs, requests, registry] = await Promise.all([getSongsDb(), getRequestsDb(), getMediaIdsDb()]);
+    const conflictSong = songs.find((item: any) => item.id !== song.id && String(item.mediaCode || '') === code);
+    if (conflictSong) return res.status(409).json({ success: false, error: 'That Media ID already belongs to "' + conflictSong.title + '".' });
+    const conflictRequest = requests.find((item: any) => item.status !== 'published' && String(item.mediaCode || '') === code && item.id !== song.id);
+    if (conflictRequest) return res.status(409).json({ success: false, error: 'That Media ID is reserved by a song request.' });
+    const registryEntry: any = registry.find((item: any) => item.code === code);
+    if (registryEntry?.status === 'retired') return res.status(409).json({ success: false, error: 'That Media ID is retired and cannot be reused.' });
+    if (registryEntry && ((registryEntry.songId && registryEntry.songId !== song.id) || registryEntry.requestId)) {
+      return res.status(409).json({ success: false, error: 'That Media ID is already assigned or reserved.' });
+    }
+    if (code !== String(song.mediaCode || '') && !registryEntry && !(await reserveMediaIdDb(code))) {
+      return res.status(409).json({ success: false, error: 'That Media ID was just claimed by another upload. Generate another number.' });
+    }
+    const audioFileId = extractDriveFileId(String(song.audioUrl || ''));
+    const artworkFileId = extractDriveFileId(String(song.coverUrl || ''));
+    const accessToken = audioFileId || artworkFileId ? await getDriveAccessToken() : '';
+    const oldAudio = audioFileId ? await getDriveFileMetadata(audioFileId, accessToken) : null;
+    const oldArtwork = artworkFileId ? await getDriveFileMetadata(artworkFileId, accessToken) : null;
+    try {
+      if (audioFileId) await renameDriveSongAsset(audioFileId, 'audio', title, artist, code, accessToken);
+      if (artworkFileId) await renameDriveSongAsset(artworkFileId, 'image', title, artist, code, accessToken);
+    } catch (renameError) {
+      if (audioFileId && oldAudio?.name) await renameDriveFileMetadata(audioFileId, oldAudio.name, accessToken).catch(() => undefined);
+      if (artworkFileId && oldArtwork?.name) await renameDriveFileMetadata(artworkFileId, oldArtwork.name, accessToken).catch(() => undefined);
+      throw renameError;
+    }
+    const updated = await updateSongDb(song.id, { mediaCode: code, title, artist });
+    if (song.mediaCode && song.mediaCode !== code) {
+      await saveMediaIdDb({ code: String(song.mediaCode), status: 'retired', title: song.title, artist: song.artist });
+    }
+    await saveMediaIdDb({ code, status: 'assigned', songId: song.id, title, artist, audioFileId, artworkFileId });
+    return res.json({ success: true, song: updated || { ...song, mediaCode: code, title, artist }, renamed: { audio: Boolean(audioFileId), artwork: Boolean(artworkFileId) } });
+  } catch (error: any) {
+    console.error('[MediaIdUpdate] Failed:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Could not update the Media ID.' });
+  }
+});
+
+app.get('/api/admin/library/drive-file-info/:fileId', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  const fileId = String(req.params.fileId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return res.status(400).json({ success: false, error: 'Invalid Google Drive file ID.' });
+  try {
+    const accessToken = await getDriveAccessToken();
+    const metadata = await getDriveFileMetadata(fileId, accessToken);
+    const title = path.basename(metadata.name, path.extname(metadata.name))
+      .replace(/\s-\s[0-9]{3}$/i, '')
+      .replace(/ by .+$/i, '')
+      .replace(/[_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 150);
+    return res.json({
+      success: true, fileName: metadata.name, title,
+      mediaCode: extractMediaCodeFromName(metadata.name),
+      mimeType: metadata.mimeType,
+      fileSize: metadata.size ? Number(metadata.size) : undefined,
+      modifiedTime: metadata.modifiedTime || undefined,
+    });
+  } catch (error: any) {
+    console.warn('[DriveFileInfo] Metadata lookup failed:', error?.message || error);
+    return res.status(422).json({ success: false, error: error?.message || 'Could not read this file through the site Drive connection. Reconnect Drive or check access to this file.' });
+  }
+});
+
+// The uploader sends multipart FormData. Parse those text fields before reading req.body.
+const parseDriveLinkForm = multer({ limits: { fields: 20, fieldSize: 8192 } }).none();
+
+app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const audioId = extractGoogleDriveFileId(req.body?.audioDriveLink);
+    let coverId = extractGoogleDriveFileId(req.body?.coverDriveLink);
+    if (!audioId) return res.status(400).json({ success: false, error: 'Paste a valid Google Drive link for the MP3.' });
+    if (audioId === coverId) return res.status(400).json({ success: false, error: 'The MP3 and cover image must be two different Drive files.' });
+    const title = String(req.body?.title || '').trim().slice(0, 150);
+    const artist = String(req.body?.artist || '').trim().slice(0, 150);
+    if (!title || !artist) return res.status(400).json({ success: false, error: 'Song title and artist are required.' });
+    if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
+    const accessToken = await getDriveAccessToken();
+    const audioMetadata = await getDriveFileMetadata(audioId, accessToken);
+    const preferredCode = extractMediaCodeFromName(audioMetadata.name);
+    const mediaCode = await generateSongMediaCode(undefined, preferredCode || undefined);
+    if (!coverId) {
+      const matches = await findDriveArtworkByCode(mediaCode, accessToken);
+      if (matches.length > 1) return res.status(409).json({ success: false, error: 'Multiple artwork files match Media ID ' + mediaCode + '. Choose the correct artwork manually.' });
+      if (!matches.length) return res.status(422).json({ success: false, error: 'No artwork file matching Media ID ' + mediaCode + ' was found. Paste its Drive link or select it from the Artwork folder.' });
+      coverId = matches[0].id;
+    }
+    const originalCoverMetadata = await getDriveFileMetadata(coverId, accessToken);
+    await renameDriveSongAsset(audioId, 'audio', title, artist, mediaCode, accessToken);
+    try {
+      await renameDriveSongAsset(coverId, 'image', title, artist, mediaCode, accessToken);
+    } catch (error) {
+      await renameDriveFileMetadata(audioId, audioMetadata.name, accessToken).catch(() => undefined);
+      await renameDriveFileMetadata(coverId, originalCoverMetadata.name, accessToken).catch(() => undefined);
+      throw error;
+    }
+    const audioUrl = '/api/drive/stream/' + encodeURIComponent(audioId);
+    const coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(coverId);
+    const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
+    const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
+    const songId = 'song-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+    const song = await insertSongDb({
+      id: songId, title, artist, mediaCode, album: '', genre,
+      tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
+      duration: (() => {
+        const detected = Number(req.body?.duration);
+        return Number.isFinite(detected) && detected > 0 && detected <= 24 * 60 * 60 ? Math.max(1, Math.round(detected)) : 180;
+      })(),
+      audioUrl, coverUrl, addedAt: new Date().toISOString(), plays: 0, featured: false,
+      description: String(req.body?.description || '').trim(),
+    }, true);
+    await saveMediaIdDb({ code: mediaCode, status: 'assigned', songId, title, artist, audioFileId: audioId, artworkFileId: coverId });
+    return res.json({ success: true, song, audioUrl, coverUrl, audioFileId: audioId, coverFileId: coverId, reusedExistingDriveFiles: true });
+  } catch (error: any) {
+    console.error('[DriveLinkImport] Could not add existing Drive files:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Could not add the existing Google Drive files.' });
+  }
+});
+
+// Upload a replacement cover directly to the site's Drive account from the song editor.
+app.post('/api/admin/library/upload-cover', (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  uploadAudio.single('cover')(req, res, async (uploadError: any) => {
+    const coverFile = req.file;
+    const tempPath = coverFile?.path || null;
+    try {
+      if (uploadError) {
+        const tooLarge = uploadError.code === 'LIMIT_FILE_SIZE';
+        return res.status(tooLarge ? 413 : 400).json({
+          success: false,
+          code: uploadError.code || 'UPLOAD_FAILED',
+          error: tooLarge ? 'The cover image exceeds the 25 MB limit.' : uploadError.message || 'Cover upload failed.',
+        });
+      }
+      if (!coverFile || !tempPath) return res.status(400).json({ success: false, error: 'Choose a cover image.' });
+      if (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase())) {
+        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
+      }
+      const accessToken = await getDriveAccessToken();
+      const songId = String(req.body?.songId || '').trim();
+      const song = songId ? await getSongByIdDb(songId) : null;
+      const mediaCode = String(song?.mediaCode || req.body?.mediaCode || '').trim();
+      const title = String(song?.title || req.body?.title || path.basename(coverFile.originalname, path.extname(coverFile.originalname))).trim();
+      const extension = path.extname(coverFile.originalname || '') || ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[String(coverFile.mimetype || '').toLowerCase()] || '.jpg';
+      const desiredFilename = /^[0-9]{3}$/.test(mediaCode) ? title + ' - ' + mediaCode + extension : undefined;
+      const driveCover = await uploadImageToGoogleDrive(tempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken, desiredFilename);
+      if (song?.id && /^[0-9]{3}$/.test(mediaCode)) {
+        const existingRecord = await getMediaIdByCodeDb(mediaCode);
+        await saveMediaIdDb({
+          code: mediaCode, status: 'assigned', songId: song.id, title: song.title, artist: song.artist,
+          audioFileId: existingRecord?.audioFileId || extractDriveFileId(String(song.audioUrl || '')),
+          artworkFileId: driveCover.fileId,
+        });
+      }
+      return res.json({ success: true, coverUrl: driveCover.imageUrl, fileId: driveCover.fileId, filename: desiredFilename || coverFile.originalname });
+    } catch (error: any) {
+      console.error('[LibraryCoverUpload] Drive upload failed:', error);
+      return res.status(500).json({ success: false, error: error?.message || 'Could not upload the cover image to Google Drive.' });
+    } finally {
+      if (tempPath && fs.existsSync(tempPath)) { try { fs.unlinkSync(tempPath); } catch {} }
+    }
+  });
+});
+
+// Publish only a staged MP3 hosted directly on Google Drive. This keeps song bytes out of this app host.
+app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    const { isPublished } = req.body || {};
+    const requestItem = await getRequestByIdDb(id);
+    if (!requestItem) return res.status(404).json({ error: 'Request not found' });
+
+    if (isPublished) {
+      if (requestItem.status !== 'staging') {
+        return res.status(409).json({ error: 'Only a request with an uploaded MP3 can be published. Upload an MP3 directly to Google Drive first.' });
+      }
+      const requestAudioUrl = String(requestItem.audioUrl || '');
+      const hasDrivePlaybackUrl = requestAudioUrl.startsWith('/api/drive/stream/')
+        || requestAudioUrl.startsWith('https://drive.google.com/uc?export=download&id=');
+      if (!requestItem.driveFileId || !hasDrivePlaybackUrl || !String(requestItem.coverUrl || '').startsWith('https://lh3.googleusercontent.com/d/')) {
+        return res.status(400).json({ error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
+      }
+
+      if (!(await checkSqlAvailability())) return res.status(503).json({ error: 'The persistent database is unavailable. The song was not published.' });
+      const songId = `song-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const newSong = await insertSongDb({
+        id: songId,
+        title: requestItem.songTitle,
+        artist: requestItem.artist || 'Unknown Artist',
+        mediaCode: requestItem.mediaCode || undefined,
+        album: 'YouSong Community',
+        genre: requestItem.genre || 'Vibe / Chill',
+        duration: requestItem.duration || 180,
+        audioUrl: requestItem.audioUrl,
+        coverUrl: requestItem.coverUrl,
+        addedAt: new Date().toISOString(),
+        plays: 0,
+        featured: false,
+        description: `Requested by ${requestItem.requestedByUsername} via YouSong Pipeline.`,
+        tags: [requestItem.genre?.toLowerCase() || 'vibe', 'community', 'drive-mp3'],
+      }, true);
+
+      await saveMediaIdDb({ code: String(requestItem.mediaCode), status: 'assigned', songId, title: newSong.title, artist: newSong.artist, audioFileId: requestItem.driveFileId, artworkFileId: extractDriveFileId(String(requestItem.coverUrl || '')) });
+      const updated = await updateRequestFullDb(id, {
+        status: 'published',
+        publishedSongId: songId,
+        publishedAt: new Date().toISOString(),
+        processingProgress: 'Published. Audio streams directly from Google Drive.',
+        processingError: null,
+      });
+      console.log(`[SongPipeline] Published Drive MP3 "${newSong.title}" (${requestItem.driveFileId}).`);
+      return res.json({ success: true, request: updated, song: newSong });
+    }
+
+    // Unpublishing removes the library entry, but deliberately leaves the uploaded MP3 in Drive.
+    if (requestItem.publishedSongId) await deleteSongDb(requestItem.publishedSongId);
+    const updated = await updateRequestFullDb(id, {
+      status: 'staging',
+      publishedSongId: null,
+      publishedAt: null,
+      processingProgress: 'Unpublished; MP3 remains in staging.',
+    });
+    return res.json({ success: true, request: updated });
+  } catch (error: any) {
+    console.error('Publish request error:', error);
+    return res.status(500).json({ error: error.message || 'Publish failed.' });
+  }
+});
+
+// Stream public Google Drive MP3s through a same-origin endpoint.
+ // Google Drive's download URL can return an HTML safety-confirmation page instead of audio.
+ // Redirecting an <audio> element directly to that page causes a source-unavailable failure.
+app.get('/api/drive/stream/:fileId', async (req: Request, res: Response) => {
+  const fileId = String(req.params.fileId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return res.status(400).send('Invalid Google Drive file ID');
+
+  const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+  };
+  if (req.headers.range) headers.Range = String(req.headers.range);
+
+  try {
+    let driveRes = await fetch(driveUrl, { headers, redirect: 'follow' });
+    let contentType = driveRes.headers.get('content-type') || '';
+
+    // Large public files can be returned as an HTML "download anyway" interstitial.
+    if (contentType.toLowerCase().includes('text/html')) {
+      const html = await driveRes.text();
+      const href = html.match(/href=["']([^"']*confirm=[^"']+)["']/i)?.[1];
+      const confirmToken = html.match(/name=["']confirm["']\s+value=["']([^"']+)["']/i)?.[1]
+        || html.match(/value=["']([^"']+)["']\s+name=["']confirm["']/i)?.[1];
+
+      if (href) {
+        const decodedHref = href.replace(/&amp;/g, '&').replace(/&#38;/g, '&');
+        driveRes = await fetch(new URL(decodedHref, driveUrl), { headers, redirect: 'follow' });
+      } else if (confirmToken) {
+        const confirmationUrl = new URL('https://drive.usercontent.google.com/download');
+        confirmationUrl.searchParams.set('id', fileId);
+        confirmationUrl.searchParams.set('export', 'download');
+        confirmationUrl.searchParams.set('confirm', confirmToken);
+        driveRes = await fetch(confirmationUrl, { headers, redirect: 'follow' });
+      } else {
+        return res.status(502).send('Google Drive returned a confirmation page instead of the MP3. Make sure the file is shared with Anyone with the link.');
+      }
+      contentType = driveRes.headers.get('content-type') || '';
+    }
+
+    if (!driveRes.ok && driveRes.status !== 206) {
+      const status = [401, 403, 404].includes(driveRes.status) ? 502 : driveRes.status;
+      return res.status(status).send('Google Drive could not provide this MP3. Check that the selected MP3 is accessible to the site's Drive account and, for public-link playback, is shared with Anyone with the link.');
+    }
+    if (contentType.toLowerCase().includes('text/html')) {
+      return res.status(502).send('Google Drive still returned a webpage instead of audio. Check the file sharing permissions and that the selected file is an MP3.');
+    }
+    if (!driveRes.body) return res.status(502).send('Google Drive returned an empty audio response.');
+
+    res.status(driveRes.status === 206 ? 206 : 200);
+    res.setHeader('Content-Type', contentType.toLowerCase().startsWith('audio/') ? contentType : 'audio/mpeg');
+    res.setHeader('Content-Disposition', 'inline; filename="yousong-track.mp3"');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    for (const name of ['content-length', 'content-range', 'etag', 'last-modified']) {
+      const value = driveRes.headers.get(name);
+      if (value) res.setHeader(name, value);
+    }
+
+    const nodeStream = (await import('stream')).Readable.fromWeb(driveRes.body as any);
+    nodeStream.on('error', (error) => {
+      console.error('[DriveAudio] Stream error:', error);
+      if (!res.headersSent) res.status(502).end(); else res.destroy(error);
+    });
+    res.on('close', () => {
+      if (!res.writableEnded) nodeStream.destroy();
+    });
+    return nodeStream.pipe(res);
+  } catch (error: any) {
+    console.error('[DriveAudio] Could not stream Google Drive file:', error);
+    return res.status(502).send('Could not connect to Google Drive to stream this MP3.');
+  }
+});
+
+// A requester may remove their own request until it has been published.
+app.delete('/api/requests/:id', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Please log in again.' });
+    const item = await getRequestByIdDb(req.params.id);
+    if (!item || (item.requestedByUserId !== user.uid && user.role !== 'admin')) {
+      return res.status(404).json({ success: false, error: 'Request not found.' });
+    }
+    if (item.status === 'published') {
+      return res.status(409).json({ success: false, error: 'This song is already published. Ask an administrator to remove it from the library.' });
+    }
+    await deleteRequestDb(req.params.id);
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Requester delete request error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Could not delete request.' });
+  }
+});
+
+app.delete('/api/admin/requests/:id', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const { id } = req.params;
+    const item = await getRequestByIdDb(id);
+    // ?keepSong=1 only removes the entry from the admin list; the song stays live in the library
+    if (item?.publishedSongId && req.query.keepSong !== '1') {
+      await deleteSongDb(item.publishedSongId);
+    }
+    await deleteRequestDb(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete request error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------- POPUPS -----------------
+app.get('/api/popups', async (req: Request, res: Response) => {
+  try {
+    const list = await getPopupsDb();
+    res.json({ popups: list });
+  } catch (error: any) {
+    console.error('Get popups error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/popups', async (req: Request, res: Response) => {
+  try {
+    const { targetUserId, title, message, type, durationMinutes, expiresAt, isDismissible } = req.body;
+    let computedExpiresAt = null;
+    if (durationMinutes && Number(durationMinutes) > 0) {
+      computedExpiresAt = new Date(Date.now() + Number(durationMinutes) * 60 * 1000);
+    } else if (expiresAt) {
+      computedExpiresAt = new Date(expiresAt);
+    }
+
+    const newPopup = await createPopupDb({
+      id: `popup-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      targetUserId: targetUserId || 'all',
+      title: title || 'Notice',
+      message: message || '',
+      type: type || 'announcement',
+      createdAt: new Date().toISOString(),
+      active: true,
+      expiresAt: computedExpiresAt || undefined,
+      isDismissible: isDismissible !== false,
+    });
+    res.json({ success: true, popup: newPopup });
+  } catch (error: any) {
+    console.error('Create popup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/admin/popups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    const updated = await updatePopupDb(id, active);
+    res.json({ success: true, popup: updated });
+  } catch (error: any) {
+    console.error('Patch popup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/popups/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await deletePopupDb(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete popup error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------- BANNER & MAINTENANCE SETTINGS -----------------
+const getBannerHandler = async (_req: Request, res: Response) => {
+  try {
+    const banner = (await getSettingDb('banner')) || {
+      enabled: true,
+      versionName: 'v2.6 Pro Edition',
+      sloganText: 'School Audio Hub',
+      colorTheme: 'sapphire-ice',
+      ribbonEnabled: true,
+      ribbonNotice: 'All audio streams are school-safe, ad-free, and curated for focused study',
+    };
+    res.json({ banner });
+  } catch (error: any) {
+    console.error('Get banner error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const postBannerHandler = async (req: Request, res: Response) => {
+  try {
+    const current = (await getSettingDb('banner')) || {};
+    const updated = {
+      ...current,
+      ...req.body,
+      customGradientFrom: req.body.customGradientFrom !== undefined ? req.body.customGradientFrom : current.customGradientFrom,
+      customGradientTo: req.body.customGradientTo !== undefined ? req.body.customGradientTo : current.customGradientTo,
+    };
+    await setSettingDb('banner', updated);
+    res.json({ success: true, banner: updated });
+  } catch (error: any) {
+    console.error('Post banner error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+app.get('/api/banner', getBannerHandler);
+app.get('/api/admin/banner', getBannerHandler);
+app.post('/api/banner', postBannerHandler);
+app.post('/api/admin/banner', postBannerHandler);
+
+app.get('/api/maintenance', async (req: Request, res: Response) => {
+  try {
+    const maintenance = (await getSettingDb('maintenance')) || {
+      enabled: false,
+      message: 'System maintenance in progress.',
+      updatedAt: new Date().toISOString(),
+      hasCountdown: false,
+      estimatedFinishTime: null,
+      autoDisableOnCountdown: false,
+    };
+
+    // Auto-disable maintenance mode if countdown timer reached zero and setting is enabled
+    if (
+      maintenance.enabled &&
+      maintenance.hasCountdown &&
+      maintenance.autoDisableOnCountdown &&
+      maintenance.estimatedFinishTime
+    ) {
+      const finishDate = new Date(maintenance.estimatedFinishTime);
+      if (!isNaN(finishDate.getTime()) && new Date() >= finishDate) {
+        maintenance.enabled = false;
+        await setSettingDb('maintenance', maintenance);
+      }
+    }
+
+    res.json({ maintenance });
+  } catch (error: any) {
+    console.error('Get maintenance error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/maintenance', async (req: Request, res: Response) => {
+  try {
+    const { enabled, message, hasCountdown, estimatedFinishTime, autoDisableOnCountdown } = req.body;
+    const current = (await getSettingDb('maintenance')) || {};
+    const updated = {
+      ...current,
+      enabled: !!enabled,
+      message: message || current.message || 'System maintenance in progress.',
+      updatedAt: new Date().toISOString(),
+      hasCountdown: !!hasCountdown,
+      estimatedFinishTime: hasCountdown ? estimatedFinishTime || null : null,
+      autoDisableOnCountdown: !!autoDisableOnCountdown,
+    };
+    await setSettingDb('maintenance', updated);
+    res.json({ success: true, maintenance: updated });
+  } catch (error: any) {
+    console.error('Post maintenance error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------- CHAT SYSTEM (WITH STRICT ADMIN APPROVAL & OVERSIGHT) -----------------
+// 1. Chat Requests
+app.get('/api/chat/requests', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) {
+      return res.json({ requests: await getChatRequestsForUserDb(getAuthUser(req).uid) });
+    }
+    const { userId } = req.query;
+    if (userId && typeof userId === 'string') {
+      const userRequests = await getChatRequestsForUserDb(userId);
+      return res.json({ requests: userRequests });
+    }
+    const allRequests = await getChatRequestsDb();
+    res.json({ requests: allRequests });
+  } catch (error: any) {
+    console.error('Get chat requests error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat/requests', async (req: Request, res: Response) => {
+  try {
+    const { receiverId, receiverUsername, reason } = req.body;
+    const senderId = getAuthUser(req).uid;
+    const senderUsername = getAuthUser(req).username;
+    if (!senderId || !receiverId) {
+      return res.status(400).json({ error: 'Sender and receiver are required' });
+    }
+    if (senderId === receiverId) {
+      return res.status(400).json({ error: 'Cannot request a chat with yourself' });
+    }
+
+    // Check if sender has global chat block
+    const sender = await getUserByUid(senderId);
+    if (sender?.chatBlocked) {
+      return res.status(403).json({ error: 'Your chat privileges have been disabled by Administrator' });
+    }
+
+    // Check pairing block
+    const isBlocked = await isChatPairingBlockedDb(senderId, receiverId);
+    if (isBlocked) {
+      return res.status(403).json({
+        error: 'Communication between these two accounts is restricted by Administrator',
+      });
+    }
+
+    const requestId = `chreq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const created = await createChatRequestDb({
+      id: requestId,
+      senderId,
+      senderUsername: senderUsername || sender?.username || 'User',
+      receiverId,
+      receiverUsername: receiverUsername || 'User',
+      reason,
+    });
+
+    res.json({ success: true, request: created });
+  } catch (error: any) {
+    console.error('Create chat request error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/chat/requests/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNote } = req.body;
+    if (status !== 'approved' && status !== 'declined') {
+      return res.status(400).json({ error: 'Status must be approved or declined' });
+    }
+
+    const updated = await updateChatRequestStatusDb(id, status, adminNote);
+
+    // Approving a request opens the conversation between the two users
+    let thread = null;
+    if (status === 'approved') {
+      const reqItem: any = (await getChatRequestByIdDb(id)) || updated;
+      if (reqItem?.senderId && reqItem?.receiverId) {
+        thread = await createOrForceChatThreadDb(
+          reqItem.senderId,
+          reqItem.senderUsername || 'User',
+          reqItem.receiverId,
+          reqItem.receiverUsername || 'User',
+          false
+        );
+      }
+    }
+    res.json({ success: true, request: updated, thread });
+  } catch (error: any) {
+    console.error('Update chat request error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/chat/requests/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!isAdminReq(req)) {
+      const item: any = await getChatRequestByIdDb(id);
+      if (!item || item.senderId !== getAuthUser(req).uid) {
+        return res.status(403).json({ error: 'You can only cancel your own requests' });
+      }
+    }
+    await deleteChatRequestDb(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete chat request error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. Chat Threads
+app.get('/api/chat/threads', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) {
+      return res.json({ threads: await getChatThreadsForUserDb(getAuthUser(req).uid) });
+    }
+    const { userId, mode } = req.query;
+    if (userId && typeof userId === 'string') {
+      const user = await getUserByUid(userId);
+      // Admin in oversight mode gets all threads; in personal messaging mode gets their own threads
+      if (user?.role === 'admin' && mode === 'oversight') {
+        const allThreads = await getChatThreadsDb();
+        return res.json({ threads: allThreads });
+      }
+      const userThreads = await getChatThreadsForUserDb(userId);
+      return res.json({ threads: userThreads });
+    }
+    // Admin master list of all threads
+    const allThreads = await getChatThreadsDb();
+    res.json({ threads: allThreads });
+  } catch (error: any) {
+    console.error('Get chat threads error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin force-start a chat between any two users
+app.post('/api/chat/threads/force', async (req: Request, res: Response) => {
+  try {
+    const { user1Id, user1Username, user2Id, user2Username } = req.body;
+    if (!user1Id || !user2Id) {
+      return res.status(400).json({ error: 'Both users required' });
+    }
+    if (user1Id === user2Id) {
+      return res.status(400).json({ error: 'Cannot pair user with themselves' });
+    }
+
+    const thread = await createOrForceChatThreadDb(
+      user1Id,
+      user1Username || 'User A',
+      user2Id,
+      user2Username || 'User B',
+      false
+    );
+    res.json({ success: true, thread });
+  } catch (error: any) {
+    console.error('Force chat thread error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin terminate / stop thread
+app.patch('/api/chat/threads/:id/terminate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const updated = await setChatThreadTerminatedDb(
+      id,
+      true,
+      reason || 'Messaging disabled by Administrator'
+    );
+    res.json({ success: true, thread: updated });
+  } catch (error: any) {
+    console.error('Terminate thread error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin re-open thread
+app.patch('/api/chat/threads/:id/reopen', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updated = await setChatThreadTerminatedDb(id, false, undefined);
+    res.json({ success: true, thread: updated });
+  } catch (error: any) {
+    console.error('Reopen thread error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/chat/threads/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await deleteChatThreadDb(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete chat thread error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// User hide/delete thread from their view (pops back up on new message)
+app.post('/api/chat/threads/:id/hide', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = getAuthUser(req).uid;
+    await hideChatThreadForUserDb(id, userId);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Hide chat thread error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Suspended user creates/retrieves direct appeal thread with Admin
+app.post('/api/chat/appeal', async (req: Request, res: Response) => {
+  try {
+    // A suspended person can only open an appeal for their own account
+    const userId = getAuthUser(req).uid;
+    const username = getAuthUser(req).username;
+    const user = await getUserByUid(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+    const thread = await createOrGetAppealThreadDb(userId, username);
+    res.json({ success: true, thread });
+  } catch (error: any) {
+    console.error('Appeal chat thread error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3. Chat Messages
+app.get('/api/chat/messages/:threadId', async (req: Request, res: Response) => {
+  try {
+    const { threadId } = req.params;
+    const me = getAuthUser(req);
+    if (me.role !== 'admin') {
+      const thread: any = await getChatThreadByIdDb(threadId);
+      if (!thread || (thread.user1Id !== me.uid && thread.user2Id !== me.uid)) {
+        return res.status(403).json({ error: 'You are not part of this conversation' });
+      }
+    }
+    const messages = await getChatMessagesDb(threadId);
+    res.json({ messages });
+  } catch (error: any) {
+    console.error('Get messages error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete specific chat message
+app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await deleteChatMessageDb(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete message error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin master feed across all conversations for live moderation
+app.get('/api/chat/messages-all', async (_req: Request, res: Response) => {
+  try {
+    const messages = await getAllChatMessagesDb(150);
+    res.json({ messages });
+  } catch (error: any) {
+    console.error('Get all messages error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat/messages', async (req: Request, res: Response) => {
+  try {
+    const { threadId, content } = req.body;
+    const me = getAuthUser(req);
+    const senderId = me.uid;
+    const senderUsername = me.username;
+    if (!threadId || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({ error: 'Thread and content are required' });
+    }
+
+    const thread = await getChatThreadByIdDb(threadId);
+    if (!thread) {
+      return res.status(404).json({ error: 'Conversation thread not found' });
+    }
+    // Only people in the conversation (or an admin) can post in it
+    if (me.role !== 'admin' && thread.user1Id !== me.uid && thread.user2Id !== me.uid) {
+      return res.status(403).json({ error: 'You are not part of this conversation' });
+    }
+    const receiverId = thread.user1Id === me.uid ? thread.user2Id : thread.user1Id;
+
+    // If appeal thread: check participants
+    if (thread.isAppealThread) {
+      const u1 = await getUserByUid(thread.user1Id);
+      const u2 = await getUserByUid(thread.user2Id);
+      const hasSuspendedUser = (u1 && u1.isSuspended) || (u2 && u2.isSuspended);
+      const sender = await getUserByUid(senderId);
+      if (!hasSuspendedUser && sender?.role !== 'admin') {
+        return res.status(403).json({ error: 'This suspension appeal is already resolved. Account is active.' });
+      }
+    }
+
+    // Verify sender is not globally blocked or suspended (except for active direct suspension appeal threads)
+    const sender = await getUserByUid(senderId);
+    if (sender?.isSuspended && !thread?.isAppealThread) {
+      return res.status(403).json({ error: 'Your account is suspended. Please use the suspension appeal screen.' });
+    }
+    if (sender?.chatBlocked && !thread?.isAppealThread) {
+      return res.status(403).json({ error: 'Your chat privileges have been disabled by Administrator' });
+    }
+
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const created = await createChatMessageDb({
+      id: messageId,
+      threadId,
+      senderId,
+      senderUsername: senderUsername || sender?.username || 'User',
+      receiverId: receiverId || '',
+      content: content.trim().slice(0, 2000),
+    });
+
+    res.json({ success: true, message: created });
+  } catch (error: any) {
+    console.error('Send message error:', error);
+    res.status(400).json({ error: error.message || 'Could not send message' });
+  }
+});
+
+// 4. Pairing Blocks
+app.get('/api/chat/pairing-blocks', async (_req: Request, res: Response) => {
+  try {
+    const blocks = await getChatPairingBlocksDb();
+    res.json({ blocks });
+  } catch (error: any) {
+    console.error('Get pairing blocks error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat/pairing-blocks', async (req: Request, res: Response) => {
+  try {
+    const { user1Id, user2Id, blockedBy, reason } = req.body;
+    if (!user1Id || !user2Id) {
+      return res.status(400).json({ error: 'Both user IDs are required' });
+    }
+    const created = await createChatPairingBlockDb(
+      user1Id,
+      user2Id,
+      blockedBy || 'admin',
+      reason
+    );
+    res.json({ success: true, block: created });
+  } catch (error: any) {
+    console.error('Create pairing block error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/chat/pairing-blocks/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    await deleteChatPairingBlockDb(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete pairing block error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------- DATABASE SAVE TEST (admin) -----------------
+// Actually saves, reads back and deletes a test song / account / setting using the app's own
+// code, and checks the rows really landed in the database (not in the temporary local store).
+app.post('/api/admin/database/self-test', async (_req: Request, res: Response) => {
+  const results: Array<{ name: string; ok: boolean; error?: string }> = [];
+  const connected = await checkSqlAvailability();
+  results.push({
+    name: 'Connected to the database',
+    ok: connected,
+    error: connected ? undefined : getDatabaseHealth().lastError || 'Not connected',
+  });
+  if (!connected) return res.json({ ok: false, results });
+
+  const pool = createPool();
+  const stamp = Date.now();
+  const check = async (name: string, fn: () => Promise<void>) => {
+    try {
+      await fn();
+      results.push({ name, ok: true });
+    } catch (e: any) {
+      const root = e?.cause || e;
+      results.push({ name, ok: false, error: String(root?.message || e).slice(0, 300) });
+    }
+  };
+
+  await check('All tables exist', async () => {
+    for (const t of ['users', 'songs', 'popups', 'song_requests', 'system_settings', 'chat_requests', 'chat_threads', 'chat_messages']) {
+      await pool.query(`SELECT 1 FROM ${t} LIMIT 1`);
+    }
+  });
+
+  const songId = `selftest-song-${stamp}`;
+  await check('Saving a song', async () => {
+    await insertSongDb({
+      id: songId,
+      title: 'Save test',
+      artist: 'System',
+      genre: 'Test',
+      duration: 1,
+      audioUrl: 'https://example.com/test.mp3',
+      coverUrl: 'https://example.com/x.jpg',
+      addedAt: new Date().toISOString(),
+    });
+    const r = await pool.query('SELECT id FROM songs WHERE id = $1', [songId]);
+    if (!r.rowCount) {
+      throw new Error(`The song was NOT stored in the database. ${getDatabaseHealth().lastDbError?.message || ''}`.trim());
+    }
+  });
+  try { await deleteSongDb(songId); } catch (_) {}
+
+  const userId = `selftest-user-${stamp}`;
+  await check('Saving an account', async () => {
+    await createUserDb({
+      uid: userId,
+      username: `selftest_${stamp}`,
+      passwordHash: 'x',
+      role: 'user',
+      isApproved: false,
+      note: 'database save test',
+    });
+    const r = await pool.query('SELECT uid FROM users WHERE uid = $1', [userId]);
+    if (!r.rowCount) {
+      throw new Error(`The account was NOT stored in the database. ${getDatabaseHealth().lastDbError?.message || ''}`.trim());
+    }
+  });
+  try { await deleteUserDb(userId); } catch (_) {}
+
+  await check('Saving a site setting (banner, maintenance, announcements)', async () => {
+    await setSettingDb('selftest', { at: stamp });
+    const r = await pool.query('SELECT key FROM system_settings WHERE key = $1', ['selftest']);
+    if (!r.rowCount) {
+      throw new Error(`The setting was NOT stored in the database. ${getDatabaseHealth().lastDbError?.message || ''}`.trim());
+    }
+    await pool.query('DELETE FROM system_settings WHERE key = $1', ['selftest']);
+  });
+
+  const allOk = results.every((r) => r.ok);
+  if (allOk) clearDbError();
+  res.json({ ok: allOk, results });
+});
+
+// ----------------- FEATURE REQUESTS & BUG REPORTS -----------------
+const feedbackHits = new Map<string, number[]>();
+
+async function isAdminUserId(uid: unknown): Promise<boolean> {
+  if (!uid || typeof uid !== 'string') return false;
+  try {
+    const u = await getUserByUid(uid);
+    return u?.role === 'admin';
+  } catch {
+    return false;
+  }
+}
+
+app.post('/api/feedback', async (req: Request, res: Response) => {
+  try {
+    const { type, title, details, area, userAgent } = req.body || {};
+    const authed = getAuthUser(req);
+    const userId: string | undefined = authed?.uid;
+    const username: string = authed?.username || 'Guest';
+    if (type !== 'feature' && type !== 'bug') {
+      return res.status(400).json({ error: 'Type must be feature or bug' });
+    }
+    const cleanTitle = String(title || '').trim().slice(0, 140);
+    const cleanDetails = String(details || '').trim().slice(0, 4000);
+    if (!cleanTitle) return res.status(400).json({ error: 'Please add a short title' });
+    if (!cleanDetails) return res.status(400).json({ error: 'Please add some details' });
+
+    // Simple spam guard: 10 submissions per hour per visitor
+    const key = (typeof userId === 'string' && userId) || req.ip || 'anon';
+    const now = Date.now();
+    const recent = (feedbackHits.get(key) || []).filter((t) => now - t < 3600_000);
+    if (recent.length >= 10) {
+      return res.status(429).json({ error: 'Too many submissions. Please try again later.' });
+    }
+    recent.push(now);
+    feedbackHits.set(key, recent);
+
+    let name = String(username || '').trim().slice(0, 60);
+    if (!name && typeof userId === 'string') {
+      const u = await getUserByUid(userId);
+      name = u?.username || '';
+    }
+    const item = await createFeedbackDb({
+      type,
+      title: cleanTitle,
+      details: cleanDetails,
+      area: area ? String(area).slice(0, 60) : null,
+      userId: typeof userId === 'string' ? userId : null,
+      username: name || 'Guest',
+      userAgent: userAgent ? String(userAgent).slice(0, 300) : null,
+    });
+    res.json({ success: true, item });
+  } catch (error: any) {
+    console.error('Create feedback error:', error);
+    res.status(500).json({ error: error.message || 'Could not save your submission' });
+  }
+});
+
+// A person's own reports, with progress and an "unread" flag for anything that changed
+app.get('/api/feedback/mine', async (req: Request, res: Response) => {
+  try {
+    const items = await listFeedbackForUserDb(getAuthUser(req).uid);
+    res.json({ items });
+  } catch (error: any) {
+    console.error('My feedback error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/feedback/mine/seen', async (req: Request, res: Response) => {
+  try {
+    await markFeedbackSeenDb(getAuthUser(req).uid);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin/feedback/clear-closed', async (_req: Request, res: Response) => {
+  try {
+    const removed = await clearClosedFeedbackDb();
+    res.json({ success: true, removed });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/feedback', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    res.json({ items: await listFeedbackDb() });
+  } catch (error: any) {
+    console.error('List feedback error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/admin/feedback/:id', async (req: Request, res: Response) => {
+  try {
+    const { userId, status, adminNote } = req.body || {};
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Admin only' });
+    if (status && !['new', 'in_progress', 'done', 'declined'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    const ok = await updateFeedbackDb(req.params.id, {
+      status,
+      adminNote: adminNote === undefined ? undefined : String(adminNote).slice(0, 1000),
+    });
+    if (!ok) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Update feedback error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/admin/feedback/:id', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Admin only' });
+    await deleteFeedbackDb(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete feedback error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ----------------- DATABASE BACKUP & RESTORE -----------------
+app.get('/api/admin/database/export', (_req: Request, res: Response) => {
+  try {
+    const dbPath = path.resolve(process.cwd(), 'data/local_db.json');
+    if (!fs.existsSync(dbPath)) {
+      return res.status(404).json({ error: 'Database file not found' });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="yousong_db_backup_${timestamp}.json"`);
+    res.sendFile(dbPath);
+  } catch (err: any) {
+    console.error('Database export error:', err);
+    res.status(500).json({ error: err.message || 'Export failed' });
+  }
+});
+
+app.post('/api/admin/database/import', express.json({ limit: '50mb' }), (req: Request, res: Response) => {
+  try {
+    const raw = req.body;
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.users) || !Array.isArray(raw.songs)) {
+      return res.status(400).json({ error: 'Invalid database backup JSON format' });
+    }
+    const dbPath = path.resolve(process.cwd(), 'data/local_db.json');
+    fs.writeFileSync(dbPath, JSON.stringify(raw, null, 2));
+    res.json({ success: true, message: 'Database successfully restored from backup' });
+  } catch (err: any) {
+    console.error('Database import error:', err);
+    res.status(500).json({ error: err.message || 'Import failed' });
+  }
+});
+
+// --- Supabase Hosting, Migration & Status Endpoints ---
+app.get('/api/admin/database/status', async (_req: Request, res: Response) => {
+  try {
+    const isSql = await checkSqlAvailability();
+    const connStr = getActiveConnectionString() || process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || '';
+    const maskedConn = connStr
+      ? connStr.replace(/:([^:@]+)@/, ':****@')
+      : null;
+
+    res.json({
+      activeHosting: isSql ? 'supabase' : 'local_file',
+      engine: isSql ? 'Supabase / PostgreSQL Cloud Database' : 'Local Persistent Storage (local_db.json)',
+      isSqlConnected: isSql,
+      persistent: isSql,
+      connectionSource: getDatabaseHealth().source,
+      lastError: isSql ? null : getDatabaseHealth().lastError,
+      lastDbError: getDatabaseHealth().lastDbError,
+      configuredConnectionString: maskedConn,
+      supabaseUrl: process.env.SUPABASE_URL || null,
+      hasCredentials: Boolean(connStr || process.env.SUPABASE_URL),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/database/supabase-schema', (_req: Request, res: Response) => {
+  try {
+    const schemaPath = path.resolve(process.cwd(), 'supabase-schema.sql');
+    if (!fs.existsSync(schemaPath)) {
+      return res.status(404).json({ error: 'Schema file not found' });
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.sendFile(schemaPath);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/database/supabase-migration-sql', (_req: Request, res: Response) => {
+  try {
+    const fullSql = generateSupabaseMigrationSql();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="yousong_supabase_full_migration.sql"');
+    res.send(fullSql);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/database/test-supabase', async (req: Request, res: Response) => {
+  try {
+    const { connectionString } = req.body;
+    const target = connectionString || getActiveConnectionString() || process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+    if (!target) {
+      return res.status(400).json({ error: 'Supabase PostgreSQL connection string is required' });
+    }
+
+    const result = await testSupabaseDbConnection(target);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/database/connect-supabase', async (req: Request, res: Response) => {
+  try {
+    const { connectionString } = req.body;
+    if (!connectionString || !connectionString.trim()) {
+      setSupabaseConnectionString(undefined);
+      return res.json({ success: true, message: 'Switched to local database store.', activeHosting: 'local_file' });
+    }
+
+    const test = await testSupabaseDbConnection(connectionString.trim());
+    if (!test.success) {
+      return res.status(400).json({
+        success: false,
+        error: `Could not connect to Supabase: ${test.error || 'Connection failed'}. Please check your database password.`,
+      });
+    }
+
+    setSupabaseConnectionString(connectionString.trim());
+    const isConnected = await checkSqlAvailability();
+
+    res.json({
+      success: true,
+      message: 'Successfully connected and switched active database hosting to Supabase PostgreSQL!',
+      version: test.version,
+      latencyMs: test.latencyMs,
+      activeHosting: isConnected ? 'supabase' : 'local_file',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/database/sync-to-supabase', async (req: Request, res: Response) => {
+  try {
+    const { connectionString } = req.body;
+    const target = connectionString || getActiveConnectionString() || process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+    if (!target) {
+      return res.status(400).json({ error: 'Supabase connection string is required to perform data sync' });
+    }
+
+    const result = await syncLocalDataToSupabase(target);
+    if (result.success) {
+      setSupabaseConnectionString(target);
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------- SONG DURATION AUTO-FIX & BACKGROUND WORKERS -----------------
+async function fixAllPreviousSongsDuration(audioDir: string): Promise<number> {
+  let updatedCount = 0;
+  try {
+    const mm = await import('music-metadata');
+    const allSongs = await getSongsDb();
+
+    for (const song of allSongs) {
+      let trueDuration = 0;
+
+      if (song.audioUrl) {
+        if (song.audioUrl.startsWith('/api/media/audio/')) {
+          const fname = path.basename(song.audioUrl);
+          const fpath = path.join(audioDir, fname);
+
+          if (fs.existsSync(fpath)) {
+            try {
+              const meta = await mm.parseFile(fpath);
+              if (meta.format?.duration && isFinite(meta.format.duration)) {
+                trueDuration = Math.round(meta.format.duration);
+              }
+            } catch (err) {
+              console.warn(`Could not parse ${fname} for duration fix:`, err);
+            }
+          }
+
+          if (!trueDuration) {
+            // Seed wav fallbacks if container disk is fresh
+            if (fname.includes('seed_acoustic')) trueDuration = 20;
+            else if (fname.includes('seed_ambient')) trueDuration = 20;
+            else if (fname.includes('seed_lofi')) trueDuration = 15;
+            else if (fname.includes('seed_synthwave')) trueDuration = 20;
+          }
+        } else if (
+          song.audioUrl.includes('drive.google.com')
+          || song.audioUrl.includes('/api/media/drive-stream/')
+          || song.audioUrl.includes('/api/drive/stream/')
+        ) {
+          const driveId = extractDriveFileId(song.audioUrl);
+          if (driveId) {
+            try {
+              const streamUrl = `https://docs.google.com/uc?export=download&id=${driveId}`;
+              const resp = await fetch(streamUrl, {
+                headers: { Range: 'bytes=0-1048576', 'User-Agent': 'Mozilla/5.0' },
+                redirect: 'follow',
+              });
+              if (resp.ok) {
+                const ab = await resp.arrayBuffer();
+                const meta = await mm.parseBuffer(Buffer.from(ab));
+                if (meta.format?.duration && isFinite(meta.format.duration)) {
+                  trueDuration = Math.round(meta.format.duration);
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // If duration is inaccurate (e.g. defaulted to 210 / 180 or differs from true file length), fix it!
+      if (trueDuration > 0 && Math.abs(song.duration - trueDuration) >= 1) {
+        await updateSongDb(song.id, { duration: trueDuration });
+        updatedCount++;
+      }
+    }
+
+    if (updatedCount > 0) {
+      console.log(`Auto-corrected durations for ${updatedCount} song(s) in database.`);
+    }
+  } catch (e) {
+    console.error('Error during fixAllPreviousSongsDuration:', e);
+  }
+  return updatedCount;
+}
+
+// ----------------- START SERVER & VITE -----------------
+async function startServer() {
+  // Make sure every table exists (chat, feedback, ...) before serving traffic
+  try {
+    await ensureTables();
+  } catch (err) {
+    console.warn('[Schema] ensureTables failed:', err);
+  }
+  // Finished feature requests / bug reports disappear 24 hours after they are completed or declined
+  purgeClosedFeedbackDb().catch(() => {});
+  setInterval(() => purgeClosedFeedbackDb().catch(() => {}), 60 * 60 * 1000);
+
+  // Admin account: optionally (re)set from ADMIN_PASSWORD, and warn about the default password
+  try {
+    const adminName = (process.env.ADMIN_USERNAME || 'admin').trim();
+    const adminPw = process.env.ADMIN_PASSWORD;
+    if (adminPw && adminPw.length >= 8) {
+      const hash = await hashPasswordSecure(adminPw);
+      const existingAdmin = await getUserByUsername(adminName);
+      if (existingAdmin) {
+        await updateUserDb(existingAdmin.uid, {
+          passwordHash: hash,
+          role: 'admin',
+          isApproved: true,
+          isSuspended: false,
+          temporaryPasswordAssigned: false,
+        });
+      } else {
+        await createUserDb({
+          uid: `user-admin-${Date.now()}`,
+          username: adminName,
+          passwordHash: hash,
+          role: 'admin',
+          isApproved: true,
+          note: 'Created from ADMIN_PASSWORD',
+        });
+      }
+      console.log(`[Security] Password for admin account "${adminName}" was set from ADMIN_PASSWORD.`);
+    }
+    const defaultAdmin = await getUserByUsername('admin');
+    if (defaultAdmin && (await verifyPassword('admin123', defaultAdmin.passwordHash)).ok) {
+      console.warn('[Security] WARNING: the "admin" account still uses the default password. Change it now.');
+    }
+  } catch (err) {
+    console.warn('[Security] Admin account check skipped:', err);
+  }
+  // Ensure schema extensions exist
+  await initDatabaseSchemaExtensions();
+  // Ensure database has default seed data
+  await seedDatabaseIfEmpty();
+
+  // Purge any legacy automated welcome broadcast completely
+  await purgeWelcomePopupsDb();
+  await cleanupExpiredPopupsDb();
+
+  // Auto-delete approved and declined song requests (12-hour rule)
+  await cleanupExpiredSongRequestsDb();
+
+  // Fix all previous uploaded songs that have incorrect or default durations
+  await fixAllPreviousSongsDuration(AUDIO_DIR);
+
+  // Active automated background cleanup: auto-deletes expired broadcasts every 4 seconds
+  setInterval(async () => {
+    try {
+      await cleanupExpiredPopupsDb();
+    } catch {}
+  }, 4000);
+
+  // Automated background cleanup: auto-deletes approved/declined song requests older than 12h every 10 minutes
+  setInterval(async () => {
+    try {
+      const removed = await cleanupExpiredSongRequestsDb();
+      if (removed > 0) {
+        console.log(`Auto-cleaned ${removed} expired song requests (12h rule)`);
+      }
+    } catch (err) {
+      console.error('Request cleanup interval error:', err);
+    }
+  }, 10 * 60 * 1000);
+
+  // Render sets RENDER=true; treat it as production even if NODE_ENV isn't set,
+  // otherwise the server falls into Vite dev mode and the page can render blank.
+  const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+
+  if (!isProd) {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(__dirname, 'dist');
+    const indexHtml = path.join(distPath, 'index.html');
+
+    if (!fs.existsSync(indexHtml)) {
+      console.error(
+        `[static] ${indexHtml} not found. Did the Render build command run "npm run build"?`
+      );
+    }
+
+    // Serve the built frontend (hashed JS/CSS live in dist/assets)
+    app.use(express.static(distPath, { index: false }));
+
+    // Unknown API routes should 404 as JSON, not return the HTML shell
+    app.use('/api', (_req, res) => {
+      res.status(404).json({ success: false, error: 'API route not found' });
+    });
+
+    // SPA fallback: only for page navigations, never for files with an extension.
+    // A missing /assets/xyz.js must 404, not return index.html (which causes a blank screen).
+    app.get('*', (req, res, next) => {
+      if (path.extname(req.path)) return next();
+      if (!fs.existsSync(indexHtml)) {
+        return res.status(500).send('Frontend build missing: run "npm run build" before starting the server.');
+      }
+      res.sendFile(indexHtml);
+    });
+  }
+
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`YouSong Server running on port ${PORT} connected to Cloud SQL PostgreSQL`);
+  });
+}
+
+startServer();
+, 'i');
+  return (Array.isArray(data.files) ? data.files : [])
+    .filter((file: any) => suffix.test(String(file?.name || '')))
+    .map((file: any) => ({ id: String(file.id), name: String(file.name), mimeType: String(file.mimeType || ''), size: file.size ? String(file.size) : undefined, modifiedTime: file.modifiedTime || undefined }));
+}
+
+async function generateSongMediaCode(excludeSongId?: string, preferredCode?: string): Promise<string> {
+  const [songs, requests, registry] = await Promise.all([getSongsDb(), getRequestsDb(), getMediaIdsDb()]);
+  const registryByCode = new Map((registry || []).map((item: any) => [String(item.code), item]));
+  const usedCodes = new Set<string>();
+  for (const item of Array.isArray(songs) ? songs : []) {
+    if (item?.id === excludeSongId) continue;
+    const code = String(item?.mediaCode || '').trim();
+    if (/^[0-9]{3}$/.test(code)) usedCodes.add(code);
+  }
+  for (const item of Array.isArray(requests) ? requests : []) {
+    if (item?.status === 'published') continue;
+    const code = String(item?.mediaCode || '').trim();
+    if (/^[0-9]{3}$/.test(code)) usedCodes.add(code);
+  }
+  for (const item of registry || []) {
+    const belongsToCurrentSong = Boolean(excludeSongId && item.songId === excludeSongId);
+    if (!belongsToCurrentSong) usedCodes.add(String(item.code));
+  }
+  const tryClaim = async (candidate: string, explicitlyRequested = false): Promise<boolean> => {
+    const existing: any = registryByCode.get(candidate);
+    const isFreeReservation = existing?.status === 'reserved' && !existing.songId && !existing.requestId;
+    const belongsToCurrentSong = Boolean(excludeSongId && existing?.songId === excludeSongId);
+    if (!/^[0-9]{3}$/.test(candidate) || (usedCodes.has(candidate) && !(explicitlyRequested && isFreeReservation))) return false;
+    if (existing && !isFreeReservation && !belongsToCurrentSong) return false;
+    if (existing) return true;
+    return reserveMediaIdDb(candidate);
+  };
+  if (preferredCode && await tryClaim(preferredCode, true)) return preferredCode;
+  for (let attempt = 0; attempt < 3000; attempt += 1) {
+    const candidate = String(randomBytes(2).readUInt16BE(0) % 1000).padStart(3, '0');
+    if (await tryClaim(candidate)) return candidate;
+  }
+  throw new Error('All available three-digit Media IDs are assigned or reserved. Retire or clean up an ID before adding another song.');
+}
+
 
 async function renameDriveSongAsset(fileId: string, kind: 'audio' | 'image', title: string, artist: string, mediaCode: string, accessToken: string): Promise<string> {
   const metadataUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
@@ -2360,7 +4253,7 @@ app.get('/api/drive/stream/:fileId', async (req: Request, res: Response) => {
 
     if (!driveRes.ok && driveRes.status !== 206) {
       const status = [401, 403, 404].includes(driveRes.status) ? 502 : driveRes.status;
-      return res.status(status).send('Google Drive could not provide this MP3. Check that General access is set to Anyone with the link and that the link points to a file, not a folder.');
+      return res.status(status).send('Google Drive could not provide this MP3. Check that the selected MP3 is accessible to the site's Drive account and, for public-link playback, is shared with Anyone with the link.');
     }
     if (contentType.toLowerCase().includes('text/html')) {
       return res.status(502).send('Google Drive still returned a webpage instead of audio. Check the file sharing permissions and that the selected file is an MP3.');

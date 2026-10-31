@@ -133,6 +133,20 @@ export const systemSettings = pgTable('system_settings', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+/** Admin-only registry for the three-digit identifiers shared by each song's audio and artwork. */
+export const mediaIds = pgTable('media_ids', {
+  code: text('code').primaryKey(),
+  status: text('status').notNull().default('reserved'), // reserved | assigned | retired
+  songId: text('song_id').unique(),
+  requestId: text('request_id').unique(),
+  title: text('title'),
+  artist: text('artist'),
+  audioFileId: text('audio_file_id'),
+  artworkFileId: text('artwork_file_id'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const mediaFiles = pgTable('media_files', {
   id: text('id').primaryKey(),
   data: text('data').notNull(),
