@@ -1891,7 +1891,7 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       if (!(await checkSqlAvailability())) {
         throw new Error('The persistent database is unavailable. The media was uploaded but has not been added to the library; reconnect the database and retry.');
       }
-      const title = String(req.body?.title || audioFile.originalname.replace(/\\.mp3$/i, '')).trim();
+      const title = String(req.body?.title || audioFile.originalname.replace(/\.mp3$/i, '')).trim();
       const artist = String(req.body?.artist || '').trim();
       if (!title || !artist) throw new Error('Song title and artist are required.');
       const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
