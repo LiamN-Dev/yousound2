@@ -575,3 +575,59 @@ button { -webkit-tap-highlight-color: transparent; }
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Public listening experience: one calm visual language across the library and player. */
+.ys-main-content {
+  padding-top: clamp(1.25rem, 2.4vw, 2.25rem);
+  padding-bottom: 8rem;
+}
+.ys-site-header {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.22) !important;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.045);
+  backdrop-filter: blur(22px) saturate(1.35);
+}
+.dark .ys-site-header {
+  background: rgba(10, 17, 30, 0.86) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.13) !important;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.18);
+}
+.ys-song-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035);
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease, background .2s ease;
+}
+.ys-song-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(59, 130, 246, 0.38);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.085);
+}
+.dark .ys-song-card {
+  background: rgba(17, 26, 43, 0.76);
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+.dark .ys-song-card:hover {
+  background: rgba(20, 31, 51, 0.92);
+  border-color: rgba(96, 165, 250, 0.34);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
+}
+.ys-player-shell {
+  border-radius: 24px;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.13) !important;
+  backdrop-filter: blur(24px) saturate(1.35);
+}
+.dark .ys-player-shell {
+  border-color: rgba(148, 163, 184, 0.17) !important;
+  background: rgba(12, 20, 34, 0.92) !important;
+  box-shadow: 0 22px 65px rgba(0, 0, 0, 0.38) !important;
+}
+@media (max-width: 640px) {
+  .ys-main-content { padding-left: 1rem; padding-right: 1rem; }
+  .ys-song-card { border-radius: 18px; }
+  .ys-player-shell { border-radius: 20px; }
+}
