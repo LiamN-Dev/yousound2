@@ -153,7 +153,7 @@ export const Header: React.FC<HeaderProps> = ({
       )}
 
       {/* 3. Main Sticky Header Navigation */}
-      <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-[#090d16]/95 border-b border-slate-200 dark:border-white/[0.08] backdrop-blur-xl transition-colors shadow-xs">
+      <header className="ys-site-header sticky top-0 z-40 w-full bg-white/95 dark:bg-[#090d16]/95 border-b border-slate-200 dark:border-white/[0.08] backdrop-blur-xl transition-colors shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 gap-3">
             {/* Zone 1: Logo & App Brand (Compact & shrink-0) */}

@@ -97,7 +97,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
   return (
     <div
       onClick={handleCardClick}
-      className={`group relative liquid-glass-card rounded-2xl p-3.5 border transition-all duration-200 cursor-pointer overflow-hidden ${
+      className={`ys-song-card group relative liquid-glass-card rounded-2xl p-3.5 border transition-all duration-200 cursor-pointer overflow-hidden ${
         isCurrent
           ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/25 shadow-md ring-1 ring-blue-500/20'
           : song.isDroppingSoon

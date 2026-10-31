@@ -35,6 +35,7 @@ export const songs = pgTable('songs', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   artist: text('artist').notNull(),
+  mediaCode: text('media_code'),
   album: text('album'),
   genre: text('genre').notNull(),
   tags: jsonb('tags').$type<string[]>(),
@@ -89,6 +90,7 @@ export const songRequests = pgTable('song_requests', {
   id: text('id').primaryKey(),
   songTitle: text('song_title').notNull(),
   artist: text('artist'),
+  mediaCode: text('media_code'),
   webLink: text('web_link'),
   coverUrl: text('cover_url'),
   notes: text('notes'),
@@ -128,6 +130,20 @@ export const popups = pgTable('popups', {
 export const systemSettings = pgTable('system_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+/** Admin-only registry for the three-digit identifiers shared by each song's audio and artwork. */
+export const mediaIds = pgTable('media_ids', {
+  code: text('code').primaryKey(),
+  status: text('status').notNull().default('reserved'), // reserved | assigned | retired
+  songId: text('song_id').unique(),
+  requestId: text('request_id').unique(),
+  title: text('title'),
+  artist: text('artist'),
+  audioFileId: text('audio_file_id'),
+  artworkFileId: text('artwork_file_id'),
+  createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 

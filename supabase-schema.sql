@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS songs (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   artist TEXT NOT NULL,
+  media_code TEXT,
   album TEXT,
   genre TEXT NOT NULL,
   tags JSONB DEFAULT '[]'::jsonb,
@@ -76,6 +77,21 @@ CREATE TABLE IF NOT EXISTS songs (
   last_played_at TEXT
 );
 
+-- Admin-only Media ID registry. Codes are unique and never silently recycled.
+CREATE TABLE IF NOT EXISTS media_ids (
+  code TEXT PRIMARY KEY CHECK (length(code) = 3 AND code ~ '^[0-9]{3}'),
+  status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'assigned', 'retired')),
+  song_id TEXT UNIQUE,
+  request_id TEXT UNIQUE,
+  title TEXT,
+  artist TEXT,
+  audio_file_id TEXT,
+  artwork_file_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_media_ids_status ON media_ids(status);
+
 -- 3. Playlists Table
 CREATE TABLE IF NOT EXISTS playlists (
   id TEXT PRIMARY KEY,
@@ -101,6 +117,7 @@ CREATE TABLE IF NOT EXISTS song_requests (
   id TEXT PRIMARY KEY,
   song_title TEXT NOT NULL,
   artist TEXT,
+  media_code TEXT,
   web_link TEXT,
   cover_url TEXT,
   notes TEXT,
@@ -204,6 +221,10 @@ CREATE TABLE IF NOT EXISTS chat_pairing_blocks (
   reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Additive migrations for databases created before Media IDs were introduced.
+ALTER TABLE songs ADD COLUMN IF NOT EXISTS media_code TEXT;
+ALTER TABLE song_requests ADD COLUMN IF NOT EXISTS media_code TEXT;
 
 -- Helpful performance indexes
 CREATE INDEX IF NOT EXISTS idx_songs_added_at ON songs(added_at DESC);

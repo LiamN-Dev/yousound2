@@ -969,6 +969,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                               <h4 className="font-bold text-white truncate text-xs">{song.title}</h4>
                             </div>
                             <p className="text-[11px] text-slate-400 truncate">{song.artist}</p>
+                            {song.mediaCode && <p className="text-[10px] text-blue-300 font-mono tabular-nums mt-0.5">Media ID · {song.mediaCode}</p>}
 
                             {/* Dropping / Leaving / Scheduled countdown pills */}
                             <div className="flex items-center gap-1 mt-0.5 flex-wrap">

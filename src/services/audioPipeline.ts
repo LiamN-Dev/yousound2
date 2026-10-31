@@ -257,7 +257,8 @@ export async function uploadMp3ToGoogleDrive(
   tempFilePath: string,
   trackTitle: string,
   artist: string,
-  accessToken: string
+  accessToken: string,
+  mediaCode?: string,
 ): Promise<ProcessedAudioResult> {
   if (!fs.existsSync(tempFilePath)) throw new Error('Temporary MP3 file not found.');
   const fileStats = fs.statSync(tempFilePath);
@@ -268,7 +269,9 @@ export async function uploadMp3ToGoogleDrive(
   try {
     const duration = await probeAudioDuration(tempFilePath);
     const folderId = await getDriveLibraryFolderId(accessToken, 'Audio Tracks');
-    const sanitizedName = (artist || 'Unknown') + ' - ' + (trackTitle || 'Track') + '.mp3';
+    const sanitizedName = mediaCode
+      ? (trackTitle || 'Track') + ' by ' + (artist || 'Unknown') + ' - ' + mediaCode + '.mp3'
+      : (artist || 'Unknown') + ' - ' + (trackTitle || 'Track') + '.mp3';
     const safeName = sanitizedName.replace(/[/\\\\?%*:|"<>]/g, '_');
     const metadata: Record<string, unknown> = { name: safeName };
     if (folderId && folderId !== 'root') metadata.parents = [folderId];
@@ -327,7 +330,8 @@ export async function uploadImageToGoogleDrive(
   tempFilePath: string,
   originalName: string,
   mimeType: string,
-  accessToken: string
+  accessToken: string,
+  desiredFilename?: string,
 ): Promise<UploadedDriveImageResult> {
   if (!fs.existsSync(tempFilePath)) throw new Error('Temporary cover image not found.');
   const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -337,10 +341,10 @@ export async function uploadImageToGoogleDrive(
   if (!fileStats.size) throw new Error('The cover image is empty.');
   if (fileStats.size > MAX_COVER_UPLOAD_BYTES) throw new Error('Cover images may not exceed 25 MB.');
 
-  const extension = path.extname(originalName || '').toLowerCase() || ({
+  const extension = path.extname(desiredFilename || originalName || '').toLowerCase() || ({
     'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif',
   } as Record<string, string>)[normalizedMimeType] || '.jpg';
-  const safeName = path.basename(originalName || 'cover', extension).replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 80) || 'Cover';
+  const safeName = path.basename(desiredFilename || originalName || 'cover', extension).replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 120) || 'Cover';
   let uploadedId: string | null = null;
 
   try {

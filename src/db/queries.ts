@@ -9,6 +9,7 @@ import {
   songRequests,
   popups,
   systemSettings,
+  mediaIds,
   mediaFiles,
   chatRequests,
   chatThreads,
@@ -269,6 +270,7 @@ export async function insertSongDb(songData: {
   id: string;
   title: string;
   artist: string;
+  mediaCode?: string;
   album?: string;
   genre: string;
   tags?: string[];
@@ -312,6 +314,7 @@ export async function insertSongDb(songData: {
         id: songData.id,
         title: songData.title.trim(),
         artist: songData.artist.trim(),
+        mediaCode: songData.mediaCode || null,
         album: songData.album || null,
         genre: songData.genre.trim(),
         tags: songData.tags || [],
@@ -725,6 +728,7 @@ export async function updateRequestFullDb(
   updates: {
     songTitle?: string;
     artist?: string | null;
+    mediaCode?: string | null;
     webLink?: string | null;
     coverUrl?: string | null;
     notes?: string | null;
@@ -1000,6 +1004,77 @@ export async function setPersistentSettingDb(key: string, value: any): Promise<v
     noteDbError('setPersistentSettingDb', error);
     throw new Error('Could not persist the Google Drive connection in PostgreSQL/Supabase. No local-only connection was created.');
   }
+}
+
+// ----------------- ADMIN MEDIA ID REGISTRY -----------------
+export async function getMediaIdsDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Media IDs cannot be managed safely.');
+  }
+  return db.select().from(mediaIds).orderBy(asc(mediaIds.code));
+}
+
+export async function getMediaIdByCodeDb(code: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Media IDs cannot be managed safely.');
+  }
+  const rows = await db.select().from(mediaIds).where(eq(mediaIds.code, code)).limit(1);
+  return rows[0] || null;
+}
+
+/** Atomically claims a code. The primary key prevents simultaneous admins from claiming it twice. */
+export async function reserveMediaIdDb(code: string): Promise<boolean> {
+  if (!/^[0-9]{3}$/.test(code)) throw new Error('Media IDs must contain exactly three digits.');
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Media IDs cannot be reserved safely.');
+  }
+  const rows = await db.insert(mediaIds)
+    .values({ code, status: 'reserved', updatedAt: new Date() })
+    .onConflictDoNothing({ target: mediaIds.code })
+    .returning({ code: mediaIds.code });
+  return rows.length > 0;
+}
+
+export async function saveMediaIdDb(record: {
+  code: string;
+  status: 'reserved' | 'assigned' | 'retired';
+  songId?: string | null;
+  requestId?: string | null;
+  title?: string | null;
+  artist?: string | null;
+  audioFileId?: string | null;
+  artworkFileId?: string | null;
+}) {
+  if (!/^[0-9]{3}$/.test(record.code)) throw new Error('Media IDs must contain exactly three digits.');
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Media ID changes were not saved.');
+  }
+  const values = {
+    code: record.code,
+    status: record.status,
+    songId: record.songId ?? null,
+    requestId: record.requestId ?? null,
+    title: record.title ?? null,
+    artist: record.artist ?? null,
+    audioFileId: record.audioFileId ?? null,
+    artworkFileId: record.artworkFileId ?? null,
+    updatedAt: new Date(),
+  };
+  const rows = await db.insert(mediaIds).values(values)
+    .onConflictDoUpdate({
+      target: mediaIds.code,
+      set: {
+        status: values.status,
+        songId: values.songId,
+        requestId: values.requestId,
+        title: values.title,
+        artist: values.artist,
+        audioFileId: values.audioFileId,
+        artworkFileId: values.artworkFileId,
+        updatedAt: values.updatedAt,
+      },
+    }).returning();
+  return rows[0] || null;
 }
 
 // ----------------- MEDIA FILES -----------------
