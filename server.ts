@@ -1921,10 +1921,25 @@ async function findDriveArtworkByCode(code: string, accessToken: string): Promis
   url.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
   url.searchParams.set('supportsAllDrives', 'true');
   url.searchParams.set('includeItemsFromAllDrives', 'true');
-  const response = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) });
+  const response = await fetch(url, {
+    headers: { Authorization: 'Bearer ' + accessToken },
+    signal: AbortSignal.timeout(20_000),
+  });
   const data: any = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error('Could not search the YouSong Artwork folder (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
-  const suffix = new RegExp('\\s-\\s' + code + '\\.(jpe?g|png|webp|gif)
+  if (!response.ok) {
+    throw new Error('Could not search the YouSong Artwork folder (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
+  }
+  const suffix = new RegExp("\\s-\\s" + code + "\\.(jpe?g|png|webp|gif)$", "i");
+  return (Array.isArray(data.files) ? data.files : [])
+    .filter((file: any) => suffix.test(String(file?.name || '')))
+    .map((file: any) => ({
+      id: String(file.id),
+      name: String(file.name),
+      mimeType: String(file.mimeType || ''),
+      size: file.size ? String(file.size) : undefined,
+      modifiedTime: file.modifiedTime || undefined,
+    }));
+}
 
 async function renameDriveSongAsset(fileId: string, kind: 'audio' | 'image', title: string, artist: string, mediaCode: string, accessToken: string): Promise<string> {
   const metadataUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
@@ -2002,6 +2017,7 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       if (!title || !artist) throw new Error('Song title and artist are required.');
       if (audioDriveId) accessToken = await getDriveAccessToken();
       const selectedAudioMetadata = audioDriveId ? await getDriveFileMetadata(audioDriveId, accessToken!) : null;
+      await assertDriveFilesAreNotAlreadyLinked(audioDriveId, coverDriveId);
       const preferredMediaCode = extractMediaCodeFromName(selectedAudioMetadata?.name || audioFile?.originalname);
       if (!coverDriveId && !coverFile && !preferredMediaCode) {
         throw new Error('Choose artwork, or select an audio file whose filename already ends in a three-digit Media ID so YouSong can locate its matching artwork.');
@@ -2036,6 +2052,7 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         if (artworkMatches.length === 1) resolvedCoverDriveId = artworkMatches[0].id;
         else throw new Error('No artwork file ending in - ' + mediaCode + ' was found. Select the artwork manually or add the matching image to the Artwork folder.');
       }
+      await assertDriveFilesAreNotAlreadyLinked(audioDriveId, resolvedCoverDriveId);
       if (resolvedCoverDriveId) {
         accessToken = accessToken || await getDriveAccessToken();
         await renameDriveSongAsset(resolvedCoverDriveId, 'image', title, artist, mediaCode, accessToken);
@@ -2235,6 +2252,13 @@ app.get('/api/admin/library/artwork-for-code/:code', async (req: Request, res: R
   const code = String(req.params.code || '');
   if (!/^[0-9]{3}$/.test(code)) return res.status(400).json({ success: false, error: 'Media ID must contain exactly three digits.' });
   try {
+    const [registry, songs] = await Promise.all([getMediaIdsDb(), getSongsDb()]);
+    const entry: any = registry.find((item: any) => item.code === code);
+    const owner: any = songs.find((song: any) => String(song.mediaCode || '') === code);
+    if (owner || entry?.status === 'assigned' || entry?.status === 'retired' || entry?.requestId) {
+      const ownerName = owner?.title || entry?.title || 'another song or request';
+      return res.status(409).json({ success: false, code, inUse: true, error: 'Media ID ' + code + ' is already assigned to ' + ownerName + '. It cannot be reused for a new song.' });
+    }
     const accessToken = await getDriveAccessToken();
     const files = await findDriveArtworkByCode(code, accessToken);
     return res.json({ success: true, code, files, matchCount: files.length });
@@ -2262,7 +2286,7 @@ app.post('/api/admin/media-ids/backfill', async (req: Request, res: Response) =>
         const artworkMetadata = artworkFileId ? await getDriveFileMetadata(artworkFileId, accessToken) : null;
         const originalArtworkName = artworkMetadata?.name || null;
         let matchedArtwork = false;
-        if (!artworkFileId && !String(song.coverUrl || '').trim()) {
+        if (!artworkFileId) {
           const matches = await findDriveArtworkByCode(code, accessToken);
           if (matches.length > 1) throw new Error('Multiple artwork files match this Media ID. Resolve the duplicates in Drive before continuing.');
           if (matches.length === 1) { artworkFileId = matches[0].id; matchedArtwork = true; }
@@ -2276,12 +2300,15 @@ app.post('/api/admin/media-ids/backfill', async (req: Request, res: Response) =>
           throw renameError;
         }
         const coverUrl = matchedArtwork && artworkFileId ? 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(artworkFileId) : song.coverUrl;
-        await updateSongDb(song.id, { mediaCode: code, ...(coverUrl !== song.coverUrl ? { coverUrl } : {}) });
-        await saveMediaIdDb({ code, status: 'assigned', songId: song.id, title: song.title, artist: song.artist, audioFileId, artworkFileId });
         if (song.mediaCode && song.mediaCode !== code) {
           const oldRecord = await getMediaIdByCodeDb(String(song.mediaCode));
-          if (oldRecord?.songId === song.id) await saveMediaIdDb({ code: String(song.mediaCode), status: 'retired', title: song.title, artist: song.artist });
+          if (oldRecord?.songId === song.id) {
+            // Release the unique song_id link before attaching the new ID to this song.
+            await saveMediaIdDb({ code: String(song.mediaCode), status: 'retired', title: song.title, artist: song.artist });
+          }
         }
+        await updateSongDb(song.id, { mediaCode: code, ...(coverUrl !== song.coverUrl ? { coverUrl } : {}) });
+        await saveMediaIdDb({ code, status: 'assigned', songId: song.id, title: song.title, artist: song.artist, audioFileId, artworkFileId });
         const wasAlreadyComplete = song.mediaCode === code && (!audioFileId || extractMediaCodeFromName(originalAudioName) === code) && (!artworkFileId || extractMediaCodeFromName(originalArtworkName || '') === code);
         results.push({
           songId: song.id, title: song.title, mediaCode: code,
@@ -2397,6 +2424,7 @@ app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req
     if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
     const accessToken = await getDriveAccessToken();
     const audioMetadata = await getDriveFileMetadata(audioId, accessToken);
+    await assertDriveFilesAreNotAlreadyLinked(audioId, coverId);
     const preferredCode = extractMediaCodeFromName(audioMetadata.name);
     const mediaCode = await generateSongMediaCode(undefined, preferredCode || undefined);
     if (!coverId) {
@@ -2406,6 +2434,7 @@ app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req
       coverId = matches[0].id;
     }
     const originalCoverMetadata = await getDriveFileMetadata(coverId, accessToken);
+    await assertDriveFilesAreNotAlreadyLinked(audioId, coverId);
     await renameDriveSongAsset(audioId, 'audio', title, artist, mediaCode, accessToken);
     try {
       await renameDriveSongAsset(coverId, 'image', title, artist, mediaCode, accessToken);
@@ -3745,6 +3774,26 @@ startServer();
   return (Array.isArray(data.files) ? data.files : [])
     .filter((file: any) => suffix.test(String(file?.name || '')))
     .map((file: any) => ({ id: String(file.id), name: String(file.name), mimeType: String(file.mimeType || ''), size: file.size ? String(file.size) : undefined, modifiedTime: file.modifiedTime || undefined }));
+}
+
+
+async function assertDriveFilesAreNotAlreadyLinked(audioFileId?: string | null, artworkFileId?: string | null): Promise<void> {
+  if (!audioFileId && !artworkFileId) return;
+  const [registry, songs] = await Promise.all([getMediaIdsDb(), getSongsDb()]);
+  const registryMatch: any = registry.find((item: any) =>
+    (audioFileId && item.audioFileId === audioFileId) ||
+    (artworkFileId && item.artworkFileId === artworkFileId)
+  );
+  if (registryMatch?.status === 'assigned' && registryMatch.songId) {
+    throw new Error('That Google Drive file is already registered to another song (Media ID ' + registryMatch.code + '). Choose a different file.');
+  }
+  const songMatch: any = songs.find((song: any) =>
+    (audioFileId && extractDriveFileId(String(song.audioUrl || '')) === audioFileId) ||
+    (artworkFileId && extractDriveFileId(String(song.coverUrl || '')) === artworkFileId)
+  );
+  if (songMatch) {
+    throw new Error('That Google Drive file is already linked to "' + songMatch.title + '". Choose a different file so an existing song is not changed.');
+  }
 }
 
 async function generateSongMediaCode(excludeSongId?: string, preferredCode?: string): Promise<string> {
