@@ -3353,6 +3353,17 @@ app.post('/api/feedback', async (req: Request, res: Response) => {
     if (type !== 'feature' && type !== 'bug') {
       return res.status(400).json({ error: 'Type must be feature or bug' });
     }
+
+    if (type === 'feature' && !isAdminReq(req)) {
+      const maintenance = await getSettingDb<any>('maintenance');
+      const featureMaintenance = maintenance?.tabMaintenance?.featureRequests;
+      if (featureMaintenance?.enabled) {
+        return res.status(503).json({
+          error: featureMaintenance.message || 'Feature requests are temporarily paused for maintenance.',
+        });
+      }
+    }
+
     const cleanTitle = String(title || '').trim().slice(0, 140);
     const cleanDetails = String(details || '').trim().slice(0, 4000);
     if (!cleanTitle) return res.status(400).json({ error: 'Please add a short title' });

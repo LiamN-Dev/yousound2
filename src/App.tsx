@@ -139,6 +139,10 @@ const MainAppContent: React.FC = () => {
   }, [allSongs, searchQuery, selectedGenre]);
 
   const handleOpenPlaylistModal = (song: Song | null) => {
+    if (maintenanceState.tabMaintenance?.playlists?.enabled && !isAdmin) {
+      setActiveTab('playlists');
+      return;
+    }
     setPlaylistSongTarget(song);
     setIsPlaylistModalOpen(true);
   };
