@@ -100,7 +100,7 @@ import {
   purgeClosedFeedbackDb,
   clearClosedFeedbackDb,
 } from './src/db/feedback.ts';
-import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile } from './src/services/audioPipeline.ts';
+import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile, getDriveLibraryFolderId } from './src/services/audioPipeline.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -1837,31 +1837,57 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         });
       }
       if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-      if (!audioFile || !coverFile || !audioTempPath || !coverTempPath) return res.status(400).json({ success: false, error: 'Choose both an MP3 and cover image.' });
-      if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
+      const audioDriveId = extractGoogleDriveFileId(req.body?.audioDriveLink);
+      const coverDriveId = extractGoogleDriveFileId(req.body?.coverDriveLink);
+      if (req.body?.audioDriveLink && !audioDriveId) return res.status(400).json({ success: false, error: 'The selected Drive audio file is not a valid Google Drive file.' });
+      if (req.body?.coverDriveLink && !coverDriveId) return res.status(400).json({ success: false, error: 'The selected Drive artwork file is not a valid Google Drive file.' });
+      if ((!audioFile && !audioDriveId) || (!coverFile && !coverDriveId)) {
+        return res.status(400).json({ success: false, error: 'Choose an MP3 and cover image using a file upload, a Drive folder selection, or a share link.' });
+      }
+      if (audioFile && audioDriveId) return res.status(400).json({ success: false, error: 'Choose either a Drive MP3 or a local MP3, not both.' });
+      if (coverFile && coverDriveId) return res.status(400).json({ success: false, error: 'Choose either Drive artwork or a local image, not both.' });
+      if (audioFile && (!audioTempPath || !/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase())))) {
         return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
       }
-      if (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase())) {
+      if (coverFile && (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase()))) {
         return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
       }
-      accessToken = await getDriveAccessToken();
-      const trackTitle = String(req.body?.title || audioFile.originalname.replace(/\.mp3$/i, '')).trim();
-      const trackArtist = String(req.body?.artist || 'Unknown Artist').trim();
-      const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, trackTitle, trackArtist, accessToken);
-      audioTempPath = null;
-      uploadedAudioId = driveAudio.fileId;
-      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
-      coverTempPath = null;
-      uploadedCoverId = driveCover.fileId;
-
       if (!(await checkSqlAvailability())) {
-        throw new Error('The persistent database is unavailable. The media was uploaded but has not been added to the library; reconnect the database and retry.');
+        return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
       }
-      const title = String(req.body?.title || audioFile.originalname.replace(/\.mp3$/i, '')).trim();
+
+      const title = String(req.body?.title || (audioFile ? audioFile.originalname.replace(/\.mp3$/i, '') : '')).trim();
       const artist = String(req.body?.artist || '').trim();
       if (!title || !artist) throw new Error('Song title and artist are required.');
       const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
       const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
+
+      let audioUrl = '';
+      let coverUrl = '';
+      let duration = 180;
+      if (audioDriveId) {
+        audioUrl = '/api/drive/stream/' + encodeURIComponent(audioDriveId);
+        const suppliedDuration = Number(req.body?.duration);
+        if (Number.isFinite(suppliedDuration) && suppliedDuration > 0 && suppliedDuration <= 24 * 60 * 60) duration = Math.max(1, Math.round(suppliedDuration));
+      } else if (audioFile && audioTempPath) {
+        accessToken = await getDriveAccessToken();
+        const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, title, artist, accessToken);
+        audioTempPath = null;
+        uploadedAudioId = driveAudio.fileId;
+        audioUrl = driveAudio.streamingUrl;
+        duration = driveAudio.duration || duration;
+      }
+
+      if (coverDriveId) {
+        coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(coverDriveId);
+      } else if (coverFile && coverTempPath) {
+        accessToken = accessToken || await getDriveAccessToken();
+        const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
+        coverTempPath = null;
+        uploadedCoverId = driveCover.fileId;
+        coverUrl = driveCover.imageUrl;
+      }
+
       const id = `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const song = await insertSongDb({
         id,
@@ -1870,9 +1896,9 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         album: '',
         genre,
         tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
-        duration: driveAudio.duration || 180,
-        audioUrl: driveAudio.streamingUrl,
-        coverUrl: driveCover.imageUrl,
+        duration,
+        audioUrl,
+        coverUrl,
         addedAt: new Date().toISOString(),
         plays: 0,
         featured: false,
@@ -1917,6 +1943,75 @@ function extractDriveFilenameFromHeader(disposition: string | null): string | nu
   filename = filename.replace(/[\\/]+/g, '_').replace(/[\u0000-\u001f]/g, '').trim();
   return filename && filename !== '.' && filename !== '..' ? filename.slice(0, 255) : null;
 }
+
+// Admin-only filename search in the site's existing Google Drive media folders.
+app.get('/api/admin/library/drive-files', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  const kind = String(req.query.kind || '');
+  if (kind !== 'audio' && kind !== 'image') {
+    return res.status(400).json({ success: false, error: 'Choose an audio or image library.' });
+  }
+
+  const searchTerm = String(req.query.q || '').trim().slice(0, 100);
+  const pageToken = String(req.query.pageToken || '').trim().slice(0, 2048);
+  try {
+    const accessToken = await getDriveAccessToken();
+    const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
+    const folderId = await getDriveLibraryFolderId(accessToken, folderName);
+    const escapedSearch = searchTerm.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const typeQuery = kind === 'audio'
+      ? "(mimeType='audio/mpeg' or mimeType='audio/mp3' or name contains '.mp3')"
+      : "(mimeType='image/jpeg' or mimeType='image/png' or mimeType='image/webp' or mimeType='image/gif')";
+    const queryParts = [`'${folderId}' in parents`, 'trashed=false', typeQuery];
+    if (escapedSearch) queryParts.push(`name contains '${escapedSearch}'`);
+
+    const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
+    driveUrl.searchParams.set('q', queryParts.join(' and '));
+    driveUrl.searchParams.set('pageSize', '100');
+    driveUrl.searchParams.set('orderBy', 'name');
+    driveUrl.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,size,modifiedTime)');
+    driveUrl.searchParams.set('supportsAllDrives', 'true');
+    driveUrl.searchParams.set('includeItemsFromAllDrives', 'true');
+    if (pageToken) driveUrl.searchParams.set('pageToken', pageToken);
+
+    const driveResponse = await fetch(driveUrl, {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const data: any = await driveResponse.json().catch(() => ({}));
+    if (!driveResponse.ok) {
+      const reason = data?.error?.message ? String(data.error.message).slice(0, 300) : 'Google Drive rejected the folder listing.';
+      throw new Error(reason);
+    }
+
+    const supportedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+    const files = (Array.isArray(data.files) ? data.files : []).filter((file: any) => {
+      const name = String(file?.name || '').toLowerCase();
+      const mimeType = String(file?.mimeType || '').toLowerCase();
+      if (kind === 'audio') return name.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3';
+      return supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
+    }).map((file: any) => ({
+      id: String(file.id),
+      name: String(file.name || 'Untitled file'),
+      mimeType: String(file.mimeType || ''),
+      size: file.size ? String(file.size) : null,
+      modifiedTime: file.modifiedTime || null,
+    }));
+
+    return res.json({
+      success: true,
+      folder: folderName,
+      files,
+      nextPageToken: data.nextPageToken || null,
+    });
+  } catch (error: any) {
+    console.error('[DriveLibraryPicker] Could not list Google Drive files:', error?.message || error);
+    return res.status(502).json({
+      success: false,
+      error: error?.message || 'Could not read the Google Drive media folder. Check the site Drive connection and folder permissions.',
+    });
+  }
+});
 
 // Read one byte plus response headers; never download the complete MP3 just to read its name.
 app.get('/api/admin/library/drive-file-info/:fileId', async (req: Request, res: Response) => {
