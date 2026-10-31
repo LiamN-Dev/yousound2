@@ -22,11 +22,9 @@ import {
   Activity,
 } from 'lucide-react';
 
-const STATUS_PAGE_URL = 'https://yousound.betteruptime.com/';
-
 interface HeaderProps {
-  activeTab: 'library' | 'playlists' | 'favorites' | 'chat' | 'admin';
-  setActiveTab: (tab: 'library' | 'playlists' | 'favorites' | 'chat' | 'admin') => void;
+  activeTab: 'library' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin';
+  setActiveTab: (tab: 'library' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin') => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   selectedGenre: string;
@@ -278,17 +276,20 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                 </button>
 
-                {/* Site status (uptime monitor) */}
-                <a
-                  href={STATUS_PAGE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-white hover:bg-emerald-50 dark:hover:bg-emerald-600/15 transition-all shrink-0"
-                  title="Check whether YouSong is up (opens in a new tab)"
+                {/* Integrated service status */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('status')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
+                    activeTab === 'status'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-white hover:bg-emerald-50 dark:hover:bg-emerald-600/15'
+                  }`}
+                  title="View live YouSong system status"
                 >
-                  <Activity className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <Activity className="w-3.5 h-3.5 shrink-0" />
                   <span>Status</span>
-                </a>
+                </button>
 
                 {/* 6. Admin Panel (if admin) */}
                 {isAdmin && (
@@ -434,14 +435,17 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               )}
             </button>
-            <a
-              href={STATUS_PAGE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-600/20 border border-emerald-200 dark:border-emerald-500/30"
+            <button
+              type="button"
+              onClick={() => setActiveTab('status')}
+              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 border ${
+                activeTab === 'status'
+                  ? 'bg-emerald-600 text-white border-emerald-500'
+                  : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-600/20 border-emerald-200 dark:border-emerald-500/30'
+              }`}
             >
               Status
-            </a>
+            </button>
             {isAdmin && (
               <button
                 onClick={() => setActiveTab('admin')}
