@@ -132,7 +132,7 @@ export const PlayerBar: React.FC = () => {
         </div>
       ) : (
         <div className="fixed bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-40">
-          <div className="max-w-6xl mx-auto bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:py-3.5 sm:px-5 shadow-xl dark:shadow-2xl backdrop-blur-xl transition-colors">
+          <div className="ys-player-shell max-w-6xl mx-auto bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-3 sm:py-3.5 sm:px-5 shadow-xl dark:shadow-2xl backdrop-blur-xl transition-colors">
             {/* Top Scrubber Bar */}
           <div className="relative w-full flex items-center gap-2 mb-2 group">
             <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 w-8 text-right shrink-0">
