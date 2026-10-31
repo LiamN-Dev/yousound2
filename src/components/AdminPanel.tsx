@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { storage } from '../services/storage';
-import { Song, User, PopupType, BannerColorTheme, SongRequest, SongBadgeType } from '../types';
+import { Song, User, PopupType, BannerColorTheme, SongRequest, SongBadgeType, MaintenanceTab, TabMaintenanceSetting } from '../types';
 import { handleImageFallback } from '../utils/artworkHelper';
 import { EditSongModal } from './EditSongModal';
 import { AdminSongManager } from './AdminSongManager';
@@ -54,6 +54,19 @@ import {
   Zap,
   Database,
 } from 'lucide-react';
+
+const MAINTENANCE_SECTION_OPTIONS: {
+  id: MaintenanceTab;
+  label: string;
+  description: string;
+  defaultMessage: string;
+}[] = [
+  { id: 'library', label: 'Music Library', description: 'Pause library browsing without taking other sections offline.', defaultMessage: 'The music library is temporarily unavailable while we make improvements.' },
+  { id: 'playlists', label: 'Playlists', description: 'Temporarily pause playlist browsing and editing.', defaultMessage: 'Playlists are temporarily unavailable while we make improvements.' },
+  { id: 'favorites', label: 'Favorites', description: 'Temporarily pause the Favorites section.', defaultMessage: 'Favorites are temporarily unavailable while we make improvements.' },
+  { id: 'chat', label: 'Chat', description: 'Pause messaging while music and playlists remain available.', defaultMessage: 'Chat is temporarily unavailable while maintenance is in progress.' },
+  { id: 'featureRequests', label: 'Feature Requests', description: 'Pause new feature suggestions; bug reports and existing reports stay available.', defaultMessage: 'Feature requests are temporarily paused while we review the request system.' },
+];
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -107,6 +120,9 @@ export const AdminPanel: React.FC = () => {
   );
   const [maintAutoDisable, setMaintAutoDisable] = useState(!!maintenanceState.autoDisableOnCountdown);
   const [maintFeedback, setMaintFeedback] = useState<string | null>(null);
+  const [maintTabSettings, setMaintTabSettings] = useState<Partial<Record<MaintenanceTab, TabMaintenanceSetting>>>(
+    () => maintenanceState.tabMaintenance || {}
+  );
 
   // Banner & Branding State
   const [bannerEnabled, setBannerEnabledRaw] = useState(bannerConfig.enabled);
@@ -282,13 +298,33 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  // Save Maintenance with Countdown & Auto-Trigger
+  const updateMaintTabSetting = (tab: MaintenanceTab, updates: Partial<TabMaintenanceSetting>) => {
+    const option = MAINTENANCE_SECTION_OPTIONS.find((item) => item.id === tab);
+    setMaintTabSettings((current) => ({
+      ...current,
+      [tab]: {
+        enabled: current[tab]?.enabled ?? false,
+        message: current[tab]?.message ?? option?.defaultMessage ?? 'This section is temporarily unavailable.',
+        ...updates,
+      },
+    }));
+  };
+
   const handleSaveMaintenance = () => {
     const isoFinishTime =
       maintHasCountdown && maintFinishTime ? new Date(maintFinishTime).toISOString() : null;
+    const tabMaintenance = Object.fromEntries(
+      MAINTENANCE_SECTION_OPTIONS.map((option) => [
+        option.id,
+        {
+          enabled: !!maintTabSettings[option.id]?.enabled,
+          message: (maintTabSettings[option.id]?.message || option.defaultMessage).trim().slice(0, 500),
+        },
+      ])
+    ) as Partial<Record<MaintenanceTab, TabMaintenanceSetting>>;
 
-    setMaintenance(maintEnabled, maintMessage, maintHasCountdown, isoFinishTime, maintAutoDisable);
-    setMaintFeedback('Maintenance settings, countdown timer & auto-trigger saved!');
+    setMaintenance(maintEnabled, maintMessage, maintHasCountdown, isoFinishTime, maintAutoDisable, tabMaintenance);
+    setMaintFeedback('Global and individual maintenance settings saved.');
     setTimeout(() => setMaintFeedback(null), 3000);
   };
 
@@ -1259,7 +1295,7 @@ export const AdminPanel: React.FC = () => {
       {/* TAB 6: MAINTENANCE MODE */}
       {adminTab === 'maintenance' && (
         <div className="space-y-6 animate-in fade-in">
-          <div className="liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-white/10">
+          <div className="ys-admin-dark-panel liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-white/10">
             <h2 className="text-lg font-bold text-white font-display mb-2 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-400" />
               Maintenance Mode & Countdown Timer
@@ -1395,6 +1431,50 @@ export const AdminPanel: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              <section className="liquid-glass-surface rounded-3xl p-5 sm:p-6 border border-emerald-400/20 space-y-4">
+                <div>
+                  <h3 className="text-base font-bold text-white font-display">Individual Section Maintenance</h3>
+                  <p className="text-xs text-slate-300 mt-1">Pause one section at a time. Everyone can continue using the rest of YouSong.</p>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {MAINTENANCE_SECTION_OPTIONS.map((option) => {
+                    const setting = maintTabSettings[option.id];
+                    const enabled = !!setting?.enabled;
+                    return (
+                      <div key={option.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-bold text-white">{option.label}</h4>
+                            <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">{option.description}</p>
+                          </div>
+                          <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer">
+                            <span className={`text-[10px] font-bold ${enabled ? 'text-amber-300' : 'text-slate-400'}`}>{enabled ? 'Paused' : 'Available'}</span>
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={(event) => updateMaintTabSetting(option.id, { enabled: event.target.checked })}
+                              className="sr-only peer"
+                              aria-label={`Pause ${option.label}`}
+                            />
+                            <span className="relative h-5 w-9 rounded-full bg-slate-700 transition-colors peer-checked:bg-amber-500 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+                          </label>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wide font-bold text-slate-300 mb-1">Message shown while paused</label>
+                          <textarea
+                            rows={2}
+                            maxLength={500}
+                            value={setting?.message ?? option.defaultMessage}
+                            onChange={(event) => updateMaintTabSetting(option.id, { message: event.target.value })}
+                            className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-white placeholder-slate-400 focus:border-emerald-400 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
 
               <div className="flex justify-end pt-2">
                 <button

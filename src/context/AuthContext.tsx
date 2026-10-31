@@ -73,7 +73,8 @@ interface AuthContextType {
     message?: string,
     hasCountdown?: boolean,
     estimatedFinishTime?: string | null,
-    autoDisableOnCountdown?: boolean
+    autoDisableOnCountdown?: boolean,
+    tabMaintenance?: MaintenanceState['tabMaintenance']
   ) => void;
   createBroadcastPopup: (
     targetUserId: string,
@@ -340,14 +341,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     message?: string,
     hasCountdown?: boolean,
     estimatedFinishTime?: string | null,
-    autoDisableOnCountdown?: boolean
+    autoDisableOnCountdown?: boolean,
+    tabMaintenance?: MaintenanceState['tabMaintenance']
   ) => {
     const updated = await storage.setMaintenanceState(
       enabled,
       message,
       hasCountdown,
       estimatedFinishTime,
-      autoDisableOnCountdown
+      autoDisableOnCountdown,
+      tabMaintenance
     );
     setMaintenanceState(updated);
     refreshState();

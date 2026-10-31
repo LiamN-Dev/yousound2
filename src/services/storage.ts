@@ -404,7 +404,8 @@ class StorageService {
     message?: string,
     hasCountdown?: boolean,
     estimatedFinishTime?: string | null,
-    autoDisableOnCountdown?: boolean
+    autoDisableOnCountdown?: boolean,
+    tabMaintenance?: MaintenanceState['tabMaintenance']
   ): Promise<MaintenanceState> {
     const updated = {
       enabled,
@@ -413,6 +414,7 @@ class StorageService {
       hasCountdown: !!hasCountdown,
       estimatedFinishTime: hasCountdown ? estimatedFinishTime || null : null,
       autoDisableOnCountdown: !!autoDisableOnCountdown,
+      tabMaintenance: tabMaintenance === undefined ? this.maintenance.tabMaintenance : tabMaintenance,
     };
     this.maintenance = updated;
     this.saveMaintenance();

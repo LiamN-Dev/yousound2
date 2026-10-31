@@ -28,10 +28,14 @@ import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song } from './types';
 import { Music, ListPlus, KeyRound } from 'lucide-react';
 import { SpotlightShowcase } from './components/SpotlightShowcase';
+import { SectionMaintenanceNotice } from './components/SectionMaintenanceNotice';
+import { ChristmasEffects } from './components/ChristmasEffects';
+import { useTheme } from './context/ThemeContext';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
   const { allSongs, adminAllSongs, spotlightConfig } = useAudio();
+  const { christmasMode } = useTheme();
 
   const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'chat' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
@@ -135,12 +139,28 @@ const MainAppContent: React.FC = () => {
   }, [allSongs, searchQuery, selectedGenre]);
 
   const handleOpenPlaylistModal = (song: Song | null) => {
+    if (maintenanceState.tabMaintenance?.playlists?.enabled && !isAdmin) {
+      setActiveTab('playlists');
+      return;
+    }
     setPlaylistSongTarget(song);
     setIsPlaylistModalOpen(true);
   };
 
+  const maintenanceKey = activeTab === 'admin' ? null : activeTab;
+  const activeMaintenance = maintenanceKey ? maintenanceState.tabMaintenance?.[maintenanceKey] : undefined;
+  const activeMaintenanceTitle = activeTab === 'playlists'
+    ? 'Playlists'
+    : activeTab === 'favorites'
+      ? 'Favorites'
+      : activeTab === 'chat'
+        ? 'Chat'
+        : 'Music Library';
+
   return (
-    <div className="min-h-screen relative bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors">
+    <div className="ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors">
+      {christmasMode && <ChristmasEffects />}
+      <div className="ys-ambient-backdrop fixed inset-0 overflow-hidden pointer-events-none z-0" />
       {/* Subtle Studio Ambient Lighting in Dark Mode */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0 hidden dark:block">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[400px] bg-blue-600/[0.06] rounded-full blur-[140px]" />
@@ -164,6 +184,10 @@ const MainAppContent: React.FC = () => {
 
       {/* Main View Area */}
       <main className="ys-main-content relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {activeMaintenance?.enabled && !isAdmin ? (
+          <SectionMaintenanceNotice title={activeMaintenanceTitle} message={activeMaintenance.message} />
+        ) : (
+          <>
         {activeTab === 'library' && (
           <div className="space-y-6 pb-28">
             {spotlightConfig.enabled ? (
@@ -276,16 +300,20 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
+          </>
+        )}
       </main>
 
       {/* Floating Bottom Player */}
       <PlayerBar />
 
       {/* 5-Second Side Popup Notification for incoming chats */}
-      <ChatSideNotification
-        isChatActive={activeTab === 'chat'}
-        onOpenChat={() => setActiveTab('chat')}
-      />
+      {!maintenanceState.tabMaintenance?.chat?.enabled || isAdmin ? (
+        <ChatSideNotification
+          isChatActive={activeTab === 'chat'}
+          onOpenChat={() => setActiveTab('chat')}
+        />
+      ) : null}
 
       {/* Full Screen Visualizer Modal */}
       <VisualizerModal />
@@ -310,6 +338,7 @@ const MainAppContent: React.FC = () => {
       <SongRequestModal
         isOpen={isSongRequestOpen}
         initialMode={requestInitialMode}
+        featureRequestsMaintenance={maintenanceState.tabMaintenance?.featureRequests}
         onClose={() => {
           setIsSongRequestOpen(false);
           setRequestInitialMode('song');

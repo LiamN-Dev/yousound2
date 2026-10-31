@@ -54,7 +54,7 @@ export const MaintenanceScreen: React.FC<MaintenanceScreenProps> = ({ onOpenAdmi
   const pad = (n: number) => String(n).padStart(2, '0');
 
   return (
-    <div className="min-h-screen relative flex items-center justify-center p-4 bg-[#090d16] text-slate-100">
+    <div className="ys-dark-surface min-h-screen relative flex items-center justify-center p-4 bg-[#090d16] text-slate-100">
       {/* Subtle Studio Ambient Glow */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-amber-500/[0.04] rounded-full blur-[140px] pointer-events-none" />
 

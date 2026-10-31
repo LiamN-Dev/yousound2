@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
-import { FeedbackItem } from '../types';
+import { FeedbackItem, TabMaintenanceSetting } from '../types';
+import { SectionMaintenanceNotice } from './SectionMaintenanceNotice';
 import { markAllSeen, refreshFeedback, getFeedbackState, subscribeFeedback } from '../services/feedbackNotifications';
 import {
   X,
@@ -26,6 +27,7 @@ interface SongRequestModalProps {
   onClose: () => void;
   /** Which section to show when the popup opens */
   initialMode?: 'song' | 'feature' | 'bug' | 'mine';
+  featureRequestsMaintenance?: TabMaintenanceSetting;
 }
 
 const STAGE_LABELS = ['Submitted', 'In progress', 'Finished'];
@@ -272,8 +274,13 @@ const FeedbackForm: React.FC<{ kind: 'feature' | 'bug' }> = ({ kind }) => {
   );
 };
 
-export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onClose, initialMode = 'song' }) => {
-  const { currentUser, songRequests, submitSongRequest, refreshState } = useAuth();
+export const SongRequestModal: React.FC<SongRequestModalProps> = ({
+  isOpen,
+  onClose,
+  initialMode = 'song',
+  featureRequestsMaintenance,
+}) => {
+  const { currentUser, isAdmin, songRequests, submitSongRequest, refreshState } = useAuth();
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [mode, setMode] = useState<'song' | 'feature' | 'bug' | 'mine'>(initialMode);
   const feedbackState = useSyncExternalStore(subscribeFeedback, getFeedbackState);
@@ -350,7 +357,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in">
+    <div className="ys-dark-surface fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in">
       <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl max-h-[92vh] overflow-y-auto text-slate-200">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
@@ -411,6 +418,12 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({ isOpen, onCl
 
         {mode === 'mine' ? (
           <MyFeedbackList />
+        ) : mode === 'feature' && featureRequestsMaintenance?.enabled && !isAdmin ? (
+          <SectionMaintenanceNotice
+            title="Feature requests"
+            message={featureRequestsMaintenance.message}
+            compact
+          />
         ) : mode !== 'song' ? (
           <FeedbackForm key={mode} kind={mode} />
         ) : (

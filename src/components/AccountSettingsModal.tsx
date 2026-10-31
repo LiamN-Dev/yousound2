@@ -17,6 +17,7 @@ import {
   Contrast,
   Sun,
   Moon,
+  Snowflake,
   Check,
 } from 'lucide-react';
 import { UserAccentColor } from '../types';
@@ -39,6 +40,8 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({ isOp
     setFontSize,
     highContrast,
     toggleHighContrast,
+    christmasMode,
+    toggleChristmasMode,
   } = useTheme();
 
   const [activeTab, setActiveTab] = useState<'profile' | 'appearance'>('profile');
@@ -271,6 +274,29 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({ isOp
                   className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:text-blue-600 transition-colors shadow-xs"
                 >
                   Switch to {theme === 'dark' ? 'Light' : 'Dark'}
+                </button>
+              </div>
+
+              {/* Optional seasonal atmosphere */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/80">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                    <Snowflake className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Christmas Atmosphere</div>
+                    <div className="text-[10px] text-slate-600 dark:text-slate-400">Gentle snowfall and festive lights on this device</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={christmasMode}
+                  onClick={toggleChristmasMode}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${christmasMode ? 'bg-emerald-600' : 'bg-slate-300 dark:bg-slate-700'}`}
+                  aria-label="Toggle Christmas atmosphere"
+                >
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${christmasMode ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
 

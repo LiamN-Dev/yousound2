@@ -2813,6 +2813,7 @@ app.get('/api/maintenance', async (req: Request, res: Response) => {
       hasCountdown: false,
       estimatedFinishTime: null,
       autoDisableOnCountdown: false,
+      tabMaintenance: {},
     };
 
     // Auto-disable maintenance mode if countdown timer reached zero and setting is enabled
@@ -2840,14 +2841,33 @@ app.post('/api/admin/maintenance', async (req: Request, res: Response) => {
   try {
     const { enabled, message, hasCountdown, estimatedFinishTime, autoDisableOnCountdown } = req.body;
     const current = (await getSettingDb('maintenance')) || {};
+    const allowedTabs = ['library', 'playlists', 'favorites', 'chat', 'featureRequests'] as const;
+    const requestedTabMaintenance = req.body?.tabMaintenance;
+    const tabMaintenance = { ...(current.tabMaintenance || {}) };
+
+    for (const tab of allowedTabs) {
+      const requested = requestedTabMaintenance?.[tab];
+      if (!requested || typeof requested !== 'object') continue;
+      const previousMessage = tabMaintenance[tab]?.message || 'This section is temporarily unavailable while maintenance is in progress.';
+      tabMaintenance[tab] = {
+        enabled: Boolean(requested.enabled),
+        message: typeof requested.message === 'string'
+          ? requested.message.trim().slice(0, 500)
+          : previousMessage,
+      };
+    }
+
     const updated = {
       ...current,
       enabled: !!enabled,
-      message: message || current.message || 'System maintenance in progress.',
+      message: typeof message === 'string' && message.trim()
+        ? message.trim().slice(0, 1000)
+        : current.message || 'System maintenance in progress.',
       updatedAt: new Date().toISOString(),
       hasCountdown: !!hasCountdown,
       estimatedFinishTime: hasCountdown ? estimatedFinishTime || null : null,
       autoDisableOnCountdown: !!autoDisableOnCountdown,
+      tabMaintenance,
     };
     await setSettingDb('maintenance', updated);
     res.json({ success: true, maintenance: updated });
@@ -3333,6 +3353,17 @@ app.post('/api/feedback', async (req: Request, res: Response) => {
     if (type !== 'feature' && type !== 'bug') {
       return res.status(400).json({ error: 'Type must be feature or bug' });
     }
+
+    if (type === 'feature' && !isAdminReq(req)) {
+      const maintenance = await getSettingDb<any>('maintenance');
+      const featureMaintenance = maintenance?.tabMaintenance?.featureRequests;
+      if (featureMaintenance?.enabled) {
+        return res.status(503).json({
+          error: featureMaintenance.message || 'Feature requests are temporarily paused for maintenance.',
+        });
+      }
+    }
+
     const cleanTitle = String(title || '').trim().slice(0, 140);
     const cleanDetails = String(details || '').trim().slice(0, 4000);
     if (!cleanTitle) return res.status(400).json({ error: 'Please add a short title' });
