@@ -17,20 +17,36 @@ export interface ProcessedAudioResult {
  * Probe audio duration in seconds using ffprobe or fallback
  */
 async function probeAudioDuration(filePath: string): Promise<number> {
+  // music-metadata is already a project dependency and works without a system ffprobe binary.
+  // It is the primary probe for Render; ffprobe remains a secondary compatibility fallback.
+  try {
+    const mm = await import('music-metadata');
+    const metadata = await mm.parseFile(filePath, { duration: true });
+    const detected = metadata.format?.duration;
+    if (typeof detected === 'number' && Number.isFinite(detected) && detected > 0) {
+      return Math.max(1, Math.round(detected));
+    }
+    console.warn('[AudioPipeline] music-metadata did not return a usable duration.');
+  } catch (error) {
+    console.warn('[AudioPipeline] music-metadata duration probe failed; trying ffprobe:', error);
+  }
+
   try {
     const { stdout } = await execFileAsync('ffprobe', [
       '-v', 'error',
       '-show_entries', 'format=duration',
       '-of', 'default=noprint_wrappers=1:nokey=1',
-      filePath
+      filePath,
     ]);
-    const parsed = parseFloat(stdout.trim());
-    if (!isNaN(parsed) && parsed > 0) {
-      return Math.round(parsed);
-    }
-  } catch (err) {
-    console.warn('ffprobe duration check failed, using fallback estimate:', err);
+    const parsed = Number.parseFloat(stdout.trim());
+    if (Number.isFinite(parsed) && parsed > 0) return Math.max(1, Math.round(parsed));
+  } catch (error) {
+    console.warn('[AudioPipeline] ffprobe duration fallback failed:', error);
   }
+
+  // Keep uploads flowing if both metadata readers fail. Browser playback can self-correct
+  // this placeholder from the audio element's loadedmetadata event.
+  console.warn('[AudioPipeline] Duration could not be detected; using the 180-second placeholder.');
   return 180;
 }
 

@@ -5,6 +5,28 @@ import { CheckCircle, Cloud, Loader2, Music2, Upload, XCircle } from 'lucide-rea
 
 type Feedback = { type: 'success' | 'error' | 'info'; message: string } | null;
 
+function extractDrivePreviewId(raw: string): string | null {
+  const value = String(raw || '').trim();
+  if (!value || value.length > 2048) return null;
+  if (/^[a-zA-Z0-9_-]{10,200}$/.test(value)) return value;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com'].includes(url.hostname.toLowerCase())) return null;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const dIndex = segments.indexOf('d');
+    const id = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    return /^[a-zA-Z0-9_-]{10,200}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatPreviewDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 export const ManualSongUploader: React.FC = () => {
   const { refreshState } = useAuth();
   const [title, setTitle] = useState('');
@@ -22,9 +44,29 @@ export const ManualSongUploader: React.FC = () => {
   const [connecting, setConnecting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [previewDuration, setPreviewDuration] = useState<number | null>(null);
+  const [audioPreviewError, setAudioPreviewError] = useState('');
+  const [coverPreviewError, setCoverPreviewError] = useState('');
+  const audioFilePreview = useMemo(() => audioFile ? URL.createObjectURL(audioFile) : '', [audioFile]);
   const coverPreview = useMemo(() => coverFile ? URL.createObjectURL(coverFile) : '', [coverFile]);
+  const audioDriveFileId = useMemo(() => extractDrivePreviewId(audioDriveLink), [audioDriveLink]);
+  const coverDriveFileId = useMemo(() => extractDrivePreviewId(coverDriveLink), [coverDriveLink]);
+  const audioPreviewUrl = audioFilePreview || (audioDriveFileId ? `/api/drive/stream/${encodeURIComponent(audioDriveFileId)}` : '');
+  const coverImagePreviewUrl = coverPreview || (coverDriveFileId ? `https://lh3.googleusercontent.com/d/${encodeURIComponent(coverDriveFileId)}` : '');
 
-  useEffect(() => () => { if (coverPreview) URL.revokeObjectURL(coverPreview); }, [coverPreview]);
+  useEffect(() => () => {
+    if (audioFilePreview) URL.revokeObjectURL(audioFilePreview);
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+  }, [audioFilePreview, coverPreview]);
+
+  useEffect(() => {
+    setPreviewDuration(null);
+    setAudioPreviewError('');
+  }, [audioPreviewUrl]);
+
+  useEffect(() => {
+    setCoverPreviewError('');
+  }, [coverImagePreviewUrl]);
 
   const refreshDriveStatus = async () => {
     try {
@@ -60,7 +102,9 @@ export const ManualSongUploader: React.FC = () => {
     if (!title.trim()) return setFeedback({ type: 'error', message: 'Enter a song title.' });
     if (!artist.trim()) return setFeedback({ type: 'error', message: 'Enter an artist.' });
     const useDriveLinks = Boolean(audioDriveLink.trim() || coverDriveLink.trim());
-    if (useDriveLinks ? (!audioDriveLink.trim() || !coverDriveLink.trim()) : (!audioFile || !coverFile)) return setFeedback({ type: 'error', message: 'Choose both files, or provide both Google Drive share links.' });
+    if (useDriveLinks ? (!audioDriveFileId || !coverDriveFileId) : (!audioFile || !coverFile)) {
+      return setFeedback({ type: 'error', message: 'Choose both files, or paste valid Google Drive file share links for both the MP3 and cover.' });
+    }
     if (!useDriveLinks && audioFile && (!/\.mp3$/i.test(audioFile.name) || (audioFile.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.type.toLowerCase())))) {
       return setFeedback({ type: 'error', message: 'Only MP3 audio files are accepted. This uploader does not convert audio.' });
     }
@@ -81,6 +125,9 @@ export const ManualSongUploader: React.FC = () => {
       form.append('album', album.trim());
       form.append('tags', tags);
       form.append('description', description.trim());
+      if (previewDuration && Number.isFinite(previewDuration) && previewDuration > 0) {
+        form.append('duration', String(Math.round(previewDuration)));
+      }
       if (useDriveLinks) { form.append('audioDriveLink', audioDriveLink.trim()); form.append('coverDriveLink', coverDriveLink.trim()); }
       else { form.append('audio', audioFile as File); form.append('cover', coverFile as File); }
       const response = await fetch(useDriveLinks ? '/api/admin/library/import-drive-links' : '/api/admin/library/upload-media', {
@@ -169,16 +216,57 @@ export const ManualSongUploader: React.FC = () => {
               <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive share link</label>
               <input className={fieldClass} value={audioDriveLink} onChange={(event) => { setAudioDriveLink(event.target.value); if (event.target.value) setAudioFile(null); }} placeholder="https://drive.google.com/file/d/..." />
             </div>
+            {audioPreviewUrl ? (
+              <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-cyan-200">Listen before publishing</span>
+                  {previewDuration ? <span className="text-[10px] tabular-nums text-slate-300">Detected length: {formatPreviewDuration(previewDuration)}</span> : <span className="text-[10px] text-slate-400">Reading audio details…</span>}
+                </div>
+                <audio
+                  key={audioPreviewUrl}
+                  controls
+                  preload="metadata"
+                  src={audioPreviewUrl}
+                  className="w-full"
+                  onLoadedMetadata={(event) => {
+                    const detected = event.currentTarget.duration;
+                    if (Number.isFinite(detected) && detected > 0) setPreviewDuration(detected);
+                  }}
+                  onError={() => setAudioPreviewError('This audio preview could not load. Check that the Drive MP3 is shared with Anyone with the link, or choose another file.')}
+                />
+                {audioPreviewError && <p className="text-[10px] text-rose-300">{audioPreviewError}</p>}
+              </div>
+            ) : (audioFile || audioDriveLink.trim()) ? (
+              <p className="text-[10px] text-amber-300">Enter a valid Google Drive file link to preview this track.</p>
+            ) : (
+              <p className="text-[10px] text-slate-500">Choose an MP3 or paste a Drive link to listen before uploading.</p>
+            )}
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-2">
             <label className="block text-[11px] font-semibold text-slate-300">Thumbnail / cover *</label>
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className={fileClass} onChange={(event) => { setCoverFile(event.target.files?.[0] || null); setCoverDriveLink(''); }} />
-            {coverPreview && <img src={coverPreview} alt="Cover preview" className="h-20 w-20 rounded-xl border border-white/10 object-cover" />}
             {coverFile && <p className="text-[10px] text-slate-400">{coverFile.name}</p>}
             <div className="border-t border-white/10 pt-2">
               <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive image share link</label>
               <input className={fieldClass} value={coverDriveLink} onChange={(event) => { setCoverDriveLink(event.target.value); if (event.target.value) setCoverFile(null); }} placeholder="https://drive.google.com/file/d/..." />
             </div>
+            {coverImagePreviewUrl ? (
+              <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-3 space-y-2">
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-cyan-200">Artwork preview</span>
+                <img
+                  key={coverImagePreviewUrl}
+                  src={coverImagePreviewUrl}
+                  alt="Song artwork preview"
+                  onError={() => setCoverPreviewError('The image could not be loaded. Check that the Drive image is shared with Anyone with the link.')}
+                  className="h-32 w-32 rounded-xl border border-white/10 bg-slate-900 object-cover"
+                />
+                {coverPreviewError && <p className="text-[10px] text-rose-300">{coverPreviewError}</p>}
+              </div>
+            ) : (coverFile || coverDriveLink.trim()) ? (
+              <p className="text-[10px] text-amber-300">Enter a valid Google Drive file link to preview the artwork.</p>
+            ) : (
+              <p className="text-[10px] text-slate-500">Choose an image or paste a Drive link to preview the artwork here.</p>
+            )}
           </div>
         </div>
         <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Description (optional)</label><textarea className={`${fieldClass} min-h-20 resize-y`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Short song description..." maxLength={1000} /></div>
