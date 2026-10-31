@@ -1918,19 +1918,35 @@ async function findDriveArtworkByCode(code: string, accessToken: string): Promis
   url.searchParams.set('q', "'" + folderId + "' in parents and trashed=false and name contains '" + code + "'");
   url.searchParams.set('pageSize', '100');
   url.searchParams.set('orderBy', 'name');
-  url.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
+  url.searchParams.set('fields', 'nextPageToken,files(id,name,mimeType,size,modifiedTime)');
   url.searchParams.set('supportsAllDrives', 'true');
   url.searchParams.set('includeItemsFromAllDrives', 'true');
-  const response = await fetch(url, {
-    headers: { Authorization: 'Bearer ' + accessToken },
-    signal: AbortSignal.timeout(20_000),
-  });
-  const data: any = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error('Could not search the YouSong Artwork folder (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
+
+  const candidates: any[] = [];
+  let pageToken = '';
+  let pages = 0;
+  do {
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    else url.searchParams.delete('pageToken');
+    const response = await fetch(url, {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error('Could not search the YouSong Artwork folder (' + response.status + '). ' + String(data?.error?.message || '').slice(0, 250));
+    }
+    candidates.push(...(Array.isArray(data.files) ? data.files : []));
+    pageToken = String(data.nextPageToken || '');
+    pages += 1;
+  } while (pageToken && pages < 10);
+
+  if (pageToken) {
+    throw new Error('Artwork search reached its 1,000-file safety limit. Narrow the Artwork folder or select the image manually.');
   }
-  const suffix = new RegExp("\\s-\\s" + code + "\\.(jpe?g|png|webp|gif)$", "i");
-  return (Array.isArray(data.files) ? data.files : [])
+
+  const suffix = new RegExp("\\\\s-\\\\s" + code + "\\\\.(jpe?g|png|webp|gif)$", "i");
+  return candidates
     .filter((file: any) => suffix.test(String(file?.name || '')))
     .map((file: any) => ({
       id: String(file.id),
@@ -1940,7 +1956,6 @@ async function findDriveArtworkByCode(code: string, accessToken: string): Promis
       modifiedTime: file.modifiedTime || undefined,
     }));
 }
-
 async function renameDriveSongAsset(fileId: string, kind: 'audio' | 'image', title: string, artist: string, mediaCode: string, accessToken: string): Promise<string> {
   const metadataUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
   metadataUrl.searchParams.set('fields', 'id,name,mimeType');
