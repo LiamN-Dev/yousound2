@@ -65,6 +65,28 @@ interface AudioContextType {
 
 const AudioContext = createContext<AudioContextType | undefined>(undefined);
 
+/** Convert Drive share/download URLs and legacy local proxy URLs to the playable same-origin route. */
+function getPlayableAudioUrl(rawUrl: string): string {
+  const value = String(rawUrl || '').trim();
+  if (!value) return value;
+
+  const localProxy = value.match(/^\/api\/media\/drive-stream\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
+  if (localProxy) return `/api/drive/stream/${encodeURIComponent(localProxy[1])}`;
+  if (/^\/api\/drive\/stream\/[a-zA-Z0-9_-]{10,200}(?:[?#].*)?$/.test(value)) return value;
+
+  try {
+    const url = new URL(value);
+    if (!['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com'].includes(url.hostname.toLowerCase())) return value;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const dIndex = segments.indexOf('d');
+    const fileId = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return value;
+    return `/api/drive/stream/${encodeURIComponent(fileId)}`;
+  } catch {
+    return value;
+  }
+}
+
 export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -234,7 +256,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       // The route is only set after authorization succeeds, so a denied listen never fetches audio.
       setCurrentSong(song);
-      audio.src = song.audioUrl;
+      audio.src = getPlayableAudioUrl(song.audioUrl);
       audio.currentTime = 0;
       audio.playbackRate = playbackSpeed;
       setDuration(song.duration || 180);

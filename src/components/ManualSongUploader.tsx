@@ -184,7 +184,7 @@ export const ManualSongUploader: React.FC = () => {
         <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Description (optional)</label><textarea className={`${fieldClass} min-h-20 resize-y`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Short song description..." maxLength={1000} /></div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-white/10 pt-4">
           <span className="text-[10px] text-slate-500 flex items-center gap-1.5"><Music2 className="h-3.5 w-3.5" /> Upload new files or reuse existing Drive share links.</span>
-          <button type="submit" disabled={uploading || !driveConnected} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-md transition hover:brightness-110 disabled:opacity-40">
+          <button type="submit" disabled={uploading || (!audioDriveLink.trim() && !driveConnected)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-md transition hover:brightness-110 disabled:opacity-40">
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {uploading ? 'Uploading media to Drive…' : 'Upload and publish song'}
           </button>

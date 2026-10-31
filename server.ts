@@ -361,65 +361,31 @@ app.get('/api/media/cover/:filename', async (req: Request, res: Response) => {
 // ----------------- GOOGLE DRIVE & 3RD-PARTY CLOUD AUDIO STREAMING -----------------
 // Helper to extract Google Drive file ID or convert cloud links
 function extractDriveFileId(inputUrl: string): string | null {
-  const trimmed = inputUrl.trim();
-  const match = trimmed.match(/(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=)|[?&]id=)([a-zA-Z0-9_-]{20,})/);
-  if (match) return match[1];
-  // If user pasted just the ID
-  if (/^[a-zA-Z0-9_-]{25,45}$/.test(trimmed)) return trimmed;
-  return null;
-}
+  const trimmed = String(inputUrl || '').trim();
+  if (!trimmed || trimmed.length > 2048) return null;
 
-// Google Drive Audio Streaming Proxy with Byte-Range Scrubbing Support
-app.get('/api/media/drive-stream/:fileId', async (req: Request, res: Response) => {
-  const fileId = String(req.params.fileId || '').trim();
-  if (!/^[a-zA-Z0-9_-]{20,45}$/.test(fileId)) {
-    return res.status(400).send('Invalid Google Drive file ID');
-  }
-  const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
-
-  // Normal playback goes straight to Drive so the application's host does not pay to retransmit audio bytes.
-  // Add ?proxy=1 only as a compatibility fallback for a public Drive file that will not stream directly.
-  if (req.query.proxy !== '1') return res.redirect(302, driveUrl);
+  // Accept an ID directly, standard Drive/Docs share URLs, and this app's own stream URLs.
+  if (/^[a-zA-Z0-9_-]{10,200}$/.test(trimmed)) return trimmed;
+  const localRouteMatch = trimmed.match(/^\/api\/(?:drive\/stream|media\/drive-stream)\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
+  if (localRouteMatch) return localRouteMatch[1];
 
   try {
-    const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-    };
-    if (req.headers.range) headers.Range = req.headers.range;
-    let driveRes = await fetch(driveUrl, { headers, redirect: 'follow' });
-
-    // Only read a body when Google returned an HTML confirmation page; never duplicate-read a normal audio stream.
-    const contentType = driveRes.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      const html = await driveRes.text();
-      const match = html.match(/href="([^"]+confirm=[^"]+)"/);
-      if (match?.[1]) {
-        const confirmUrl = match[1].replace(/&amp;/g, '&');
-        driveRes = await fetch(new URL(confirmUrl, driveUrl), { headers, redirect: 'follow' });
-      } else {
-        return res.status(502).send('Google Drive returned a download confirmation page. Ensure the file is shared with anyone who has the link.');
-      }
-    }
-    if (!driveRes.ok && driveRes.status !== 206) {
-      return res.status(driveRes.status).send('Could not retrieve audio from Google Drive. Check that link sharing is set to Anyone with the link.');
-    }
-    res.status(driveRes.status);
-    for (const header of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
-      const value = driveRes.headers.get(header);
-      if (value) res.setHeader(header === 'content-type' ? 'Content-Type' : header === 'content-length' ? 'Content-Length' : header === 'content-range' ? 'Content-Range' : header === 'accept-ranges' ? 'Accept-Ranges' : header === 'etag' ? 'ETag' : 'Last-Modified', value);
-    }
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    if (!driveRes.body) return res.end();
-    const nodeStream = (await import('stream')).Readable.fromWeb(driveRes.body as any);
-    nodeStream.on('error', (error) => {
-      console.error('Drive proxy stream error:', error);
-      if (!res.headersSent) res.status(502).end(); else res.destroy(error);
-    });
-    return nodeStream.pipe(res);
-  } catch (error: any) {
-    console.error('Drive stream proxy error:', error);
-    return res.status(502).send('Failed to stream audio from Google Drive');
+    const url = new URL(trimmed);
+    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com'].includes(url.hostname.toLowerCase())) return null;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const dIndex = segments.indexOf('d');
+    const id = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    return /^[a-zA-Z0-9_-]{10,200}$/.test(id) ? id : null;
+  } catch {
+    return null;
   }
+}
+
+// Legacy local stream URLs now forward to the single Google Drive playback handler.
+app.get('/api/media/drive-stream/:fileId', (req: Request, res: Response) => {
+  const fileId = String(req.params.fileId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return res.status(400).send('Invalid Google Drive file ID');
+  return res.redirect(307, `/api/drive/stream/${encodeURIComponent(fileId)}`);
 });
 
 // Import Cloud File (Google Drive, Dropbox, OneDrive, or Direct URL) into PostgreSQL Database
@@ -1937,20 +1903,13 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
 
 // Import existing, publicly shareable Google Drive files without uploading duplicate copies.
 function extractGoogleDriveFileId(raw: unknown): string | null {
-  const value = String(raw || '').trim();
-  if (!value || value.length > 2048) return null;
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(url.hostname)) return null;
-    const segments = url.pathname.split('/').filter(Boolean);
-    const fileIndex = segments.indexOf('d');
-    const fromPath = fileIndex >= 0 ? segments[fileIndex + 1] : '';
-    const id = fromPath || url.searchParams.get('id') || '';
-    return /^[a-zA-Z0-9_-]{10,}$/.test(id) ? id : null;
-  } catch { return null; }
+  return extractDriveFileId(String(raw || ''));
 }
 
-app.post('/api/admin/library/import-drive-links', async (req: Request, res: Response) => {
+// The uploader sends multipart FormData. Parse those text fields before reading req.body.
+const parseDriveLinkForm = multer({ limits: { fields: 20, fieldSize: 8192 } }).none();
+
+app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   try {
     const audioId = extractGoogleDriveFileId(req.body?.audioDriveLink);
@@ -1961,7 +1920,7 @@ app.post('/api/admin/library/import-drive-links', async (req: Request, res: Resp
     const artist = String(req.body?.artist || '').trim().slice(0, 150);
     if (!title || !artist) return res.status(400).json({ success: false, error: 'Song title and artist are required.' });
     if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
-    const audioUrl = 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(audioId);
+    const audioUrl = '/api/drive/stream/' + encodeURIComponent(audioId);
     const coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(coverId);
     const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
     const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
@@ -2024,7 +1983,10 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
       if (requestItem.status !== 'staging') {
         return res.status(409).json({ error: 'Only a request with an uploaded MP3 can be published. Upload an MP3 directly to Google Drive first.' });
       }
-      if (!requestItem.driveFileId || !String(requestItem.audioUrl || '').startsWith('https://drive.google.com/uc?export=download&id=') || !String(requestItem.coverUrl || '').startsWith('https://lh3.googleusercontent.com/d/')) {
+      const requestAudioUrl = String(requestItem.audioUrl || '');
+      const hasDrivePlaybackUrl = requestAudioUrl.startsWith('/api/drive/stream/')
+        || requestAudioUrl.startsWith('https://drive.google.com/uc?export=download&id=');
+      if (!requestItem.driveFileId || !hasDrivePlaybackUrl || !String(requestItem.coverUrl || '').startsWith('https://lh3.googleusercontent.com/d/')) {
         return res.status(400).json({ error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
       }
 
@@ -2072,40 +2034,76 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
   }
 });
 
-// Google Drive Streaming Proxy with Range Support
+// Stream public Google Drive MP3s through a same-origin endpoint.
+ // Google Drive's download URL can return an HTML safety-confirmation page instead of audio.
+ // Redirecting an <audio> element directly to that page causes a source-unavailable failure.
 app.get('/api/drive/stream/:fileId', async (req: Request, res: Response) => {
   const fileId = String(req.params.fileId || '').trim();
-  if (!/^[A-Za-z0-9_-]{20,45}$/.test(fileId)) return res.status(400).send('Invalid Google Drive file ID');
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return res.status(400).send('Invalid Google Drive file ID');
+
   const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
-  // Backward-compatible route: redirect to Drive rather than retransmitting song bytes through this host.
-  if (req.query.proxy !== '1') return res.redirect(302, driveUrl);
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+  };
+  if (req.headers.range) headers.Range = String(req.headers.range);
 
   try {
-    const headers: Record<string, string> = {};
-    if (req.headers.range) headers.Range = req.headers.range;
-    const driveRes = await fetch(driveUrl, { headers, redirect: 'follow' });
-    if (!driveRes.ok && driveRes.status !== 206) return res.redirect(302, driveUrl);
-    res.status(driveRes.status);
-    for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+    let driveRes = await fetch(driveUrl, { headers, redirect: 'follow' });
+    let contentType = driveRes.headers.get('content-type') || '';
+
+    // Large public files can be returned as an HTML "download anyway" interstitial.
+    if (contentType.toLowerCase().includes('text/html')) {
+      const html = await driveRes.text();
+      const href = html.match(/href=["']([^"']*confirm=[^"']+)["']/i)?.[1];
+      const confirmToken = html.match(/name=["']confirm["']\s+value=["']([^"']+)["']/i)?.[1]
+        || html.match(/value=["']([^"']+)["']\s+name=["']confirm["']/i)?.[1];
+
+      if (href) {
+        const decodedHref = href.replace(/&amp;/g, '&').replace(/&#38;/g, '&');
+        driveRes = await fetch(new URL(decodedHref, driveUrl), { headers, redirect: 'follow' });
+      } else if (confirmToken) {
+        const confirmationUrl = new URL('https://drive.usercontent.google.com/download');
+        confirmationUrl.searchParams.set('id', fileId);
+        confirmationUrl.searchParams.set('export', 'download');
+        confirmationUrl.searchParams.set('confirm', confirmToken);
+        driveRes = await fetch(confirmationUrl, { headers, redirect: 'follow' });
+      } else {
+        return res.status(502).send('Google Drive returned a confirmation page instead of the MP3. Make sure the file is shared with Anyone with the link.');
+      }
+      contentType = driveRes.headers.get('content-type') || '';
+    }
+
+    if (!driveRes.ok && driveRes.status !== 206) {
+      const status = [401, 403, 404].includes(driveRes.status) ? 502 : driveRes.status;
+      return res.status(status).send('Google Drive could not provide this MP3. Check that General access is set to Anyone with the link and that the link points to a file, not a folder.');
+    }
+    if (contentType.toLowerCase().includes('text/html')) {
+      return res.status(502).send('Google Drive still returned a webpage instead of audio. Check the file sharing permissions and that the selected file is an MP3.');
+    }
+    if (!driveRes.body) return res.status(502).send('Google Drive returned an empty audio response.');
+
+    res.status(driveRes.status === 206 ? 206 : 200);
+    res.setHeader('Content-Type', contentType.toLowerCase().startsWith('audio/') ? contentType : 'audio/mpeg');
+    res.setHeader('Content-Disposition', 'inline; filename="yousong-track.mp3"');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    for (const name of ['content-length', 'content-range', 'etag', 'last-modified']) {
       const value = driveRes.headers.get(name);
       if (value) res.setHeader(name, value);
     }
-    if (!driveRes.body) return res.redirect(302, driveUrl);
-    // Stream without buffering the entire file in app memory.
-    const reader = driveRes.body.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!res.write(Buffer.from(value))) await new Promise<void>((resolve) => res.once('drain', resolve));
-      }
-      res.end();
-    } finally {
-      reader.releaseLock();
-    }
-  } catch (err: any) {
-    console.error('Drive streaming compatibility proxy error:', err);
-    if (!res.headersSent) res.redirect(302, driveUrl); else res.destroy(err);
+
+    const nodeStream = (await import('stream')).Readable.fromWeb(driveRes.body as any);
+    nodeStream.on('error', (error) => {
+      console.error('[DriveAudio] Stream error:', error);
+      if (!res.headersSent) res.status(502).end(); else res.destroy(error);
+    });
+    res.on('close', () => {
+      if (!res.writableEnded) nodeStream.destroy();
+    });
+    return nodeStream.pipe(res);
+  } catch (error: any) {
+    console.error('[DriveAudio] Could not stream Google Drive file:', error);
+    return res.status(502).send('Could not connect to Google Drive to stream this MP3.');
   }
 });
 
