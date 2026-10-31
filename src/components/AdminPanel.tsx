@@ -623,7 +623,7 @@ export const AdminPanel: React.FC = () => {
           </div>
 
           {/* Google Drive-only MP3 and artwork uploader */}
-          <ManualSongUploader />
+          <ManualSongUploader compact />
 
           {/* Enhanced Admin Song Management Studio: Search, Bulk Tags, Mass Editing, Visibility & Spotlight */}
           <AdminSongManager
