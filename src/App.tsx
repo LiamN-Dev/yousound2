@@ -30,12 +30,11 @@ import { Music, ListPlus, KeyRound } from 'lucide-react';
 import { SpotlightShowcase } from './components/SpotlightShowcase';
 import { SectionMaintenanceNotice } from './components/SectionMaintenanceNotice';
 import { ChristmasEffects } from './components/ChristmasEffects';
-import { useTheme } from './context/ThemeContext';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
   const { allSongs, adminAllSongs, spotlightConfig } = useAudio();
-  const { christmasMode } = useTheme();
+  const christmasMode = !!currentUser?.christmasMode;
 
   const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'chat' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
