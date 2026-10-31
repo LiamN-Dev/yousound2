@@ -130,6 +130,13 @@ export interface PopupMessage {
   isDismissible?: boolean;
 }
 
+export type MaintenanceTab = 'library' | 'playlists' | 'favorites' | 'chat' | 'featureRequests';
+
+export interface TabMaintenanceSetting {
+  enabled: boolean;
+  message: string;
+}
+
 export interface MaintenanceState {
   enabled: boolean;
   message: string;
@@ -137,6 +144,8 @@ export interface MaintenanceState {
   hasCountdown?: boolean;
   estimatedFinishTime?: string | null; // ISO string e.g. "2026-10-03T18:00:00.000Z"
   autoDisableOnCountdown?: boolean;
+  /** Individual user-facing sections can be paused without taking the whole site offline. */
+  tabMaintenance?: Partial<Record<MaintenanceTab, TabMaintenanceSetting>>;
 }
 
 export type BannerColorTheme =
