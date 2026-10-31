@@ -66,6 +66,7 @@ export async function ensureTables(): Promise<void> {
     ['users', 'chat_blocked BOOLEAN DEFAULT false'],
     ['users', 'is_suspended BOOLEAN DEFAULT false'],
     ['users', 'daily_listen_limit INTEGER'],
+    ['users', 'christmas_mode BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'is_approved BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'is_terminated BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'terminated_reason TEXT'],

@@ -19,6 +19,7 @@ export const users = pgTable('users', {
   adminNote: text('admin_note'),
   colorAccent: text('color_accent'),
   dailyListenLimit: integer('daily_listen_limit'), // null = unlimited; 0 = no listens allowed
+  christmasMode: boolean('christmas_mode').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
