@@ -16,6 +16,8 @@ export const ManualSongUploader: React.FC = () => {
   const [tags, setTags] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [audioDriveLink, setAudioDriveLink] = useState('');
+  const [coverDriveLink, setCoverDriveLink] = useState('');
   const [driveConnected, setDriveConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -57,18 +59,19 @@ export const ManualSongUploader: React.FC = () => {
     event.preventDefault();
     if (!title.trim()) return setFeedback({ type: 'error', message: 'Enter a song title.' });
     if (!artist.trim()) return setFeedback({ type: 'error', message: 'Enter an artist.' });
-    if (!audioFile || !coverFile) return setFeedback({ type: 'error', message: 'Choose both an MP3 and a cover image.' });
-    if (!/\.mp3$/i.test(audioFile.name) || (audioFile.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.type.toLowerCase()))) {
+    const useDriveLinks = Boolean(audioDriveLink.trim() || coverDriveLink.trim());
+    if (useDriveLinks ? (!audioDriveLink.trim() || !coverDriveLink.trim()) : (!audioFile || !coverFile)) return setFeedback({ type: 'error', message: 'Choose both files, or provide both Google Drive share links.' });
+    if (!useDriveLinks && audioFile && (!/\.mp3$/i.test(audioFile.name) || (audioFile.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.type.toLowerCase())))) {
       return setFeedback({ type: 'error', message: 'Only MP3 audio files are accepted. This uploader does not convert audio.' });
     }
-    if (audioFile.size > 150 * 1024 * 1024) return setFeedback({ type: 'error', message: 'The MP3 must be 150 MB or smaller.' });
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverFile.type.toLowerCase()) || coverFile.size > 25 * 1024 * 1024) {
+    if (!useDriveLinks && audioFile && audioFile.size > 150 * 1024 * 1024) return setFeedback({ type: 'error', message: 'The MP3 must be 150 MB or smaller.' });
+    if (!useDriveLinks && coverFile && (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverFile.type.toLowerCase()) || coverFile.size > 25 * 1024 * 1024)) {
       return setFeedback({ type: 'error', message: 'Use a JPG, PNG, WEBP, or GIF cover no larger than 25 MB.' });
     }
-    if (!driveConnected) return setFeedback({ type: 'error', message: 'Connect the site Google Drive account before uploading.' });
+    if (!useDriveLinks && !driveConnected) return setFeedback({ type: 'error', message: 'Connect the site Google Drive account before uploading files.' });
 
     setUploading(true);
-    setFeedback({ type: 'info', message: 'Uploading the MP3 and artwork directly to Google Drive…' });
+    setFeedback({ type: 'info', message: useDriveLinks ? 'Adding existing Google Drive files to the library…' : 'Uploading the MP3 and artwork directly to Google Drive…' });
     try {
       const form = new FormData();
       form.append('title', title.trim());
@@ -78,9 +81,9 @@ export const ManualSongUploader: React.FC = () => {
       form.append('album', album.trim());
       form.append('tags', tags);
       form.append('description', description.trim());
-      form.append('audio', audioFile);
-      form.append('cover', coverFile);
-      const response = await fetch('/api/admin/library/upload-media', {
+      if (useDriveLinks) { form.append('audioDriveLink', audioDriveLink.trim()); form.append('coverDriveLink', coverDriveLink.trim()); }
+      else { form.append('audio', audioFile as File); form.append('cover', coverFile as File); }
+      const response = await fetch(useDriveLinks ? '/api/admin/library/import-drive-links' : '/api/admin/library/upload-media', {
         method: 'POST', credentials: 'same-origin', body: form,
       });
       const responseText = await response.text();
@@ -113,7 +116,9 @@ export const ManualSongUploader: React.FC = () => {
       setTags('');
       setAudioFile(null);
       setCoverFile(null);
-      setFeedback({ type: 'success', message: 'Song published to the library. Its MP3 and cover are stored in Google Drive.' });
+      setAudioDriveLink('');
+      setCoverDriveLink('');
+      setFeedback({ type: 'success', message: useDriveLinks ? 'Existing Google Drive MP3 and artwork links added to the library.' : 'Song published to the library. Its MP3 and cover are stored in Google Drive.' });
       await refreshDriveStatus();
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.message || 'Song upload failed.' });
@@ -156,21 +161,29 @@ export const ManualSongUploader: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
-            <label className="mb-2 block text-[11px] font-semibold text-slate-300">MP3 audio file * <span className="font-normal text-slate-500">(max 150 MB)</span></label>
-            <input type="file" accept=".mp3,audio/mpeg" className={fileClass} onChange={(event) => setAudioFile(event.target.files?.[0] || null)} />
-            {audioFile && <p className="mt-2 text-[10px] text-slate-400">{audioFile.name} · {(audioFile.size / (1024 * 1024)).toFixed(1)} MB</p>}
+          <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-2">
+            <label className="block text-[11px] font-semibold text-slate-300">MP3 audio *</label>
+            <input type="file" accept=".mp3,audio/mpeg" className={fileClass} onChange={(event) => { setAudioFile(event.target.files?.[0] || null); setAudioDriveLink(''); }} />
+            {audioFile && <p className="text-[10px] text-slate-400">{audioFile.name} · {(audioFile.size / (1024 * 1024)).toFixed(1)} MB</p>}
+            <div className="border-t border-white/10 pt-2">
+              <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive share link</label>
+              <input className={fieldClass} value={audioDriveLink} onChange={(event) => { setAudioDriveLink(event.target.value); if (event.target.value) setAudioFile(null); }} placeholder="https://drive.google.com/file/d/..." />
+            </div>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
-            <label className="mb-2 block text-[11px] font-semibold text-slate-300">Thumbnail / cover * <span className="font-normal text-slate-500">(max 25 MB)</span></label>
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className={fileClass} onChange={(event) => setCoverFile(event.target.files?.[0] || null)} />
-            {coverPreview && <img src={coverPreview} alt="Cover preview" className="mt-2 h-20 w-20 rounded-xl border border-white/10 object-cover" />}
-            {coverFile && <p className="mt-2 text-[10px] text-slate-400">{coverFile.name}</p>}
+          <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-2">
+            <label className="block text-[11px] font-semibold text-slate-300">Thumbnail / cover *</label>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className={fileClass} onChange={(event) => { setCoverFile(event.target.files?.[0] || null); setCoverDriveLink(''); }} />
+            {coverPreview && <img src={coverPreview} alt="Cover preview" className="h-20 w-20 rounded-xl border border-white/10 object-cover" />}
+            {coverFile && <p className="text-[10px] text-slate-400">{coverFile.name}</p>}
+            <div className="border-t border-white/10 pt-2">
+              <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive image share link</label>
+              <input className={fieldClass} value={coverDriveLink} onChange={(event) => { setCoverDriveLink(event.target.value); if (event.target.value) setCoverFile(null); }} placeholder="https://drive.google.com/file/d/..." />
+            </div>
           </div>
         </div>
         <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Description (optional)</label><textarea className={`${fieldClass} min-h-20 resize-y`} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Short song description..." maxLength={1000} /></div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-white/10 pt-4">
-          <span className="text-[10px] text-slate-500 flex items-center gap-1.5"><Music2 className="h-3.5 w-3.5" /> Both files go to Drive; no share links to paste.</span>
+          <span className="text-[10px] text-slate-500 flex items-center gap-1.5"><Music2 className="h-3.5 w-3.5" /> Upload new files or reuse existing Drive share links.</span>
           <button type="submit" disabled={uploading || !driveConnected} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-5 py-2.5 text-xs font-bold text-slate-950 shadow-md transition hover:brightness-110 disabled:opacity-40">
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {uploading ? 'Uploading media to Drive…' : 'Upload and publish song'}
