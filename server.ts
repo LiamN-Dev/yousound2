@@ -1925,7 +1925,7 @@ app.get('/api/admin/library/drive-file-info/:fileId', async (req: Request, res: 
   if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return res.status(400).json({ success: false, error: 'Invalid Google Drive file ID.' });
 
   try {
-    const driveUrl = \`https://drive.google.com/uc?export=download&id=\${encodeURIComponent(fileId)}\`;
+    const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
     const driveResponse = await fetch(driveUrl, {
       headers: {
         Range: 'bytes=0-0',

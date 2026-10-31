@@ -24,7 +24,7 @@ function extractDrivePreviewId(raw: string): string | null {
 function formatPreviewDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '';
   const total = Math.round(seconds);
-  return \`\${Math.floor(total / 60)}:\${String(total % 60).padStart(2, '0')}\`;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function titleFromAudioFilename(filename: string): string {
@@ -91,7 +91,7 @@ export const ManualSongUploader: React.FC = () => {
 
     void (async () => {
       try {
-        const response = await fetch(\`/api/admin/library/drive-file-info/\${encodeURIComponent(audioDriveFileId)}\`, {
+        const response = await fetch(`/api/admin/library/drive-file-info/${encodeURIComponent(audioDriveFileId)}`, {
           credentials: 'same-origin',
           signal: controller.signal,
         });
