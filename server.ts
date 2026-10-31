@@ -1945,7 +1945,7 @@ async function findDriveArtworkByCode(code: string, accessToken: string): Promis
     throw new Error('Artwork search reached its 1,000-file safety limit. Narrow the Artwork folder or select the image manually.');
   }
 
-  const suffix = new RegExp("\\\\s-\\\\s" + code + "\\\\.(jpe?g|png|webp|gif)$", "i");
+  const suffix = new RegExp("\\s-\\s" + code + "\\.(jpe?g|png|webp|gif)$", "i");
   return candidates
     .filter((file: any) => suffix.test(String(file?.name || '')))
     .map((file: any) => ({
