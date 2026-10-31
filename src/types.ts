@@ -172,6 +172,7 @@ export interface SongRequest {
   id: string;
   songTitle: string;
   artist?: string;
+  mediaCode?: string;
   webLink?: string; // YouTube link
   coverUrl?: string; // Cover art image address
   notes?: string;

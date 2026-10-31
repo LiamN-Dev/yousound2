@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS song_requests (
   id TEXT PRIMARY KEY,
   song_title TEXT NOT NULL,
   artist TEXT,
+  media_code TEXT,
   web_link TEXT,
   cover_url TEXT,
   notes TEXT,

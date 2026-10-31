@@ -1840,15 +1840,18 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
       if (requestItem.status !== 'approved') return res.status(409).json({ success: false, error: 'Approve this request for upload before selecting its files.' });
 
       accessToken = await getDriveAccessToken();
-      const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, requestItem.songTitle || 'Track', requestItem.artist || 'Unknown Artist', accessToken);
+      const mediaCode = await generateSongMediaCode();
+      const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, requestItem.songTitle || 'Track', requestItem.artist || 'Unknown Artist', accessToken, mediaCode);
       audioTempPath = null;
       uploadedAudioId = driveAudio.fileId;
-      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
+      const coverExtension = path.extname(coverFile.originalname || '') || ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[String(coverFile.mimetype || '').toLowerCase()] || '.jpg';
+      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken, (requestItem.songTitle || 'Song') + ' - ' + mediaCode + coverExtension);
       coverTempPath = null;
       uploadedCoverId = driveCover.fileId;
 
       const updated = await updateRequestFullDb(req.params.id, {
         status: 'staging',
+        mediaCode,
         audioUrl: driveAudio.streamingUrl,
         stagingAudioUrl: driveAudio.streamingUrl,
         driveFileId: driveAudio.fileId,
@@ -1874,9 +1877,11 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
 });
 
 async function generateSongMediaCode(): Promise<string> {
-  const songs = await getSongsDb();
-  const usedCodes = new Set((Array.isArray(songs) ? songs : [])
-    .map((song: any) => String(song?.mediaCode || '').trim())
+  const [songs, requests] = await Promise.all([getSongsDb(), getRequestsDb()]);
+  const usedCodes = new Set([
+    ...(Array.isArray(songs) ? songs : []),
+    ...(Array.isArray(requests) ? requests : []),
+  ].map((item: any) => String(item?.mediaCode || '').trim())
     .filter((code: string) => /^\d{3}$/.test(code)));
   for (let attempt = 0; attempt < 1000; attempt += 1) {
     const candidate = String(randomBytes(2).readUInt16BE(0) % 1000).padStart(3, '0');
@@ -2275,6 +2280,7 @@ app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) 
         id: songId,
         title: requestItem.songTitle,
         artist: requestItem.artist || 'Unknown Artist',
+        mediaCode: requestItem.mediaCode || undefined,
         album: 'YouSong Community',
         genre: requestItem.genre || 'Vibe / Chill',
         duration: requestItem.duration || 180,

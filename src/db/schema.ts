@@ -90,6 +90,7 @@ export const songRequests = pgTable('song_requests', {
   id: text('id').primaryKey(),
   songTitle: text('song_title').notNull(),
   artist: text('artist'),
+  mediaCode: text('media_code'),
   webLink: text('web_link'),
   coverUrl: text('cover_url'),
   notes: text('notes'),

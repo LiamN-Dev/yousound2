@@ -727,6 +727,7 @@ export async function updateRequestFullDb(
   updates: {
     songTitle?: string;
     artist?: string | null;
+    mediaCode?: string | null;
     webLink?: string | null;
     coverUrl?: string | null;
     notes?: string | null;
