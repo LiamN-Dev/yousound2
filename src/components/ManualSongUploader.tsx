@@ -201,6 +201,8 @@ export const ManualSongUploader: React.FC = () => {
   const [audioDriveSelection, setAudioDriveSelection] = useState<DriveLibraryFile | null>(null);
   const [coverDriveSelection, setCoverDriveSelection] = useState<DriveLibraryFile | null>(null);
   const [driveConnected, setDriveConnected] = useState(false);
+  const [driveLibraryReady, setDriveLibraryReady] = useState(false);
+  const [driveReconnectRequired, setDriveReconnectRequired] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -273,6 +275,8 @@ export const ManualSongUploader: React.FC = () => {
       const response = await fetch('/api/admin/google-drive/status', { credentials: 'same-origin' });
       const data = await response.json();
       setDriveConnected(Boolean(data.connected));
+      setDriveLibraryReady(Boolean(data.libraryAccessReady));
+      setDriveReconnectRequired(Boolean(data.reconnectRequired));
       if (data.error && (!data.configured || data.storageReady === false)) {
         setFeedback({ type: 'error', message: data.error });
       }
@@ -385,13 +389,19 @@ export const ManualSongUploader: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2"><Cloud className="h-5 w-5 text-cyan-300" /> Google Drive song uploader</h2>
-          <p className="mt-1 text-xs text-slate-400 max-w-2xl">Choose the MP3 and its artwork on this page. YouSong uploads both directly to the connected Google Drive account. Supabase stores song details and Drive references, not the media files.</p>
+          <p className="mt-1 text-xs text-slate-400 max-w-2xl">Choose the MP3 and artwork from the site's Google Drive folders, paste a Drive link, or upload files directly. Existing Drive files are reused instead of copied again.</p>
         </div>
-        <button type="button" onClick={connectDrive} disabled={connecting || driveConnected} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${driveConnected ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'} disabled:opacity-60`}>
+        <button type="button" onClick={connectDrive} disabled={connecting || (driveConnected && driveLibraryReady)} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${driveConnected && driveLibraryReady ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'} disabled:opacity-60`}>
           {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-          {driveConnected ? 'Site Drive connected' : 'Connect Google Drive'}
+          {driveConnected && driveLibraryReady ? 'Site Drive connected' : driveReconnectRequired ? 'Grant Drive folder access' : 'Connect Google Drive'}
         </button>
       </div>
+
+      {driveReconnectRequired && (
+        <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-100">
+          Google Drive is connected, but the current permission only covers files YouSong created or was explicitly given. Click <strong>Grant Drive folder access</strong> and approve the additional read-only permission for file names and details so the selector can find files already in your Drive folders.
+        </div>
+      )}
 
       {feedback && (
         <div className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${feedback.type === 'error' ? 'border-rose-400/25 bg-rose-500/10 text-rose-200' : feedback.type === 'success' ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/25 bg-cyan-500/10 text-cyan-100'}`}>
@@ -421,7 +431,7 @@ export const ManualSongUploader: React.FC = () => {
             {audioFile && <p className="text-[10px] text-slate-400">{audioFile.name} · {(audioFile.size / (1024 * 1024)).toFixed(1)} MB</p>}
             <DriveLibraryPicker
               kind="audio"
-              disabled={!driveConnected || uploading}
+              disabled={!driveLibraryReady || uploading}
               onSelect={(file) => {
                 setAudioFile(null);
                 setAudioDriveLink('');
@@ -470,7 +480,7 @@ export const ManualSongUploader: React.FC = () => {
             {coverFile && <p className="text-[10px] text-slate-400">{coverFile.name}</p>}
             <DriveLibraryPicker
               kind="image"
-              disabled={!driveConnected || uploading}
+              disabled={!driveLibraryReady || uploading}
               onSelect={(file) => {
                 setCoverFile(null);
                 setCoverDriveLink('');
