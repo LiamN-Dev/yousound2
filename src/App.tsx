@@ -163,7 +163,6 @@ const MainAppContent: React.FC = () => {
 
   return (
     <div className="ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors">
-      <BetterStackAnnouncement />
       {christmasMode && <ChristmasEffects />}
       <div className="ys-ambient-backdrop fixed inset-0 overflow-hidden pointer-events-none z-0" />
       {/* Subtle Studio Ambient Lighting in Dark Mode */}
@@ -380,6 +379,7 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <AudioProvider>
+          <BetterStackAnnouncement />
           <MainAppContent />
         </AudioProvider>
       </AuthProvider>

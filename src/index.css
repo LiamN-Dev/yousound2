@@ -1203,3 +1203,12 @@ html.dark .ys-uploader {
   background: linear-gradient(145deg, #192b43 0%, #122137 56%, #0e1b2d 100%) !important;
   border-color: rgba(123, 168, 224, .24) !important;
 }
+
+
+/* Explicitly preserve light text on the dark uploader and Admin Studio cards. */
+html:not(.dark) .ys-main-content .ys-uploader :not(button).text-white {
+  color: #f8fafc !important;
+}
+html:not(.dark) .ys-main-content .admin-studio .liquid-glass-surface :not(button).text-white {
+  color: #f8fafc !important;
+}

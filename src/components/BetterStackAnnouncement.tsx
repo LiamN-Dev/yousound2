@@ -17,10 +17,6 @@ export const BetterStackAnnouncement: React.FC = () => {
     script.async = true;
     script.type = 'text/javascript';
     document.body.appendChild(script);
-
-    return () => {
-      // Do not remove the provider script on navigation; the announcement widget is global.
-    };
   }, []);
 
   return null;
