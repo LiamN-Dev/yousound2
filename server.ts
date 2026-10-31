@@ -2618,7 +2618,7 @@ app.get('/api/drive/stream/:fileId', async (req: Request, res: Response) => {
 
     if (!driveRes.ok && driveRes.status !== 206) {
       const status = [401, 403, 404].includes(driveRes.status) ? 502 : driveRes.status;
-      return res.status(status).send('Google Drive could not provide this MP3. Check that the selected MP3 is accessible to the site's Drive account and, for public-link playback, is shared with Anyone with the link.');
+      return res.status(status).send('Google Drive could not provide this MP3. Check that the selected MP3 is accessible to the site\'s Drive account and, for public-link playback, is shared with Anyone with the link.');
     }
     if (contentType.toLowerCase().includes('text/html')) {
       return res.status(502).send('Google Drive still returned a webpage instead of audio. Check the file sharing permissions and that the selected file is an MP3.');
@@ -4302,7 +4302,7 @@ app.get('/api/drive/stream/:fileId', async (req: Request, res: Response) => {
 
     if (!driveRes.ok && driveRes.status !== 206) {
       const status = [401, 403, 404].includes(driveRes.status) ? 502 : driveRes.status;
-      return res.status(status).send('Google Drive could not provide this MP3. Check that the selected MP3 is accessible to the site's Drive account and, for public-link playback, is shared with Anyone with the link.');
+      return res.status(status).send('Google Drive could not provide this MP3. Check that the selected MP3 is accessible to the site\'s Drive account and, for public-link playback, is shared with Anyone with the link.');
     }
     if (contentType.toLowerCase().includes('text/html')) {
       return res.status(502).send('Google Drive still returned a webpage instead of audio. Check the file sharing permissions and that the selected file is an MP3.');
