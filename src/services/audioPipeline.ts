@@ -281,7 +281,9 @@ export async function uploadMp3ToGoogleDrive(
 
     return {
       fileId,
-      streamingUrl: 'https://drive.google.com/uc?export=download&id=' + fileId,
+      // Keep audio on the site's same-origin stream route; the route relays bytes from Drive
+      // (not Supabase) and supports browser byte-range requests.
+      streamingUrl: '/api/drive/stream/' + encodeURIComponent(fileId),
       webViewLink: driveFile.webViewLink,
       folderId,
       duration,
