@@ -1628,10 +1628,10 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
 // before storage in system_settings, so the browser never owns the long-lived credential.
 const DRIVE_TOKEN_SETTING = 'site_google_drive_refresh_token_v1';
 const DRIVE_STATE_SETTING = 'site_google_drive_oauth_state_v1';
-const DRIVE_LIBRARY_SCOPE_VERSION_SETTING = 'site_google_drive_library_scope_version_v2';
-const DRIVE_LIBRARY_SCOPE_VERSION = '2';
+const DRIVE_LIBRARY_SCOPE_VERSION_SETTING = 'site_google_drive_library_scope_version_v3';
+const DRIVE_LIBRARY_SCOPE_VERSION = '3';
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
-const DRIVE_METADATA_READ_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
+const DRIVE_METADATA_SCOPE = 'https://www.googleapis.com/auth/drive.metadata';
 function driveClientId(): string { return String(process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim(); }
 function driveClientSecret(): string { return String(process.env.GOOGLE_CLIENT_SECRET || '').trim(); }
 function driveRedirectUri(): string {
@@ -1703,7 +1703,7 @@ app.get('/api/admin/google-drive/status', async (req: Request, res: Response) =>
       configured: true,
       storageReady: true,
       storage: 'postgresql',
-      libraryAccess: 'read-only file metadata',
+      libraryAccess: 'read and rename file metadata',
     });
   } catch (error: any) {
     return res.status(200).json({ connected: false, accountMode: 'site-wide', redirectUri: driveRedirectUri(), configured, storageReady: false, error: error.message || 'Persistent Google Drive storage is not available.' });
@@ -1726,7 +1726,7 @@ app.get('/api/admin/google-drive/auth-url', async (req: Request, res: Response) 
       access_type: 'offline',
       prompt: 'consent',
       include_granted_scopes: 'true',
-      scope: DRIVE_FILE_SCOPE + ' ' + DRIVE_METADATA_READ_SCOPE,
+      scope: DRIVE_FILE_SCOPE + ' ' + DRIVE_METADATA_SCOPE,
       state,
     });
     return res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
@@ -1760,8 +1760,8 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
     const tokens: any = await tokenRes.json().catch(() => ({}));
     if (!tokenRes.ok || !tokens.access_token) return res.status(502).send(`Google token exchange failed (${tokenRes.status}). Check the OAuth client and exact redirect URI in Google Cloud Console.`);
     const grantedScopes = await getGrantedDriveScopes(String(tokens.access_token));
-    if (!grantedScopes.has(DRIVE_METADATA_READ_SCOPE)) {
-      return res.status(403).send('Google did not grant YouSong read-only access to Drive file names and details. Return to the site and approve the additional Drive metadata permission so the folder selector can search existing files.');
+    if (!grantedScopes.has(DRIVE_METADATA_SCOPE)) {
+      return res.status(403).send('Google did not grant YouSong permission to view and rename Drive file metadata. Return to the site and approve the additional Drive metadata permission so the folder selector can search files and match audio with cover artwork.');
     }
     let refreshToken = tokens.refresh_token as string | undefined;
     if (!refreshToken) {
@@ -1786,8 +1786,8 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
       return res.status(502).send('Google granted the new permission but the site could not verify its saved refresh token. Reconnect Google Drive and approve the requested permissions again.');
     }
     const refreshedScopes = await getGrantedDriveScopes(String(refreshedTokens.access_token));
-    if (!refreshedScopes.has(DRIVE_METADATA_READ_SCOPE)) {
-      return res.status(502).send('The saved Google Drive connection did not retain read-only access to file details. Reconnect Drive and approve the additional permission.');
+    if (!refreshedScopes.has(DRIVE_METADATA_SCOPE)) {
+      return res.status(502).send('The saved Google Drive connection did not retain permission to rename file metadata. Reconnect Drive and approve the additional permission.');
     }
 
     await setPersistentSettingDb(DRIVE_TOKEN_SETTING, encryptDriveToken(refreshToken));
@@ -1873,6 +1873,45 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
   });
 });
 
+async function generateSongMediaCode(): Promise<string> {
+  const songs = await getSongsDb();
+  const usedCodes = new Set((Array.isArray(songs) ? songs : [])
+    .map((song: any) => String(song?.mediaCode || '').trim())
+    .filter((code: string) => /^\d{3}$/.test(code)));
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const candidate = String(randomBytes(2).readUInt16BE(0) % 1000).padStart(3, '0');
+    if (!usedCodes.has(candidate)) return candidate;
+  }
+  throw new Error('All 1,000 three-digit song identifiers are in use.');
+}
+
+async function renameDriveSongAsset(fileId: string, kind: 'audio' | 'image', title: string, artist: string, mediaCode: string, accessToken: string): Promise<string> {
+  const metadataUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
+  metadataUrl.searchParams.set('fields', 'id,name,mimeType');
+  metadataUrl.searchParams.set('supportsAllDrives', 'true');
+  const metadataResponse = await fetch(metadataUrl, { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) });
+  const metadata: any = await metadataResponse.json().catch(() => ({}));
+  if (!metadataResponse.ok) throw new Error('Could not read the selected Drive file details (' + metadataResponse.status + '). Check the site Drive access.');
+  const currentName = String(metadata.name || '');
+  const mimeType = String(metadata.mimeType || '').toLowerCase();
+  const imageExtensions: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
+  if (kind === 'audio' && !(/\.mp3$/i.test(currentName) || ['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(mimeType))) throw new Error('The selected audio file is not an MP3.');
+  if (kind === 'image' && !imageExtensions[mimeType] && !/\.(jpe?g|png|webp|gif)$/i.test(currentName)) throw new Error('The selected artwork file is not a supported image.');
+  const extension = kind === 'audio' ? '.mp3' : (path.extname(currentName).toLowerCase() || imageExtensions[mimeType] || '.jpg');
+  const baseName = kind === 'audio' ? title + ' by ' + artist + ' - ' + mediaCode : title + ' - ' + mediaCode;
+  const safeName = (baseName.replace(/[\\/\\\\?%*:|"<>]/g, '_').replace(/\s+/g, ' ').trim() || 'Song') + extension;
+  const renameUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId));
+  renameUrl.searchParams.set('fields', 'id,name');
+  renameUrl.searchParams.set('supportsAllDrives', 'true');
+  const renameResponse = await fetch(renameUrl, { method: 'PATCH', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: safeName }), signal: AbortSignal.timeout(20_000) });
+  const renamed: any = await renameResponse.json().catch(() => ({}));
+  if (!renameResponse.ok) {
+    const detail = renamed?.error?.message ? String(renamed.error.message).slice(0, 250) : '';
+    throw new Error('Google Drive could not rename the selected ' + kind + ' file (' + renameResponse.status + '). Approve the Drive metadata permission and confirm the connected account can edit this file.' + (detail ? ' ' + detail : ''));
+  }
+  return String(renamed.name || safeName);
+}
+
 // Manual library upload: both files go directly to Google Drive; this endpoint stores no media bytes in the DB.
 app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
@@ -1920,6 +1959,7 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       const title = String(req.body?.title || (audioFile ? audioFile.originalname.replace(/\.mp3$/i, '') : '')).trim();
       const artist = String(req.body?.artist || '').trim();
       if (!title || !artist) throw new Error('Song title and artist are required.');
+      const mediaCode = await generateSongMediaCode();
       const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
       const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
 
@@ -1927,12 +1967,14 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       let coverUrl = '';
       let duration = 180;
       if (audioDriveId) {
+        accessToken = await getDriveAccessToken();
+        await renameDriveSongAsset(audioDriveId, 'audio', title, artist, mediaCode, accessToken);
         audioUrl = '/api/drive/stream/' + encodeURIComponent(audioDriveId);
         const suppliedDuration = Number(req.body?.duration);
         if (Number.isFinite(suppliedDuration) && suppliedDuration > 0 && suppliedDuration <= 24 * 60 * 60) duration = Math.max(1, Math.round(suppliedDuration));
       } else if (audioFile && audioTempPath) {
         accessToken = await getDriveAccessToken();
-        const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, title, artist, accessToken);
+        const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, title, artist, accessToken, mediaCode);
         audioTempPath = null;
         uploadedAudioId = driveAudio.fileId;
         audioUrl = driveAudio.streamingUrl;
@@ -1940,10 +1982,13 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
       }
 
       if (coverDriveId) {
+        accessToken = accessToken || await getDriveAccessToken();
+        await renameDriveSongAsset(coverDriveId, 'image', title, artist, mediaCode, accessToken);
         coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(coverDriveId);
       } else if (coverFile && coverTempPath) {
         accessToken = accessToken || await getDriveAccessToken();
-        const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken);
+        const coverExtension = path.extname(coverFile.originalname || '') || ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[String(coverFile.mimetype || '').toLowerCase()] || '.jpg';
+        const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken, title + ' - ' + mediaCode + coverExtension);
         coverTempPath = null;
         uploadedCoverId = driveCover.fileId;
         coverUrl = driveCover.imageUrl;
@@ -1954,6 +1999,7 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         id,
         title,
         artist,
+        mediaCode,
         album: '',
         genre,
         tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
@@ -2021,7 +2067,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
       return res.status(409).json({
         success: false,
         code: 'DRIVE_REAUTHORIZE_REQUIRED',
-        error: 'Reconnect the site Google Drive account and approve read-only access to file names and details before searching existing Drive folders.',
+        error: 'Reconnect the site Google Drive account and approve permission to view and rename file metadata before searching existing Drive folders.',
       });
     }
 
@@ -2146,12 +2192,16 @@ app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req
     const artist = String(req.body?.artist || '').trim().slice(0, 150);
     if (!title || !artist) return res.status(400).json({ success: false, error: 'Song title and artist are required.' });
     if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
+    const mediaCode = await generateSongMediaCode();
+    const accessToken = await getDriveAccessToken();
+    await renameDriveSongAsset(audioId, 'audio', title, artist, mediaCode, accessToken);
+    await renameDriveSongAsset(coverId, 'image', title, artist, mediaCode, accessToken);
     const audioUrl = '/api/drive/stream/' + encodeURIComponent(audioId);
     const coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(coverId);
     const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
     const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
     const song = await insertSongDb({
-      id: `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, title, artist,
+      id: `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, title, artist, mediaCode,
       album: '', genre,
       tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
       duration: (() => {

@@ -269,6 +269,7 @@ export async function insertSongDb(songData: {
   id: string;
   title: string;
   artist: string;
+  mediaCode?: string;
   album?: string;
   genre: string;
   tags?: string[];
@@ -312,6 +313,7 @@ export async function insertSongDb(songData: {
         id: songData.id,
         title: songData.title.trim(),
         artist: songData.artist.trim(),
+        mediaCode: songData.mediaCode || null,
         album: songData.album || null,
         genre: songData.genre.trim(),
         tags: songData.tags || [],

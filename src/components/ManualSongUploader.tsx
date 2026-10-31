@@ -30,6 +30,8 @@ function formatPreviewDuration(seconds: number): string {
 function titleFromAudioFilename(filename: string): string {
   return String(filename || '')
     .replace(/\.[^.]+$/, '')
+    .replace(/\s+-\s+\d{3}$/, '')
+    .replace(/\s+by\s+.+$/i, '')
     .replace(/[_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -372,7 +374,7 @@ export const ManualSongUploader: React.FC = () => {
       setCoverDriveLink('');
       setAudioDriveSelection(null);
       setCoverDriveSelection(null);
-      setFeedback({ type: 'success', message: useDriveLinks ? 'Existing Google Drive MP3 and artwork added to the library without re-uploading them.' : 'Song published. Any newly selected local media was uploaded to Google Drive; selected Drive files were reused.' });
+      setFeedback({ type: 'success', message: 'Song published. Matching audio and cover filenames now use media ID ' + String(song.mediaCode || 'assigned') + '.' });
       await refreshDriveStatus();
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.message || 'Song upload failed.' });
@@ -399,7 +401,7 @@ export const ManualSongUploader: React.FC = () => {
 
       {driveReconnectRequired && (
         <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-100">
-          Google Drive is connected, but the current permission only covers files YouSong created or was explicitly given. Click <strong>Grant Drive folder access</strong> and approve the additional read-only permission for file names and details so the selector can find files already in your Drive folders.
+          Google Drive is connected, but the current permission does not allow YouSong to search and rename existing file names. Click <strong>Grant Drive folder access</strong> and approve the Drive metadata permission so the selector can find files and pair audio with artwork.
         </div>
       )}
 

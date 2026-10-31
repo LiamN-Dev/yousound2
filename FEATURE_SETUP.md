@@ -10,7 +10,7 @@ This project stores uploaded music in one site-wide Google Drive account. Postgr
 4. Add the deployed callback URL as an authorized redirect URI. Use the same canonical deployed origin for `APP_URL` and `GOOGLE_REDIRECT_URI`.
 5. Set the environment variables below in the Render web service.
 6. In the admin area, choose **Connect Google Drive** once and approve access. The backend saves the refresh token encrypted in the database and refreshes short-lived access tokens when needed.
-7. The OAuth request uses `drive.file` for files YouSong creates and `drive.metadata.readonly` so the admin picker can search names and metadata for files already in the connected Drive. After deploying the folder-picker change, existing connections must click **Grant Drive folder access** and approve the additional read-only permission once. Add `https://www.googleapis.com/auth/drive.metadata.readonly` to the OAuth consent screen's Data Access scopes in Google Cloud Console before reconnecting.
+7. The OAuth request uses `drive.file` for files YouSong creates and `drive.metadata` to search and rename metadata for selected files already in the connected Drive. Existing connections must click **Grant Drive folder access** and approve the additional metadata permission once. Add `https://www.googleapis.com/auth/drive.metadata` to the OAuth consent screen's Data Access scopes in Google Cloud Console before reconnecting. This allows YouSong to view and manage file metadata (including names), but does not grant access to download the contents of every Drive file.
 
 Example Render environment variables (replace the origin with the real deployed URL):
 
@@ -31,7 +31,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Keep `GOOGLE_CLIENT_SECRET`, `DRIVE_TOKEN_ENCRYPTION_KEY`, and `SESSION_SECRET` private. Do not rotate `DRIVE_TOKEN_ENCRYPTION_KEY` after connecting Drive; the saved refresh token is encrypted with it.
 
-The app stores audio in `YouSong/Audio Tracks` and artwork in `YouSong/Artwork`, creating those folders when needed. The admin uploader searches these same folders by file name and reuses selected files without uploading duplicate copies. Link access is enabled so the browser can play the file directly from Drive. Google Workspace policies that prohibit public link access will cause the upload to fail rather than publish a track that cannot play.
+The app stores audio in `YouSong/Audio Tracks` and artwork in `YouSong/Artwork`, creating those folders when needed. Each newly published song receives a unique three-digit media code. Its MP3 is named `Song title by Artist - 123.mp3` and its cover is named `Song title - 123.jpg` (or the image's original extension). The same code is saved with the song record. When existing Drive files are selected, the uploader renames them in place without re-uploading their contents. Link access is enabled so the browser can play the file directly from Drive. Google Workspace policies that prohibit public link access will cause the upload to fail rather than publish a track that cannot play.
 
 ## 2. Upload limits and implementation
 

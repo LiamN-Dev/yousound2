@@ -35,6 +35,7 @@ export const songs = pgTable('songs', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   artist: text('artist').notNull(),
+  mediaCode: text('media_code'),
   album: text('album'),
   genre: text('genre').notNull(),
   tags: jsonb('tags').$type<string[]>(),

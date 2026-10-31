@@ -28,6 +28,7 @@ export interface Song {
   id: string;
   title: string;
   artist: string;
+  mediaCode?: string; // Three-digit identifier shared by the Drive MP3 and matching cover image.
   album?: string;
   genre: string;
   tags?: string[]; // e.g. ['piano', 'classical', 'study', 'debussy']

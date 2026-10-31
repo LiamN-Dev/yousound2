@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS songs (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   artist TEXT NOT NULL,
+  media_code TEXT,
   album TEXT,
   genre TEXT NOT NULL,
   tags JSONB DEFAULT '[]'::jsonb,
