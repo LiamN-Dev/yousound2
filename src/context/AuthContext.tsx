@@ -304,6 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       adminNote?: string;
       colorAccent?: string;
       dailyListenLimit?: number | null;
+      christmasMode?: boolean;
     };
 
     if (typeof paramsOrUsername === 'object' && paramsOrUsername !== null) {
