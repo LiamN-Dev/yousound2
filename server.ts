@@ -2184,7 +2184,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
         const mimeType = String(file?.mimeType || '').toLowerCase();
         const supported = kind === 'audio'
           ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
-          : supportedImageTypes.has(mimeType) || /\\.(jpe?g|png|webp|gif)$/i.test(name);
+          : supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
         if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
         files.push({
           id: String(file.id),
