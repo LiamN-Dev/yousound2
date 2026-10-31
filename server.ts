@@ -1928,7 +1928,11 @@ app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req
       id: `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, title, artist,
       album: String(req.body?.album || 'Single').trim() || 'Single', genre,
       tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
-      typeMood: String(req.body?.mood || '').trim() || undefined, duration: 180,
+      typeMood: String(req.body?.mood || '').trim() || undefined,
+      duration: (() => {
+        const detected = Number(req.body?.duration);
+        return Number.isFinite(detected) && detected > 0 && detected <= 24 * 60 * 60 ? Math.max(1, Math.round(detected)) : 180;
+      })(),
       audioUrl, coverUrl, addedAt: new Date().toISOString(), plays: 0, featured: false,
       description: String(req.body?.description || '').trim(),
     }, true);
@@ -3061,7 +3065,11 @@ async function fixAllPreviousSongsDuration(audioDir: string): Promise<number> {
             else if (fname.includes('seed_lofi')) trueDuration = 15;
             else if (fname.includes('seed_synthwave')) trueDuration = 20;
           }
-        } else if (song.audioUrl.includes('drive.google.com') || song.audioUrl.includes('/api/media/drive-stream/')) {
+        } else if (
+          song.audioUrl.includes('drive.google.com')
+          || song.audioUrl.includes('/api/media/drive-stream/')
+          || song.audioUrl.includes('/api/drive/stream/')
+        ) {
           const driveId = extractDriveFileId(song.audioUrl);
           if (driveId) {
             try {
