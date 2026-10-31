@@ -68,8 +68,6 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const [artist, setArtist] = useState('');
   const [genre, setGenre] = useState('');
   const [tagsInput, setTagsInput] = useState('');
-  const [typeMood, setTypeMood] = useState('');
-  const [album, setAlbum] = useState('');
   const [duration, setDuration] = useState(180);
   const [audioUrl, setAudioUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
@@ -114,8 +112,6 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       setArtist(song.artist);
       setGenre(song.genre);
       setTagsInput(song.tags ? song.tags.join(', ') : '');
-      setTypeMood(song.typeMood || '');
-      setAlbum(song.album || 'Single');
       setDuration(song.duration);
       setAudioUrl(song.audioUrl);
       setCoverUrl(song.coverUrl);
@@ -262,8 +258,6 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       artist: artist.trim(),
       genre: genre.trim() || 'General',
       tags: parsedTags.length > 0 ? parsedTags : [genre.trim().toLowerCase()],
-      typeMood: typeMood.trim() || undefined,
-      album: album.trim() || 'Single',
       duration: Number(duration) || 180,
       audioUrl: audioUrl.trim(),
       coverUrl: coverUrl.trim(),
@@ -364,11 +358,6 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                 <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-200 border border-blue-200 dark:border-blue-400/20 font-medium">
                   {genre || 'Genre'}
                 </span>
-                {typeMood && (
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-400/20">
-                    {typeMood}
-                  </span>
-                )}
                 <span>·</span>
                 <span className="font-mono tabular-nums">
                   {Math.floor(duration / 60)}:
@@ -592,21 +581,10 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Type / Mood / Vibe</label>
-              <input
-                type="text"
-                value={typeMood}
-                onChange={(e) => setTypeMood(e.target.value)}
-                placeholder="e.g. Gentle Solo Piano, Chill Study"
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                Tags (comma separated, for search & mood matching)
+                Tags (comma separated, for search)
               </label>
               <input
                 type="text"
@@ -633,17 +611,6 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Album</label>
-              <input
-                type="text"
-                value={album}
-                onChange={(e) => setAlbum(e.target.value)}
-                placeholder="Single or Album Name"
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-              />
             </div>
 
             <div>

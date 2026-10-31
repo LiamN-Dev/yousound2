@@ -87,12 +87,8 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
 
   // Comprehensive Mass Edit Modal State
   const [isMassEditModalOpen, setIsMassEditModalOpen] = useState(false);
-  const [massAlbum, setMassAlbum] = useState('');
-  const [massApplyAlbum, setMassApplyAlbum] = useState(false);
   const [massGenre, setMassGenre] = useState('Lo-Fi');
   const [massApplyGenre, setMassApplyGenre] = useState(false);
-  const [massTypeMood, setMassTypeMood] = useState('');
-  const [massApplyTypeMood, setMassApplyTypeMood] = useState(false);
   const [massDescription, setMassDescription] = useState('');
   const [massApplyDescription, setMassApplyDescription] = useState(false);
   const [massTags, setMassTags] = useState('');
@@ -178,7 +174,6 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
           !q ||
           song.title.toLowerCase().includes(q) ||
           song.artist.toLowerCase().includes(q) ||
-          (song.album && song.album.toLowerCase().includes(q)) ||
           song.genre.toLowerCase().includes(q) ||
           (song.tags && song.tags.some((t) => t.toLowerCase().includes(q))) ||
           (song.spotlightNote && song.spotlightNote.toLowerCase().includes(q));
@@ -386,14 +381,8 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
     setIsSubmittingMassEdit(true);
     const updates: Partial<Song> = {};
 
-    if (massApplyAlbum) {
-      updates.album = massAlbum.trim() || 'Single';
-    }
     if (massApplyGenre) {
       updates.genre = massGenre.trim() || 'Lo-Fi';
-    }
-    if (massApplyTypeMood) {
-      updates.typeMood = massTypeMood.trim();
     }
     if (massApplyDescription) {
       updates.description = massDescription.trim();
@@ -619,7 +608,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by title, artist, album, genre, or #tags..."
+              placeholder="Search by title, artist, genre, or #tags..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-9 py-2.5 text-xs rounded-xl bg-white/[0.05] border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
@@ -1013,11 +1002,14 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                         </span>
                       </td>
 
-                      {/* Tags & Auto-Tags (with inline tag editing) */}
+                      {/* Tags are collapsed so the admin song table stays compact. */}
                       <td className="py-3 max-w-[260px]">
-                        <div className="flex flex-wrap items-center gap-1">
-                          {song.tags &&
-                            song.tags.map((tag) => {
+                        <details className="max-w-full">
+                          <summary className="cursor-pointer select-none rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold text-slate-300">
+                            Tags ({song.tags?.length || 0})
+                          </summary>
+                          <div className="mt-2 flex flex-wrap items-center gap-1">
+                            {song.tags?.map((tag) => {
                               const isAuto = song.appliedAutoTags?.includes(tag);
                               return (
                                 <span
@@ -1042,43 +1034,37 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                               );
                             })}
 
-                          {/* Quick inline tag adder */}
-                          {addingTagSongId === song.id ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="text"
-                                placeholder="tag..."
-                                value={inlineTagValue}
-                                onChange={(e) => setInlineTagValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleAddInlineTag(song);
-                                  if (e.key === 'Escape') setAddingTagSongId(null);
-                                }}
-                                autoFocus
-                                className="w-16 px-1.5 py-0.5 text-[11px] rounded bg-slate-900 border border-cyan-400 text-white focus:outline-none"
-                              />
+                            {addingTagSongId === song.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  placeholder="tag..."
+                                  value={inlineTagValue}
+                                  onChange={(e) => setInlineTagValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleAddInlineTag(song);
+                                    if (e.key === 'Escape') setAddingTagSongId(null);
+                                  }}
+                                  autoFocus
+                                  className="w-16 px-1.5 py-0.5 text-[11px] rounded bg-slate-900 border border-cyan-400 text-white focus:outline-none"
+                                />
+                                <button type="button" onClick={() => handleAddInlineTag(song)} className="text-cyan-400 hover:text-white">✓</button>
+                              </div>
+                            ) : (
                               <button
                                 type="button"
-                                onClick={() => handleAddInlineTag(song)}
-                                className="text-cyan-400 hover:text-white"
+                                onClick={() => {
+                                  setAddingTagSongId(song.id);
+                                  setInlineTagValue('');
+                                }}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white border border-dashed border-white/20"
+                                title="Add tag"
                               >
-                                ✓
+                                + tag
                               </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAddingTagSongId(song.id);
-                                setInlineTagValue('');
-                              }}
-                              className="px-1.5 py-0.5 rounded text-[10px] bg-white/[0.04] hover:bg-white/[0.1] text-slate-400 hover:text-white border border-dashed border-white/20"
-                              title="Add tag"
-                            >
-                              + tag
-                            </button>
-                          )}
-                        </div>
+                            )}
+                          </div>
+                        </details>
                       </td>
 
                       {/* Visibility Status Badge */}
@@ -1763,36 +1749,12 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
 
             {/* Scrollable Form Body */}
             <form id="mass-edit-form" onSubmit={handleApplyMassEdit} className="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
-              {/* SECTION 1: Genre, Album & Mood */}
+              {/* SECTION 1: Genre */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
                 <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
                   <FolderOpen className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Album, Genre & Mood</span>
+                  <span>Genre</span>
                 </h4>
-
-                {/* Album */}
-                <div className="space-y-1">
-                  <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={massApplyAlbum}
-                      onChange={(e) => setMassApplyAlbum(e.target.checked)}
-                      className="rounded border-white/20 bg-slate-900 text-cyan-400"
-                    />
-                    <span>Set Album / Collection Name</span>
-                  </label>
-                  {massApplyAlbum && (
-                    <input
-                      type="text"
-                      placeholder="e.g. Midnight Beats, Single, Chill Lounge Vol. 1"
-                      value={massAlbum}
-                      onChange={(e) => setMassAlbum(e.target.value)}
-                      className="w-full px-3.5 py-2 text-xs rounded-xl bg-white/[0.05] border border-white/10 text-white focus:outline-none focus:border-cyan-400 mt-1"
-                    />
-                  )}
-                </div>
-
-                {/* Genre */}
                 <div className="space-y-1">
                   <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-semibold">
                     <input
@@ -1825,28 +1787,6 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                         ))}
                       </div>
                     </div>
-                  )}
-                </div>
-
-                {/* Type / Mood */}
-                <div className="space-y-1">
-                  <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={massApplyTypeMood}
-                      onChange={(e) => setMassApplyTypeMood(e.target.checked)}
-                      className="rounded border-white/20 bg-slate-900 text-cyan-400"
-                    />
-                    <span>Set Type / Mood / Vibe</span>
-                  </label>
-                  {massApplyTypeMood && (
-                    <input
-                      type="text"
-                      placeholder="e.g. Study Focus, Late Night Relaxation, Uplifting Beat"
-                      value={massTypeMood}
-                      onChange={(e) => setMassTypeMood(e.target.value)}
-                      className="w-full px-3.5 py-2 text-xs rounded-xl bg-white/[0.05] border border-white/10 text-white focus:outline-none focus:border-cyan-400 mt-1"
-                    />
                   )}
                 </div>
 

@@ -1867,10 +1867,9 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
         id,
         title,
         artist,
-        album: String(req.body?.album || 'Single').trim() || 'Single',
+        album: '',
         genre,
         tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
-        typeMood: String(req.body?.mood || '').trim() || undefined,
         duration: driveAudio.duration || 180,
         audioUrl: driveAudio.streamingUrl,
         coverUrl: driveCover.imageUrl,
@@ -1906,6 +1905,60 @@ function extractGoogleDriveFileId(raw: unknown): string | null {
   return extractDriveFileId(String(raw || ''));
 }
 
+function extractDriveFilenameFromHeader(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const encoded = disposition.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)?.[1];
+  const standard = disposition.match(/filename\s*=\s*(?:"((?:\\.|[^"])*)"|([^;]+))/i);
+  let filename = encoded
+    ? encoded.trim().replace(/^["']|["']$/g, '')
+    : standard?.[1] || standard?.[2] || '';
+  if (!filename) return null;
+  try { filename = decodeURIComponent(filename); } catch {}
+  filename = filename.replace(/[\\/]+/g, '_').replace(/[\u0000-\u001f]/g, '').trim();
+  return filename && filename !== '.' && filename !== '..' ? filename.slice(0, 255) : null;
+}
+
+// Read one byte plus response headers; never download the complete MP3 just to read its name.
+app.get('/api/admin/library/drive-file-info/:fileId', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  const fileId = String(req.params.fileId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return res.status(400).json({ success: false, error: 'Invalid Google Drive file ID.' });
+
+  try {
+    const driveUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+    const driveResponse = await fetch(driveUrl, {
+      headers: {
+        Range: 'bytes=0-0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const contentType = driveResponse.headers.get('content-type') || '';
+    const filename = extractDriveFilenameFromHeader(driveResponse.headers.get('content-disposition'));
+    const contentRange = driveResponse.headers.get('content-range') || '';
+    const sizeMatch = contentRange.match(/\/(\d+)$/);
+    const fileSize = sizeMatch ? Number(sizeMatch[1]) : undefined;
+
+    if (!driveResponse.ok && driveResponse.status !== 206) {
+      if (driveResponse.body) await driveResponse.body.cancel().catch(() => undefined);
+      return res.status(422).json({ success: false, error: 'Google Drive could not read this file. Check that it is shared with Anyone with the link.' });
+    }
+    if (!filename || contentType.toLowerCase().includes('text/html')) {
+      if (driveResponse.body) await driveResponse.body.cancel().catch(() => undefined);
+      return res.status(422).json({ success: false, error: 'Google Drive did not expose the original filename. Enter the song title manually.' });
+    }
+    if (driveResponse.body) await driveResponse.body.cancel().catch(() => undefined);
+
+    const title = path.basename(filename, path.extname(filename)).replace(/[_]+/g, ' ').trim().slice(0, 150);
+    return res.json({ success: true, fileName: filename, title, mimeType: contentType, fileSize });
+  } catch (error: any) {
+    console.warn('[DriveFileInfo] Filename lookup failed:', error?.message || error);
+    return res.status(422).json({ success: false, error: 'Could not read the Drive filename. Enter the song title manually.' });
+  }
+});
+
 // The uploader sends multipart FormData. Parse those text fields before reading req.body.
 const parseDriveLinkForm = multer({ limits: { fields: 20, fieldSize: 8192 } }).none();
 
@@ -1926,9 +1979,8 @@ app.post('/api/admin/library/import-drive-links', parseDriveLinkForm, async (req
     const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
     const song = await insertSongDb({
       id: `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, title, artist,
-      album: String(req.body?.album || 'Single').trim() || 'Single', genre,
+      album: '', genre,
       tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
-      typeMood: String(req.body?.mood || '').trim() || undefined,
       duration: (() => {
         const detected = Number(req.body?.duration);
         return Number.isFinite(detected) && detected > 0 && detected <= 24 * 60 * 60 ? Math.max(1, Math.round(detected)) : 180;

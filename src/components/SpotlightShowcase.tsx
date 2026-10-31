@@ -229,11 +229,6 @@ export const SpotlightShowcase: React.FC<SpotlightShowcaseProps> = ({
                     <span className="px-3 py-1 rounded-xl bg-white/[0.08] text-white text-xs font-black uppercase tracking-wider border border-white/10">
                       {activeSpotlightSong.genre}
                     </span>
-                    {activeSpotlightSong.typeMood && (
-                      <span className="px-3 py-1 rounded-xl bg-indigo-500/20 text-indigo-200 text-xs font-bold border border-indigo-500/30">
-                        {activeSpotlightSong.typeMood}
-                      </span>
-                    )}
                     {activeSpotlightSong.isLimitedEdition && (
                       <span className="px-3 py-1 rounded-xl bg-rose-500/20 text-rose-300 text-xs font-bold flex items-center gap-1 border border-rose-500/30">
                         <Clock className="w-3.5 h-3.5" />
@@ -251,9 +246,6 @@ export const SpotlightShowcase: React.FC<SpotlightShowcaseProps> = ({
 
                   <p className="text-base sm:text-lg text-slate-300 font-medium">
                     {activeSpotlightSong.artist}
-                    {activeSpotlightSong.album && (
-                      <span className="text-slate-400 text-sm ml-2">· {activeSpotlightSong.album}</span>
-                    )}
                   </p>
                 </div>
 
@@ -268,19 +260,24 @@ export const SpotlightShowcase: React.FC<SpotlightShowcaseProps> = ({
                   </div>
                 )}
 
-                {/* Tags Row */}
+                {/* Spotlight tags stay collapsed until a listener opens them. */}
                 {activeSpotlightSong.tags && activeSpotlightSong.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {activeSpotlightSong.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/10 text-xs font-bold transition-colors"
-                      >
-                        <Tag className="w-3 h-3 text-cyan-400" />
-                        <span>#{tag.replace(/^#/, '')}</span>
-                      </span>
-                    ))}
-                  </div>
+                  <details className="pt-1">
+                    <summary className="cursor-pointer select-none inline-flex items-center rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-slate-200">
+                      Show tags ({activeSpotlightSong.tags.length})
+                    </summary>
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      {activeSpotlightSong.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/10 text-xs font-bold transition-colors"
+                        >
+                          <Tag className="w-3 h-3 text-cyan-400" />
+                          <span>#{tag.replace(/^#/, '')}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </details>
                 )}
 
                 {/* Primary Action Buttons */}
