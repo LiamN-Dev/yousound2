@@ -3770,13 +3770,6 @@ async function startServer() {
 }
 
 startServer();
-, 'i');
-  return (Array.isArray(data.files) ? data.files : [])
-    .filter((file: any) => suffix.test(String(file?.name || '')))
-    .map((file: any) => ({ id: String(file.id), name: String(file.name), mimeType: String(file.mimeType || ''), size: file.size ? String(file.size) : undefined, modifiedTime: file.modifiedTime || undefined }));
-}
-
-
 async function assertDriveFilesAreNotAlreadyLinked(audioFileId?: string | null, artworkFileId?: string | null): Promise<void> {
   if (!audioFileId && !artworkFileId) return;
   const [registry, songs] = await Promise.all([getMediaIdsDb(), getSongsDb()]);
