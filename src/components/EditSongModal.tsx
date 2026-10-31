@@ -584,7 +584,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                Tags (comma separated, for search & mood matching)
+                Tags (comma separated, for search)
               </label>
               <input
                 type="text"

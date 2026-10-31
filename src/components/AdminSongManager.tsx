@@ -1789,7 +1789,6 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                     </div>
                   )}
                 </div>
-              </div>
 
                 {/* Description */}
                 <div className="space-y-1">
