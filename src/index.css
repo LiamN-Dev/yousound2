@@ -1172,3 +1172,34 @@ html:not(.dark) .ys-main-content .liquid-glass-surface [class*="bg-slate-950"] .
 html:not(.dark) .ys-main-content .liquid-glass-surface [class*="bg-slate-900"] .text-white {
   color: #f8fafc !important;
 }
+
+
+/* Uploader surface is a compact, focused dark workspace in either site theme. */
+html:not(.dark) .ys-uploader,
+html.dark .ys-uploader {
+  color: #edf4ff !important;
+  background: linear-gradient(145deg, #192b43 0%, #122137 56%, #0e1b2d 100%) !important;
+  border-color: rgba(123, 168, 224, .24) !important;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, .15) !important;
+}
+.ys-uploader .text-slate-300 { color: #dce8f7 !important; }
+.ys-uploader .text-slate-400 { color: #b9c9dd !important; }
+.ys-uploader .text-slate-500 { color: #9aadc5 !important; }
+.ys-uploader.is-compact .ys-uploader-body {
+  border-top: 1px solid rgba(255,255,255,.10);
+  padding-top: 12px;
+}
+.ys-uploader.is-compact .ys-uploader-body > form { gap: 12px; }
+.ys-uploader.is-compact .ys-uploader-body input:not([type="file"]),
+.ys-uploader.is-compact .ys-uploader-body textarea {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.ys-uploader.is-compact .ys-uploader-body audio { max-height: 36px; }
+
+/* Readability for dark overlay/modal panels opened from the Admin Studio. */
+.admin-studio .ys-admin-modal {
+  color: #edf4ff !important;
+  background: linear-gradient(145deg, #192b43 0%, #122137 56%, #0e1b2d 100%) !important;
+  border-color: rgba(123, 168, 224, .24) !important;
+}
