@@ -66,3 +66,32 @@ Direct browser playback requires Drive link access. Someone who copies the publi
 ## 5. Runtime
 
 Use Render's **Docker** runtime, repository root as the build context, and `./Dockerfile` as the Dockerfile path. FFmpeg/ffprobe are installed in the image to read audio duration. After a change, deploy a fresh image build; restarting an old container does not install updated dependencies.
+
+## 3. Admin Media ID Bank
+
+The Admin Panel includes a dedicated **Media ID Bank** for the private three-digit identifier assigned to each song. The identifier is shared by its audio and artwork files and is stored in the persistent `media_ids` registry.
+
+- IDs use exactly three digits (`000`–`999`); leading zeroes are significant.
+- The generator atomically reserves unused IDs. Reserved, assigned, and retired IDs are not silently reused.
+- Direct media uploads assign an ID before the files are uploaded to the site's Google Drive folders.
+- Existing Drive files selected in the uploader are inspected by metadata. A valid unused filename ID is preserved; otherwise YouSong assigns one and renames the files in place.
+- Drive link imports inspect the linked files through the connected OAuth account. Provide both audio and artwork links when the audio filename does not already contain an ID that can locate its artwork.
+- An audio filename ending in ` - 123.mp3` can automatically find artwork ending in ` - 123.jpg` in the configured Artwork folder. Multiple matches are reported rather than guessed.
+- Admins can change an assigned ID from the song editor. YouSong checks conflicts, renames linked Drive files, and then updates the database record.
+- The bank includes search, status filters, reserved ID generation, Drive file links, and a one-click action to assign IDs to the existing song library.
+
+### Assign IDs to songs already in the library
+
+After deployment, open **Admin → Media ID Bank** and select **Assign IDs to existing songs**. This is intentionally an admin-triggered operation rather than an automatic startup migration: it lets you review the results and prevents a deployment from unexpectedly renaming Drive files.
+
+The backfill preserves a valid available ID already in a filename, otherwise assigns an unused one. It renames accessible Drive files using metadata only; it does not download the media contents. Songs with inaccessible files, duplicate artwork matches, or rename permission problems are reported individually for follow-up. Run it again after resolving those issues; songs already synchronized are left unchanged.
+
+### Google Drive permission
+
+The existing-file picker and rename flow require the site-wide Google OAuth connection to grant:
+
+`https://www.googleapis.com/auth/drive.file`
+
+`https://www.googleapis.com/auth/drive.metadata`
+
+Add the metadata scope under Google Auth Platform → Data Access, deploy the update, then reconnect the site Google Drive account and approve the requested permission. Google classifies this metadata scope as restricted, so its verification requirements may apply to a public production OAuth app. Metadata access permits searching and renaming filenames; it does not itself grant permission to download every file's contents. Drive file-level edit permissions still apply.
