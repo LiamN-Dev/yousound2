@@ -277,33 +277,33 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
         </div>
       )}
 
-      {/* Tags & Genre Row (High-Contrast, Prominent, Clearly Noticeable) */}
-      <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+      {/* Keep card metadata compact; tags open only on demand. */}
+      <div className="flex items-center justify-between gap-2 mt-2.5">
         <span className="px-2.5 py-1 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 text-xs font-black tracking-wide shadow-xs uppercase">
           {song.genre}
         </span>
-        {song.typeMood && (
-          <span className="px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-950/70 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700/60 text-xs font-bold shadow-2xs">
-            {song.typeMood}
-          </span>
+        {song.tags && song.tags.length > 0 && (
+          <details className="min-w-0" onClick={(event) => event.stopPropagation()}>
+            <summary className="cursor-pointer select-none rounded-lg border border-blue-300/40 dark:border-blue-700/50 bg-blue-100/70 dark:bg-blue-900/30 px-2.5 py-1 text-[10px] font-bold text-blue-900 dark:text-blue-100">
+              Tags ({song.tags.length})
+            </summary>
+            <div className="mt-1.5 flex max-w-full flex-wrap gap-1">
+              {song.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/40 px-2 py-1 text-[10px] font-semibold text-blue-900 dark:text-blue-100"
+                >
+                  <Tag className="h-3 w-3 text-blue-700 dark:text-blue-300" />
+                  <span>#{tag.replace(/^#/, '')}</span>
+                </span>
+              ))}
+            </div>
+          </details>
         )}
-        {song.tags && song.tags.length > 0 && song.tags.map((tag) => (
-          <span
-            key={tag}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/50 text-blue-900 dark:text-blue-100 border border-blue-300 dark:border-blue-700 text-xs font-extrabold shadow-2xs hover:scale-105 transition-transform"
-          >
-            <Tag className="w-3 h-3 text-blue-700 dark:text-blue-300" />
-            <span>#{tag.replace(/^#/, '')}</span>
-          </span>
-        ))}
       </div>
 
       {/* Action Footer */}
-      <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-200 dark:border-white/[0.06]">
-        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
-          {song.album || 'Single'}
-        </span>
-
+      <div className="flex items-center justify-end mt-2.5 pt-2 border-t border-slate-200 dark:border-white/[0.06]">
         <div className="flex items-center gap-1">
           {/* Add to Playlist button */}
           {currentUser && (

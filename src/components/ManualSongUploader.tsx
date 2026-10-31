@@ -24,7 +24,16 @@ function extractDrivePreviewId(raw: string): string | null {
 function formatPreviewDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '';
   const total = Math.round(seconds);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  return \`\${Math.floor(total / 60)}:\${String(total % 60).padStart(2, '0')}\`;
+}
+
+function titleFromAudioFilename(filename: string): string {
+  return String(filename || '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 150);
 }
 
 export const ManualSongUploader: React.FC = () => {
@@ -32,8 +41,8 @@ export const ManualSongUploader: React.FC = () => {
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [genre, setGenre] = useState('Lo-Fi');
-  const [mood, setMood] = useState('');
-  const [album, setAlbum] = useState('Single');
+  const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
+  const [driveFilenameStatus, setDriveFilenameStatus] = useState<'idle' | 'loading' | 'loaded' | 'unavailable'>('idle');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -67,6 +76,41 @@ export const ManualSongUploader: React.FC = () => {
   useEffect(() => {
     setCoverPreviewError('');
   }, [coverImagePreviewUrl]);
+
+  // Read only the public Drive response headers to find the original MP3 filename.
+  useEffect(() => {
+    if (!audioDriveFileId) {
+      setDriveFilenameStatus('idle');
+      return;
+    }
+    if (titleManuallyEdited) return;
+
+    const controller = new AbortController();
+    let active = true;
+    setDriveFilenameStatus('loading');
+
+    void (async () => {
+      try {
+        const response = await fetch(\`/api/admin/library/drive-file-info/\${encodeURIComponent(audioDriveFileId)}\`, {
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success || !data.title) throw new Error(data.error || 'Drive filename unavailable.');
+        if (active && !titleManuallyEdited) {
+          setTitle(String(data.title).slice(0, 150));
+          setDriveFilenameStatus('loaded');
+        }
+      } catch {
+        if (active && !controller.signal.aborted) setDriveFilenameStatus('unavailable');
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [audioDriveFileId, titleManuallyEdited]);
 
   const refreshDriveStatus = async () => {
     try {
@@ -121,8 +165,6 @@ export const ManualSongUploader: React.FC = () => {
       form.append('title', title.trim());
       form.append('artist', artist.trim());
       form.append('genre', genre.trim());
-      form.append('mood', mood.trim());
-      form.append('album', album.trim());
       form.append('tags', tags);
       form.append('description', description.trim());
       if (previewDuration && Number.isFinite(previewDuration) && previewDuration > 0) {
@@ -155,10 +197,9 @@ export const ManualSongUploader: React.FC = () => {
       refreshState();
 
       setTitle('');
+      setTitleManuallyEdited(false);
       setArtist('');
       setGenre('Lo-Fi');
-      setMood('');
-      setAlbum('Single');
       setDescription('');
       setTags('');
       setAudioFile(null);
@@ -199,22 +240,28 @@ export const ManualSongUploader: React.FC = () => {
 
       <form onSubmit={uploadSong} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Song title *</label><input className={fieldClass} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Song title" maxLength={150} /></div>
+          <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Song title *</label><input className={fieldClass} value={title} onChange={(event) => { setTitle(event.target.value); setTitleManuallyEdited(true); }} placeholder="Song title" maxLength={150} /></div>
           <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Artist *</label><input className={fieldClass} value={artist} onChange={(event) => setArtist(event.target.value)} placeholder="Artist name" maxLength={150} /></div>
           <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Genre</label><input className={fieldClass} value={genre} onChange={(event) => setGenre(event.target.value)} placeholder="Genre" maxLength={80} /></div>
-          <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Mood</label><input className={fieldClass} value={mood} onChange={(event) => setMood(event.target.value)} placeholder="Mood / vibe" maxLength={80} /></div>
-          <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Album</label><input className={fieldClass} value={album} onChange={(event) => setAlbum(event.target.value)} placeholder="Single" maxLength={150} /></div>
           <div><label className="mb-1 block text-[11px] font-semibold text-slate-300">Tags (comma separated)</label><input className={fieldClass} value={tags} onChange={(event) => setTags(event.target.value)} placeholder="study, focus, relaxing" /></div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-3 space-y-2">
             <label className="block text-[11px] font-semibold text-slate-300">MP3 audio *</label>
-            <input type="file" accept=".mp3,audio/mpeg" className={fileClass} onChange={(event) => { setAudioFile(event.target.files?.[0] || null); setAudioDriveLink(''); }} />
+            <input type="file" accept=".mp3,audio/mpeg" className={fileClass} onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              setAudioFile(file);
+              setAudioDriveLink('');
+              if (file && !titleManuallyEdited) setTitle(titleFromAudioFilename(file.name));
+            }} />
             {audioFile && <p className="text-[10px] text-slate-400">{audioFile.name} · {(audioFile.size / (1024 * 1024)).toFixed(1)} MB</p>}
             <div className="border-t border-white/10 pt-2">
               <label className="mb-1 block text-[10px] text-slate-400">Or paste an existing Google Drive share link</label>
               <input className={fieldClass} value={audioDriveLink} onChange={(event) => { setAudioDriveLink(event.target.value); if (event.target.value) setAudioFile(null); }} placeholder="https://drive.google.com/file/d/..." />
+              {audioDriveFileId && driveFilenameStatus === 'loading' && <p className="mt-1 text-[10px] text-slate-400">Reading filename from Google Drive…</p>}
+              {audioDriveFileId && driveFilenameStatus === 'loaded' && <p className="mt-1 text-[10px] text-emerald-300">Song title filled from the Drive filename.</p>}
+              {audioDriveFileId && driveFilenameStatus === 'unavailable' && <p className="mt-1 text-[10px] text-amber-300">Drive did not expose the filename. Enter the title manually.</p>}
             </div>
             {audioPreviewUrl ? (
               <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-3 space-y-2">
