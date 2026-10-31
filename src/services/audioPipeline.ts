@@ -70,8 +70,8 @@ async function findOrCreateDriveFolder(accessToken: string, name: string, parent
   return String(created.id);
 }
 
-/** Organizes uploads beneath YouSong/{Audio Tracks,Artwork}. */
-async function getOrCreateDriveFolder(accessToken: string, folderName = 'Audio Tracks'): Promise<string> {
+/** Resolve one of the site's media folders beneath YouSong. */
+export async function getDriveLibraryFolderId(accessToken: string, folderName: 'Audio Tracks' | 'Artwork' = 'Audio Tracks'): Promise<string> {
   const rootId = await findOrCreateDriveFolder(accessToken, 'YouSong');
   return findOrCreateDriveFolder(accessToken, folderName, rootId);
 }
@@ -267,7 +267,7 @@ export async function uploadMp3ToGoogleDrive(
 
   try {
     const duration = await probeAudioDuration(tempFilePath);
-    const folderId = await getOrCreateDriveFolder(accessToken, 'Audio Tracks');
+    const folderId = await getDriveLibraryFolderId(accessToken, 'Audio Tracks');
     const sanitizedName = (artist || 'Unknown') + ' - ' + (trackTitle || 'Track') + '.mp3';
     const safeName = sanitizedName.replace(/[/\\\\?%*:|"<>]/g, '_');
     const metadata: Record<string, unknown> = { name: safeName };
@@ -344,7 +344,7 @@ export async function uploadImageToGoogleDrive(
   let uploadedId: string | null = null;
 
   try {
-    const folderId = await getOrCreateDriveFolder(accessToken, 'Artwork');
+    const folderId = await getDriveLibraryFolderId(accessToken, 'Artwork');
     const metadata: Record<string, unknown> = { name: safeName + extension };
     if (folderId && folderId !== 'root') metadata.parents = [folderId];
 
