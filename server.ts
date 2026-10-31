@@ -778,6 +778,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         lastSongListened: user.lastSongListened,
         lastSongListenedAt: toIsoString(user.lastSongListenedAt),
         chatBlocked: user.chatBlocked || false,
+        christmasMode: !!user.christmasMode,
       },
     });
   } catch (error: any) {
@@ -810,6 +811,7 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
       lastSongListened: user.lastSongListened,
       lastSongListenedAt: toIsoString(user.lastSongListenedAt),
       chatBlocked: user.chatBlocked || false,
+      christmasMode: !!user.christmasMode,
     },
   });
 });
@@ -842,6 +844,7 @@ app.get('/api/auth/me/:userId', async (req: Request, res: Response) => {
         lastSongListened: user.lastSongListened,
         lastSongListenedAt: toIsoString(user.lastSongListenedAt),
         chatBlocked: user.chatBlocked || false,
+        christmasMode: !!user.christmasMode,
       },
     });
   } catch (error: any) {
@@ -969,6 +972,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
       chatBlocked: u.chatBlocked || false,
       dailyListenLimit: u.dailyListenLimit ?? null,
       dailyListensToday: dailyListenCounts[u.uid] || 0,
+      christmasMode: !!u.christmasMode,
     }));
     res.json({ users: formatted });
   } catch (error: any) {
@@ -1007,6 +1011,14 @@ app.post('/api/users/:uid/reject', async (req: Request, res: Response) => {
 app.patch('/api/users/:uid', async (req: Request, res: Response) => {
   try {
     const { uid } = req.params;
+    const requester = getAuthUser(req);
+    if (!requester) return res.status(401).json({ error: 'Please log in again.' });
+    const bodyKeys = Object.keys(req.body || {});
+    const selfAccentOnly = requester.uid === uid && bodyKeys.length === 1 && bodyKeys[0] === 'colorAccent';
+    if (!isAdminReq(req) && !selfAccentOnly) {
+      return res.status(403).json({ error: 'Only administrators can update account settings.' });
+    }
+
     const {
       newUsername,
       username,
@@ -1020,6 +1032,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
       adminNote,
       colorAccent,
       dailyListenLimit,
+      christmasMode,
     } = req.body;
     const updates: any = {};
 
@@ -1062,6 +1075,10 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
       updates.colorAccent = colorAccent;
     }
 
+    if (typeof christmasMode === 'boolean') {
+      updates.christmasMode = christmasMode;
+    }
+
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'dailyListenLimit')) {
       if (dailyListenLimit === null || dailyListenLimit === '') {
         updates.dailyListenLimit = null; // blank means unlimited
@@ -1092,6 +1109,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
             adminNote: updated.adminNote || null,
             colorAccent: updated.colorAccent || 'cyan',
             dailyListenLimit: updated.dailyListenLimit ?? null,
+            christmasMode: !!updated.christmasMode,
           }
         : null,
     });
