@@ -37,47 +37,27 @@ async function probeAudioDuration(filePath: string): Promise<number> {
 /**
  * Finds or creates the "YouSong Audio Tracks" folder in the user's Google Drive.
  */
-async function getOrCreateDriveFolder(accessToken: string, folderName = 'YouSong Audio Tracks'): Promise<string> {
+async function findOrCreateDriveFolder(accessToken: string, name: string, parentId?: string): Promise<string> {
+  const parentQuery = parentId ? ` and '${parentId}' in parents` : ` and 'root' in parents`;
+  const query = `name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false${parentQuery}`;
+  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)', { headers: { Authorization: 'Bearer ' + accessToken } });
+  if (!searchRes.ok) throw new Error('Google Drive folder lookup failed (' + searchRes.status + ').');
+  const data: any = await searchRes.json();
+  if (data.files?.length) return String(data.files[0].id);
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', ...(parentId ? { parents: [parentId] } : {}) }),
+  });
+  if (!createRes.ok) throw new Error('Google Drive could not create the ' + name + ' folder (' + createRes.status + ').');
+  const created: any = await createRes.json();
+  if (!created.id) throw new Error('Google Drive created a folder without returning its ID.');
+  return String(created.id);
+}
 
-  try {
-    const searchRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
-        `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-      )}&fields=files(id,name)`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
-    );
-
-    if (searchRes.ok) {
-      const data = await searchRes.json();
-      if (data.files && data.files.length > 0) {
-        return data.files[0].id;
-      }
-    }
-
-    // Create folder
-    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: folderName,
-        mimeType: 'application/vnd.google-apps.folder',
-      }),
-    });
-
-    if (createRes.ok) {
-      const created = await createRes.json();
-      return created.id;
-    }
-  } catch (err) {
-    console.warn('[AudioPipeline] Could not resolve/create Google Drive folder, uploading to root:', err);
-  }
-
-  return 'root';
+/** Organizes uploads beneath YouSong/{Audio Tracks,Artwork}. */
+async function getOrCreateDriveFolder(accessToken: string, folderName = 'Audio Tracks'): Promise<string> {
+  const rootId = await findOrCreateDriveFolder(accessToken, 'YouSong');
+  return findOrCreateDriveFolder(accessToken, folderName, rootId);
 }
 
 /**
@@ -271,7 +251,7 @@ export async function uploadMp3ToGoogleDrive(
 
   try {
     const duration = await probeAudioDuration(tempFilePath);
-    const folderId = await getOrCreateDriveFolder(accessToken);
+    const folderId = await getOrCreateDriveFolder(accessToken, 'Audio Tracks');
     const sanitizedName = (artist || 'Unknown') + ' - ' + (trackTitle || 'Track') + '.mp3';
     const safeName = sanitizedName.replace(/[/\\\\?%*:|"<>]/g, '_');
     const metadata: Record<string, unknown> = { name: safeName };
@@ -346,7 +326,7 @@ export async function uploadImageToGoogleDrive(
   let uploadedId: string | null = null;
 
   try {
-    const folderId = await getOrCreateDriveFolder(accessToken, 'YouSong Artwork');
+    const folderId = await getOrCreateDriveFolder(accessToken, 'Artwork');
     const metadata: Record<string, unknown> = { name: safeName + extension };
     if (folderId && folderId !== 'root') metadata.parents = [folderId];
 

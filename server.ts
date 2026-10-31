@@ -1935,6 +1935,51 @@ app.post('/api/admin/library/upload-media', (req: Request, res: Response) => {
   });
 });
 
+// Import existing, publicly shareable Google Drive files without uploading duplicate copies.
+function extractGoogleDriveFileId(raw: unknown): string | null {
+  const value = String(raw || '').trim();
+  if (!value || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(url.hostname)) return null;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const fileIndex = segments.indexOf('d');
+    const fromPath = fileIndex >= 0 ? segments[fileIndex + 1] : '';
+    const id = fromPath || url.searchParams.get('id') || '';
+    return /^[a-zA-Z0-9_-]{10,}$/.test(id) ? id : null;
+  } catch { return null; }
+}
+
+app.post('/api/admin/library/import-drive-links', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const audioId = extractGoogleDriveFileId(req.body?.audioDriveLink);
+    const coverId = extractGoogleDriveFileId(req.body?.coverDriveLink);
+    if (!audioId || !coverId) return res.status(400).json({ success: false, error: 'Paste valid Google Drive share links for both the MP3 and cover image.' });
+    if (audioId === coverId) return res.status(400).json({ success: false, error: 'The MP3 and cover image must be two different Drive files.' });
+    const title = String(req.body?.title || '').trim().slice(0, 150);
+    const artist = String(req.body?.artist || '').trim().slice(0, 150);
+    if (!title || !artist) return res.status(400).json({ success: false, error: 'Song title and artist are required.' });
+    if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. No song was added.' });
+    const audioUrl = 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(audioId);
+    const coverUrl = 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(coverId);
+    const genre = String(req.body?.genre || 'Other').trim().slice(0, 80) || 'Other';
+    const tags = String(req.body?.tags || '').split(',').map((tag: string) => tag.trim().toLowerCase()).filter(Boolean);
+    const song = await insertSongDb({
+      id: `song-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, title, artist,
+      album: String(req.body?.album || 'Single').trim() || 'Single', genre,
+      tags: Array.from(new Set([genre.toLowerCase(), ...tags])),
+      typeMood: String(req.body?.mood || '').trim() || undefined, duration: 180,
+      audioUrl, coverUrl, addedAt: new Date().toISOString(), plays: 0, featured: false,
+      description: String(req.body?.description || '').trim(),
+    }, true);
+    return res.json({ success: true, song, audioUrl, coverUrl, audioFileId: audioId, coverFileId: coverId, reusedExistingDriveFiles: true });
+  } catch (error: any) {
+    console.error('[DriveLinkImport] Could not add existing Drive files:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Could not add the existing Google Drive files.' });
+  }
+});
+
 // Upload a replacement cover directly to the site's Drive account from the song editor.
 app.post('/api/admin/library/upload-cover', (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
