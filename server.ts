@@ -72,6 +72,10 @@ import {
   getRadioChatMessagesDb,
   createRadioChatMessageDb,
   clearRadioChatMessagesDb,
+  listRadioChatBansDb,
+  getRadioChatBanDb,
+  upsertRadioChatBanDb,
+  deleteRadioChatBanDb,
   createChatMessageDb,
   deleteChatMessageDb,
   getChatPairingBlocksDb,
@@ -1806,17 +1810,64 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
   }
 });
 
+let radioBanMigrationPromise: Promise<void> | null = null;
+
+/**
+ * Import the old JSON settings list into the durable moderation table exactly once.
+ * Every current permission check uses the dedicated SQL table and fails closed if
+ * the persistent database is unavailable.
+ */
+async function ensureRadioBanMigration(): Promise<void> {
+  if (!radioBanMigrationPromise) {
+    radioBanMigrationPromise = (async () => {
+      await listRadioChatBansDb(); // Assert persistent storage before trusting any ban state.
+      const legacy = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
+      if (!Array.isArray(legacy) || legacy.length === 0) return;
+      for (const rawId of legacy) {
+        const userId = String(rawId || '').trim();
+        if (!userId) continue;
+        const existing = await getRadioChatBanDb(userId);
+        if (existing) continue;
+        const target = await getUserByUid(userId);
+        if (!target || target.role === 'admin') continue;
+        await upsertRadioChatBanDb({
+          userId: target.uid,
+          username: String(target.username || 'Member'),
+          reason: 'Migrated from the previous radio moderation system.',
+          bannedBy: 'system-migration',
+        });
+      }
+      // Clearing the old list is cleanup only. A failed clear is harmless because
+      // the migration is idempotent and will not duplicate the dedicated records.
+      await setSettingDb(RADIO_CHAT_BANS_SETTING, []);
+    })().catch((error) => {
+      radioBanMigrationPromise = null;
+      throw error;
+    });
+  }
+  await radioBanMigrationPromise;
+}
+
 app.get('/api/radio/chat', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to join radio chat.' });
-    const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
+    await ensureRadioBanMigration();
     const station = await resolveRadioState();
-    const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
+    const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
-    return res.json({ success: true, messages, canChat, banReason: user.chatBlocked ? 'account-chat-block' : banned ? 'radio-chat-ban' : null });
+    const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
+    return res.json({
+      success: true,
+      messages,
+      canChat,
+      banned: Boolean(banned),
+      banReason: user.chatBlocked ? 'account-chat-block' : banned ? 'radio-chat-ban' : null,
+      banNote: banned?.reason || null,
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat.' });
+    console.error('[RadioChat] Could not read chat or moderation state:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Radio chat is temporarily unavailable.' });
   }
 });
 
@@ -1824,13 +1875,19 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to chat.' });
+    await ensureRadioBanMigration();
     const station = await resolveRadioState();
     if (!station.enabled) return res.status(409).json({ success: false, error: 'Radio chat is closed because there is no active broadcast.' });
-    const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
+    const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     if (user.role !== 'admin' && (banned || user.chatBlocked)) {
-      return res.status(403).json({ success: false, error: user.chatBlocked ? 'Chat access is disabled for this account.' : 'You are banned from radio chat by an administrator.', code: user.chatBlocked ? 'CHAT_ACCOUNT_BLOCKED' : 'RADIO_CHAT_BANNED' });
+      return res.status(403).json({
+        success: false,
+        error: user.chatBlocked ? 'Chat access is disabled for this account.' : 'You are banned from radio chat by an administrator.',
+        code: user.chatBlocked ? 'CHAT_ACCOUNT_BLOCKED' : 'RADIO_CHAT_BANNED',
+        banNote: banned?.reason || null,
+      });
     }
-    const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    const message = String(req.body?.message || '').replace(/\\s+/g, ' ').trim().slice(0, 500);
     if (!message) return res.status(400).json({ success: false, error: 'Write a message first.' });
     const created = await createRadioChatMessageDb({
       id: 'radio-chat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9),
@@ -1840,37 +1897,72 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
     });
     return res.json({ success: true, message: created });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not send radio chat message.' });
+    console.error('[RadioChat] Could not send chat message:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Radio chat is temporarily unavailable.' });
   }
 });
 
-app.get('/api/admin/radio/chat-bans', async (_req: Request, res: Response) => {
+app.get('/api/admin/radio/chat-bans', async (req: Request, res: Response) => {
   try {
-    const stored = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
-    const bannedUserIds = Array.isArray(stored) ? [...new Set(stored.map((id) => String(id).trim()).filter(Boolean))] : [];
-    return res.json({ success: true, bannedUserIds });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    await ensureRadioBanMigration();
+    const bans = await listRadioChatBansDb();
+    return res.json({
+      success: true,
+      bans: bans.map((ban) => ({
+        userId: ban.userId,
+        username: ban.username,
+        reason: ban.reason || '',
+        bannedBy: ban.bannedBy,
+        createdAt: ban.createdAt instanceof Date ? ban.createdAt.toISOString() : String(ban.createdAt || ''),
+      })),
+      bannedUserIds: bans.map((ban) => ban.userId),
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat bans.' });
+    console.error('[RadioModeration] Could not load bans:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Could not load the persistent radio ban list.' });
   }
 });
 
 app.put('/api/admin/radio/chat-ban', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    await ensureRadioBanMigration();
     const userId = String(req.body?.userId || '').trim();
+    if (!userId || userId.length > 200) return res.status(400).json({ success: false, error: 'Choose a valid user account.' });
     if (typeof req.body?.banned !== 'boolean') return res.status(400).json({ success: false, error: 'The ban action must be true or false.' });
     const target = await getUserByUid(userId);
-    if (!target) return res.status(404).json({ success: false, error: 'User not found.' });
+    if (!target) return res.status(404).json({ success: false, error: 'User not found. Refresh the account list and try again.' });
     if (target.role === 'admin') return res.status(400).json({ success: false, error: 'An administrator cannot be blocked from radio chat.' });
-    const banned = req.body.banned;
-    const stored = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
-    const current = new Set<string>(Array.isArray(stored) ? stored.map((id) => String(id).trim()).filter(Boolean) : []);
-    if (banned) current.add(target.uid); else current.delete(target.uid);
-    const bannedUserIds = [...current];
-    await setSettingDb(RADIO_CHAT_BANS_SETTING, bannedUserIds);
-    return res.json({ success: true, bannedUserIds });
+
+    if (req.body.banned) {
+      await upsertRadioChatBanDb({
+        userId: target.uid,
+        username: String(target.username || 'Member').slice(0, 80),
+        reason: String(req.body?.reason || '').trim().slice(0, 300) || null,
+        bannedBy: String(getAuthUser(req)?.uid || 'admin'),
+      });
+    } else {
+      await deleteRadioChatBanDb(target.uid);
+    }
+
+    const bans = await listRadioChatBansDb();
+    return res.json({
+      success: true,
+      bannedUserIds: bans.map((ban) => ban.userId),
+      bans: bans.map((ban) => ({
+        userId: ban.userId,
+        username: ban.username,
+        reason: ban.reason || '',
+        bannedBy: ban.bannedBy,
+        createdAt: ban.createdAt instanceof Date ? ban.createdAt.toISOString() : String(ban.createdAt || ''),
+      })),
+      changedUserId: target.uid,
+      banned: req.body.banned,
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not update radio chat permissions.' });
+    console.error('[RadioModeration] Ban update failed:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Radio moderation could not save this change.' });
   }
 });
 
