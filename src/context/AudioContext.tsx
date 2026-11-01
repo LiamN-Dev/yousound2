@@ -827,6 +827,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isRadioMode,
         playRadioSong,
         leaveRadio,
+        pauseRadioPlayback,
         playSong,
         togglePlay,
         seek,
