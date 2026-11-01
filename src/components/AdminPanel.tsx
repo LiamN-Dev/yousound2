@@ -1032,10 +1032,9 @@ export const AdminPanel: React.FC = () => {
                             </span>
                           )}
                           {u.isSuspended && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
-                              Suspended
-                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">Suspended</span>
                           )}
+                          {u.isLocked && <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 font-bold">Locked</span>}
                         </div>
                       </td>
                       <td className="py-3">
