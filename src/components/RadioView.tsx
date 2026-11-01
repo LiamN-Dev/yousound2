@@ -33,6 +33,9 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
   const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio } = useAudio();
   const [joined, setJoined] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const previousStationClockRef = useRef<{ songId: string | null; paused: boolean | null }>({ songId: null, paused: null });
+  const chatFetchInFlight = useRef(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
   const latestStationServerTimeRef = useRef(0);
@@ -65,12 +68,15 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [banTarget, setBanTarget] = useState('');
   const [banSaving, setBanSaving] = useState(false);
   const [banError, setBanError] = useState('');
+  const [banReason, setBanReason] = useState('');
   const loadedProgramKey = useRef('');
 
   // A reload must not silently re-join: browsers require a fresh user gesture
   // before starting audio, otherwise listeners appear joined but hear nothing.
   useEffect(() => {
     setJoined(false);
+    setSyncing(false);
+    previousStationClockRef.current = { songId: null, paused: null };
     leaveRadio();
   }, [currentUser?.id, leaveRadio]);
 
@@ -97,16 +103,39 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       }
       setStation(state);
       setError('');
+      const nextSongId = state.currentSong?.id || null;
+      const previousClock = previousStationClockRef.current;
+      const trackChanged = Boolean(nextSongId && previousClock.songId !== nextSongId);
+      const broadcastResumed = previousClock.paused === true && state.paused === false;
+      previousStationClockRef.current = { songId: nextSongId, paused: Boolean(state.paused) };
+
       if (joined && state.enabled && state.currentSong) {
         const rate = Math.min(2, Math.max(0.5, Number(state.playbackRate) || 1));
-        const ageSinceSnapshot = state.paused ? 0 : Math.max(0, (Date.now() + (serverClockOffsetRef.current || 0) - serverTime) / 1000) * rate;
+        const offset = serverClockOffsetRef.current || 0;
+        const ageSinceSnapshot = state.paused || !Number.isFinite(serverTime)
+          ? 0
+          : Math.max(0, (Date.now() + offset - serverTime) / 1000) * rate;
+
         if (state.paused) {
-          void joinRadioPlayback(state.currentSong, state.elapsedSeconds, true, rate);
+          if (trackChanged || previousClock.paused !== true) {
+            void joinRadioPlayback(state.currentSong, state.elapsedSeconds, true, rate);
+          }
+        } else if (trackChanged || broadcastResumed) {
+          // Every listener chooses the same future server-clock boundary. This avoids
+          // each browser starting a newly loaded song at a different network-arrival time.
+          const estimatedServerNow = Date.now() + offset;
+          const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+          const snapshotTime = Number.isFinite(serverTime) ? serverTime : estimatedServerNow;
+          const targetAtSync = state.elapsedSeconds + Math.max(0, (syncAtServerMs - snapshotTime) / 1000) * rate;
+          setSyncing(true);
+          void playRadioSong(state.currentSong, targetAtSync, rate, syncAtServerMs - offset)
+            .finally(() => setSyncing(false));
         } else {
           void playRadioSong(state.currentSong, state.elapsedSeconds + ageSinceSnapshot, rate);
         }
       } else if (joined) {
         setJoined(false);
+        setSyncing(false);
         setMessages([]);
         leaveRadio();
       } else if (!state.enabled) {
@@ -122,8 +151,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   useEffect(() => {
     if (!active && !joined) return;
     void refreshStation();
-    // A one-second server-clock poll keeps pause, resume, seek, and track changes tight.
-    // Elapsed time is projected from receipt time, not by comparing device clocks.
+    // Polling supplies fresh authoritative state; actual starts are aligned to a shared server-clock barrier.
     const timer = window.setInterval(() => void refreshStation(), 1000);
     return () => window.clearInterval(timer);
   }, [active, refreshStation, joined]);
@@ -135,21 +163,30 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   }, [active]);
 
   const refreshChat = useCallback(async () => {
-    if (!joined) return;
+    if (!joined || chatFetchInFlight.current) return;
+    chatFetchInFlight.current = true;
     try {
       const response = await fetch('/api/radio/chat', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Chat could not load.');
       setMessages(Array.isArray(data.messages) ? data.messages : []);
       setCanChat(data.canChat !== false || isAdmin);
-      setChatError(data.canChat === false && !isAdmin ? 'An administrator has blocked this account from radio chat.' : '');
-    } catch (e: any) { setChatError(e?.message || 'Radio chat is unavailable.'); }
+      setChatError(data.canChat === false && !isAdmin
+        ? data.banReason === 'radio-chat-ban'
+          ? (data.banNote ? 'Radio chat access was removed: ' + data.banNote : 'An administrator has banned this account from radio chat.')
+          : 'An administrator has disabled chat access for this account.'
+        : '');
+    } catch (e: any) {
+      setChatError(e?.message || 'Radio chat is unavailable.');
+    } finally {
+      chatFetchInFlight.current = false;
+    }
   }, [joined, isAdmin]);
 
   useEffect(() => {
     if (!active || !joined) return;
     void refreshChat();
-    const timer = window.setInterval(() => void refreshChat(), 4500);
+    const timer = window.setInterval(() => void refreshChat(), 2000);
     return () => window.clearInterval(timer);
   }, [active, joined, refreshChat]);
 
@@ -183,6 +220,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not load the radio ban list.');
       setBannedIds(Array.isArray(data.bannedUserIds) ? data.bannedUserIds.map(String) : []);
+      setBanError('');
     } catch (e: any) {
       setBanError(e?.message || 'Could not load the radio ban list.');
     }
@@ -191,7 +229,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   useEffect(() => {
     if (!isAdmin) return;
     void refreshBanList();
-    const timer = window.setInterval(() => void refreshBanList(), 5000);
+    const timer = window.setInterval(() => void refreshBanList(), 8000);
     return () => window.clearInterval(timer);
   }, [isAdmin, refreshBanList]);
 
@@ -227,13 +265,33 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     setJoined(true);
     const rate = Math.min(2, Math.max(0.5, Number(station.playbackRate) || 1));
     const snapshotServerTime = Date.parse(station.serverNow || '');
-    const ageSinceSnapshot = station.paused || !Number.isFinite(snapshotServerTime) ? 0 : Math.max(0, (Date.now() + (serverClockOffsetRef.current || 0) - snapshotServerTime) / 1000) * rate;
-    // This is the only path that grants this browser permission to play radio audio.
-    // Use the last server snapshot plus time since it arrived; local wall-clock skew is irrelevant.
-    void joinRadioPlayback(station.currentSong, station.elapsedSeconds + ageSinceSnapshot, Boolean(station.paused), rate);
+    const offset = serverClockOffsetRef.current || 0;
+    if (station.paused) {
+      setSyncing(false);
+      void joinRadioPlayback(station.currentSong, station.elapsedSeconds, true, rate);
+      previousStationClockRef.current = { songId: station.currentSong.id, paused: true };
+      return;
+    }
+
+    // Buffer first, then start on a shared five-second server-clock boundary.
+    // The audio engine seeks to the position the station will be at when that
+    // boundary arrives, so network and decode time are hidden before listeners hear it.
+    const estimatedServerNow = Date.now() + offset;
+    const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+    const snapshotTime = Number.isFinite(snapshotServerTime) ? snapshotServerTime : estimatedServerNow;
+    const currentAge = Math.max(0, (estimatedServerNow - snapshotTime) / 1000) * rate;
+    const elapsedAtSync = station.elapsedSeconds + currentAge + Math.max(0, (syncAtServerMs - estimatedServerNow) / 1000) * rate;
+    const syncAtLocalEpochMs = syncAtServerMs - offset;
+
+    setSyncing(true);
+    previousStationClockRef.current = { songId: station.currentSong.id, paused: false };
+    void joinRadioPlayback(station.currentSong, elapsedAtSync, false, rate, syncAtLocalEpochMs)
+      .catch((error: any) => setError(error?.message || 'Radio could not synchronize.'))
+      .finally(() => setSyncing(false));
   };
   const leave = () => {
     setJoined(false);
+    setSyncing(false);
     leaveRadio();
   };
 
@@ -254,7 +312,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         throw new Error(data.error || 'Message was not sent.');
       }
       setMessage('');
-      void refreshChat();
+      if (data.message) setMessages((current) => [...current, data.message as Message].slice(-60));
     } catch (e: any) { setChatError(e?.message || 'Could not send message.'); }
     finally { setSending(false); }
   };
@@ -348,12 +406,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     try {
       const response = await fetch('/api/admin/radio/chat-ban', {
         method: 'PUT', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, banned }),
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, banned, reason: banned ? banReason.trim() : '' }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not change radio chat access.');
       setBannedIds(Array.isArray(data.bannedUserIds) ? data.bannedUserIds.map(String) : []);
       setBanTarget('');
+      setBanReason('');
+      setBanError('Saved. Radio chat permissions have been updated in the persistent database.');
       void refreshChat();
     } catch (e: any) { setBanError(e?.message || 'Could not update radio chat ban.'); }
     finally { setBanSaving(false); }
@@ -405,7 +465,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           </div>
           {countdown !== null && <div className="rounded-lg bg-indigo-400/10 px-3 py-2 text-[10px] text-indigo-200"><Clock3 className="mr-1 inline h-3.5 w-3.5" /> Next program in {timeLeft(countdown)}</div>}
         </div>
-        {joined && <div className="mt-2 text-[10px] text-emerald-200">● Tuned in — the broadcast continues when you change tabs.</div>}
+        {joined && <div className="mt-2 text-[10px] text-emerald-200">{syncing ? '◌ Buffering and synchronizing to the station clock…' : '● Tuned in — the broadcast continues when you change tabs.'}</div>}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -479,6 +539,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <option value="">Select a member account…</option>
                 {allUsers.filter((user) => user.role !== 'admin').map((user) => <option key={user.id} value={user.id}>@{user.username}{bannedIds.includes(user.id) ? ' · BANNED' : ''}</option>)}
               </select>
+              <input value={banReason} onChange={(event) => setBanReason(event.target.value)} maxLength={300} placeholder="Optional reason shown to the banned member" className="mt-2 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white placeholder:text-slate-500" />
               <button type="button" disabled={!banTarget || banSaving} onClick={() => void updateBan(banTarget, !bannedIds.includes(banTarget))}
                 className={`rounded-lg px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40 ${bannedIds.includes(banTarget) ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}>
                 {banSaving ? 'Saving…' : bannedIds.includes(banTarget) ? 'Unban selected user' : 'Ban selected user'}
