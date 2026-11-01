@@ -55,6 +55,7 @@ export const PlayerBar: React.FC = () => {
     setPlaybackSpeed,
     equalizer,
     setEqualizer,
+    isRadioMode,
   } = useAudio();
   const { currentUser } = useAuth();
   const [showQueue, setShowQueue] = useState(false);
@@ -119,6 +120,7 @@ export const PlayerBar: React.FC = () => {
             <div className="flex items-center gap-1.5 shrink-0 pl-1">
               <button
                 onClick={togglePlay}
+                disabled={isRadioMode}
                 className="w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-md active:scale-95 transition-all"
                 title={isPlaying ? 'Pause' : 'Play'}
               >
@@ -157,15 +159,21 @@ export const PlayerBar: React.FC = () => {
               </div>
 
               {/* Range Input for Seek */}
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime || 0}
-                onChange={(e) => seek(Number(e.target.value))}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                aria-label="Seek track position"
-              />
+              {isRadioMode ? (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-bold tracking-widest text-rose-600 dark:text-rose-300">LIVE · SYNCED</span>
+                </div>
+              ) : (
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 100}
+                  value={currentTime || 0}
+                  onChange={(e) => seek(Number(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  aria-label="Seek track position"
+                />
+              )}
             </div>
 
             <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 w-8 shrink-0">
@@ -210,6 +218,7 @@ export const PlayerBar: React.FC = () => {
               {/* Shuffle */}
               <button
                 onClick={toggleShuffle}
+                disabled={isRadioMode}
                 className={`p-2 rounded-xl text-xs transition-colors hidden sm:block ${
                   isShuffled
                     ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
@@ -223,6 +232,7 @@ export const PlayerBar: React.FC = () => {
               {/* Prev */}
               <button
                 onClick={playPrevious}
+                disabled={isRadioMode}
                 className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-95"
                 title="Previous track"
               >
@@ -232,6 +242,7 @@ export const PlayerBar: React.FC = () => {
               {/* Play / Pause button */}
               <button
                 onClick={togglePlay}
+                disabled={isRadioMode}
                 className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-md active:scale-95 transition-all"
                 title={isPlaying ? 'Pause' : 'Play'}
               >
@@ -245,6 +256,7 @@ export const PlayerBar: React.FC = () => {
               {/* Next */}
               <button
                 onClick={playNext}
+                disabled={isRadioMode}
                 className="p-2 rounded-xl text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all active:scale-95"
                 title="Next track"
               >
@@ -254,6 +266,7 @@ export const PlayerBar: React.FC = () => {
               {/* Repeat */}
               <button
                 onClick={toggleRepeat}
+                disabled={isRadioMode}
                 className={`p-2 rounded-xl text-xs transition-colors hidden sm:block ${
                   repeatMode !== 'off'
                     ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10'
@@ -313,6 +326,7 @@ export const PlayerBar: React.FC = () => {
               <div className="relative flex items-center">
                 <button
                   onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                  disabled={isRadioMode}
                   className={`px-2 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border ${
                     playbackSpeed !== 1.0
                       ? 'bg-blue-600 text-white border-blue-500 shadow-sm'

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ban, CalendarClock, Clock3, Headphones, ListMusic, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
@@ -28,6 +28,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
   const { adminAllSongs, allSongs, playRadioSong, leaveRadio, isRadioMode } = useAudio();
   const [joined, setJoined] = useState(false);
+  const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
   const [error, setError] = useState('');
   const [clock, setClock] = useState(Date.now());
@@ -52,12 +53,16 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [banTarget, setBanTarget] = useState('');
 
+  // A reload must not silently re-join: browsers require a fresh user gesture
+  // before starting audio, otherwise listeners appear joined but hear nothing.
   useEffect(() => {
-    if (!currentUser?.id) { setJoined(false); return; }
-    try { setJoined(localStorage.getItem('yousong_radio_joined_' + currentUser.id) === '1'); } catch { setJoined(false); }
-  }, [currentUser?.id]);
+    setJoined(false);
+    leaveRadio();
+  }, [currentUser?.id, leaveRadio]);
 
   const refreshStation = useCallback(async () => {
+    if (stationFetchInFlight.current) return;
+    stationFetchInFlight.current = true;
     try {
       const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
@@ -66,20 +71,28 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
-        void playRadioSong(state.currentSong, state.elapsedSeconds);
+        const serverAgeSeconds = state.serverNow
+          ? Math.max(0, (Date.now() - new Date(state.serverNow).getTime()) / 1000)
+          : 0;
+        void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
       } else if (joined && isRadioMode) {
         leaveRadio();
       }
     } catch (e: any) {
       setError(e?.message || 'Could not connect to the station.');
+    } finally {
+      stationFetchInFlight.current = false;
     }
   }, [joined, playRadioSong, leaveRadio, isRadioMode]);
 
   useEffect(() => {
+    if (!active && !joined) return;
     void refreshStation();
-    const timer = window.setInterval(() => void refreshStation(), joined ? 4000 : 15000);
+    // Keep the on-air clock fresh while visible or listening, but do not make
+    // every background tab poll the station when nobody is tuned in.
+    const timer = window.setInterval(() => void refreshStation(), 5000);
     return () => window.clearInterval(timer);
-  }, [refreshStation, joined]);
+  }, [active, refreshStation, joined]);
 
   useEffect(() => {
     if (!active) return;
@@ -145,13 +158,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
   const join = () => {
     if (!station?.enabled || !station.currentSong || !currentUser?.id) return;
-    try { localStorage.setItem('yousong_radio_joined_' + currentUser.id, '1'); } catch {}
     setJoined(true);
+    const serverAgeSeconds = station.serverNow
+      ? Math.max(0, (Date.now() - new Date(station.serverNow).getTime()) / 1000)
+      : 0;
+    // Invoke the audio play request directly inside the Join click gesture.
+    void playRadioSong(station.currentSong, station.elapsedSeconds + serverAgeSeconds);
   };
   const leave = () => {
-    if (currentUser?.id) {
-      try { localStorage.removeItem('yousong_radio_joined_' + currentUser.id); } catch {}
-    }
     setJoined(false);
     leaveRadio();
   };
@@ -305,6 +319,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={saving} onClick={() => void saveConfig(true, true)} className="rounded-lg bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-50">{saving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <Radio className="mr-1 inline h-3 w-3" />} Start / restart broadcast</button>
+                <button type="button" disabled={saving || !nextAt || !nextIds.length} onClick={() => void saveConfig(Boolean(station?.enabled), false)} className="rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-[10px] font-semibold text-indigo-200 disabled:opacity-40"><CalendarClock className="mr-1 inline h-3 w-3" /> Save schedule only</button>
                 <button type="button" disabled={saving} onClick={() => void saveConfig(false, false)} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[10px] font-semibold text-rose-200">Stop broadcast</button>
               </div>
             </div>

@@ -744,6 +744,16 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           : 'This account has no password set. Ask an admin to assign you a temporary password.',
       });
     }
+    if (user.isSuspended && user.role !== 'admin') {
+      clearLoginFailures(throttleKey);
+      return res.status(403).json({
+        success: false,
+        error: user.suspendedReason
+          ? 'This account is suspended: ' + String(user.suspendedReason).slice(0, 240)
+          : 'This account is suspended. Contact an administrator or submit an appeal.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
     clearLoginFailures(throttleKey);
 
     // Quietly upgrade old weak password storage to salted scrypt
@@ -1490,9 +1500,11 @@ async function resolveRadioState() {
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
 
   // Promote a scheduled program on the server, so every connected listener sees the same transition.
-  if (config.enabled && config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
+  if (config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
+    // A scheduled program is an instruction to go live at its start time.
     config = {
       ...config,
+      enabled: true,
       currentProgram: { ...config.nextProgram, startsAt: null },
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
@@ -2405,6 +2417,8 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     ));
     const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
     const folderId = await getDriveLibraryFolderId(accessToken, folderName);
+    // Drive's name-contains operator only matches prefixes. Keep substring matching
+    // in this server-side scan so terms in the middle of a filename still work.
     const query = `'${folderId}' in parents and trashed=false`;
     const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
     driveUrl.searchParams.set('q', query);
@@ -2443,7 +2457,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
         const supported = kind === 'audio'
           ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
           : supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
-        const hasThreeDigitId = /\\s-\\s[0-9]{3}(?=\\.[^.]+$)/i.test(name);
+        const hasThreeDigitId = /\s-\s[0-9]{3}(?=\.[^.]+$)/i.test(name);
         if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
         if (!showNumbered && (alreadyNumberedFileIds.has(String(file.id)) || hasThreeDigitId)) continue;
         files.push({

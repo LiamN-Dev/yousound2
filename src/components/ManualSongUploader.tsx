@@ -465,9 +465,9 @@ export const ManualSongUploader: React.FC<{ compact?: boolean }> = ({ compact = 
           {compact && <p className="mt-0.5 text-[11px] text-slate-300">Upload or select existing audio and artwork in Google Drive.</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button type="button" onClick={connectDrive} disabled={connecting || (driveConnected && driveLibraryReady)} className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${driveConnected && driveLibraryReady ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'} disabled:opacity-60`}>
+          <button type="button" onClick={connectDrive} disabled={connecting} className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${driveConnected && driveLibraryReady ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'} disabled:opacity-60`}>
           {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-          {driveConnected && driveLibraryReady ? 'Site Drive connected' : driveReconnectRequired ? 'Grant Drive folder access' : 'Connect Drive'}
+          {driveConnected && driveLibraryReady ? 'Reconnect Drive' : driveReconnectRequired ? 'Grant Drive folder access' : 'Connect Drive'}
           </button>
           {compact && (
             <button
