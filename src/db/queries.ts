@@ -258,6 +258,19 @@ export async function getSongsDb() {
   }
 }
 
+/** Live radio must use the same durable song catalogue on every Render instance. */
+export async function getSongsPersistentDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The radio song catalogue is unavailable because the persistent database is disconnected.');
+  }
+  try {
+    return await db.select().from(songs).orderBy(desc(songs.addedAt));
+  } catch (error) {
+    noteDbError('getSongsPersistentDb', error);
+    throw new Error('Could not load the radio song catalogue from the persistent database.');
+  }
+}
+
 export async function getSongByIdDb(id: string) {
   if (!(await checkSqlAvailability())) {
     return localStore.getSongs().find((song: any) => song.id === id) || null;
