@@ -114,6 +114,7 @@ export const AdminPanel: React.FC = () => {
   const [editIsSuspended, setEditIsSuspended] = useState(false);
   const [editSuspendedReason, setEditSuspendedReason] = useState('');
   const [userEditFeedback, setUserEditFeedback] = useState<string | null>(null);
+  const [massLogoutFeedback, setMassLogoutFeedback] = useState('');
   const [lockCodeModalUser,setLockCodeModalUser]=useState<User|null>(null);
   const [lockCode,setLockCode]=useState('');const [lockCodeExpiresAt,setLockCodeExpiresAt]=useState(0);const [lockCodeNow,setLockCodeNow]=useState(Date.now());
 
@@ -259,6 +260,20 @@ export const AdminPanel: React.FC = () => {
   const handleToggleUserChat = async (u: User) => { await adminUpdateUser(u.id,{chatBlocked:!u.chatBlocked}); };
   const handleToggleAccountLock = async (u:User) => { if(u.role==='admin')return;const result=await adminUpdateUser(u.id,{isLocked:!u.isLocked});if(!result.success){setUserEditFeedback(result.error||'Could not change account lock.');return;}refreshState();setLockCodeModalUser(!u.isLocked?u:null);setUserEditFeedback(!u.isLocked?`Account @${u.username} locked.`:`Account @${u.username} unlocked.`); };
   const handleLogoutAllSessions = async (u:User) => {if(!confirm(`Log out every active session for @${u.username}?`))return;try{const response=await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/logout-all`,{method:'POST',credentials:'same-origin'});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.error||'Could not revoke sessions.');setUserEditFeedback(`All sessions for @${u.username} have been revoked.`);}catch(e:any){setUserEditFeedback(e?.message||'Could not revoke sessions.');}};
+
+  const handleLogoutAllNonAdminUsers = async () => {
+    const confirmed = confirm('Log out every non-admin account from all devices? Every administrator account will remain signed in. All other users will need to log in again.');
+    if (!confirmed) return;
+    setMassLogoutFeedback('Revoking all non-admin sessions…');
+    try {
+      const response = await fetch('/api/admin/users/logout-all-except-admin', { method: 'POST', credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not log out all non-admin users.');
+      setMassLogoutFeedback(`Successfully logged out ${Number(data.revokedCount) || 0} non-admin account(s). Administrator sessions were preserved.`);
+    } catch (e: any) {
+      setMassLogoutFeedback(e?.message || 'Could not log out all non-admin users.');
+    }
+  };
   useEffect(()=>{if(!lockCodeModalUser)return;let stopped=false;let timer:number|undefined;const load=async()=>{try{const response=await fetch(`/api/admin/users/${encodeURIComponent(lockCodeModalUser.id)}/lock-code`,{credentials:'same-origin',cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.error||'Could not load code.');if(stopped)return;setLockCode(data.code);setLockCodeExpiresAt(data.expiresAt);setLockCodeNow(Date.now());timer=window.setTimeout(load,Math.max(1000,data.expiresAt-Date.now()+100));}catch(e:any){if(!stopped)setUserEditFeedback(e?.message||'Could not load code.');}};void load();const clock=window.setInterval(()=>setLockCodeNow(Date.now()),1000);return()=>{stopped=true;if(timer)clearTimeout(timer);clearInterval(clock);};},[lockCodeModalUser?.id]);
 
   const handleOpenSuspendModal = (u: User) => {
@@ -980,13 +995,21 @@ export const AdminPanel: React.FC = () => {
       {adminTab === 'users' && (
         <div className="space-y-6 animate-in fade-in">
           <div className="liquid-glass-surface rounded-3xl p-6 sm:p-7 border border-white/10">
-            <h2 className="text-lg font-bold text-white font-display mb-2 flex items-center gap-2">
-              <Users className="w-5 h-5 text-amber-400" />
-              User Accounts & Passwords ({approvedUsers.length})
-            </h2>
-            <p className="text-xs text-slate-400 mb-6">
-              You can change usernames or assign temporary passwords. Passwords are securely encrypted and masked.
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-white font-display mb-2 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-400" />
+                  User Accounts & Passwords ({approvedUsers.length})
+                </h2>
+                <p className="text-xs text-slate-400 mb-2 sm:mb-6">
+                  You can change usernames or assign temporary passwords. Passwords are securely encrypted and masked.
+                </p>
+              </div>
+              <button type="button" onClick={() => void handleLogoutAllNonAdminUsers()} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3.5 py-2.5 text-[10px] font-bold text-rose-200 hover:bg-rose-500/20 transition-colors">
+                <LogOut className="h-3.5 w-3.5" /> Log out all users except admins
+              </button>
+            </div>
+            {massLogoutFeedback && <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] text-slate-200">{massLogoutFeedback}</div>}
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
