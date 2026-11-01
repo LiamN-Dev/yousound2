@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, CalendarClock, Clock3, Headphones, ListMusic, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
+import { Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
