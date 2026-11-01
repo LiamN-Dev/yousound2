@@ -2238,7 +2238,14 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
 
       if (!coverTempPath && req.body?.useSubmittedImage === 'true' && requestItem.webLink) {
         const imageUrl = new URL(String(requestItem.webLink));
-        if (imageUrl.protocol !== 'https:' || imageUrl.username || imageUrl.password) {
+        const blockedArtworkHost = (hostname: string) => {
+          const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+          return host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
+            || host === '::1' || host === '0.0.0.0'
+            || /^(10\.|127\.|192\.168\.)/.test(host)
+            || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+        };
+        if (imageUrl.protocol !== 'https:' || imageUrl.username || imageUrl.password || blockedArtworkHost(imageUrl.hostname)) {
           return res.status(400).json({ success: false, error: 'The submitted artwork link must be a public HTTPS image URL.' });
         }
         const submittedDriveId = extractGoogleDriveFileId(requestItem.webLink);
@@ -2247,6 +2254,10 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
           : imageUrl.toString();
         const imageResponse = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
         if (!imageResponse.ok) throw new Error('Could not download the submitted artwork link (' + imageResponse.status + ').');
+        const finalImageUrl = imageResponse.url ? new URL(imageResponse.url) : imageUrl;
+        if (finalImageUrl.protocol !== 'https:' || blockedArtworkHost(finalImageUrl.hostname)) {
+          throw new Error('The artwork link redirected to an address that is not allowed.');
+        }
         const contentLength = Number(imageResponse.headers.get('content-length') || 0);
         if (contentLength > 25 * 1024 * 1024) throw new Error('Submitted artwork is larger than 25 MB.');
         coverMimeType = String(imageResponse.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
