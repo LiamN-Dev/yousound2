@@ -15,6 +15,7 @@ import {
   chatThreads,
   chatMessages,
   radioChatMessages,
+  radioChatBans,
   chatPairingBlocks,
 } from './schema.ts';
 
