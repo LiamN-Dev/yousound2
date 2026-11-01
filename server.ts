@@ -2140,6 +2140,9 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
     const coverFile = files.cover?.[0];
     let audioTempPath: string | null = audioFile?.path || null;
     let coverTempPath: string | null = coverFile?.path || null;
+    let coverMimeType = String(coverFile?.mimetype || '').toLowerCase();
+    let coverOriginalName = String(coverFile?.originalname || '');
+    let coverSize = Number(coverFile?.size || 0);
     let uploadedAudioId: string | null = null;
     let uploadedCoverId: string | null = null;
     let accessToken: string | null = null;
@@ -2155,26 +2158,54 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
         });
       }
       if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-      if (!audioFile || !coverFile || !audioTempPath || !coverTempPath) {
-        return res.status(400).json({ success: false, error: 'Choose both an MP3 audio file and a cover image.' });
+      if (!audioFile || !audioTempPath) {
+        return res.status(400).json({ success: false, error: 'Choose an MP3 audio file.' });
       }
       if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
         return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
       }
-      if (coverFile.size > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(String(coverFile.mimetype || '').toLowerCase())) {
-        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
-      }
       const requestItem = await getRequestByIdDb(req.params.id);
       if (!requestItem) return res.status(404).json({ success: false, error: 'Request not found.' });
       if (requestItem.status !== 'approved') return res.status(409).json({ success: false, error: 'Approve this request for upload before selecting its files.' });
+
+      if (!coverTempPath && req.body?.useSubmittedImage === 'true' && requestItem.webLink) {
+        const imageUrl = new URL(String(requestItem.webLink));
+        if (imageUrl.protocol !== 'https:' || imageUrl.username || imageUrl.password) {
+          return res.status(400).json({ success: false, error: 'The submitted artwork link must be a public HTTPS image URL.' });
+        }
+        const submittedDriveId = extractGoogleDriveFileId(requestItem.webLink);
+        const downloadUrl = submittedDriveId
+          ? 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(submittedDriveId)
+          : imageUrl.toString();
+        const imageResponse = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+        if (!imageResponse.ok) throw new Error('Could not download the submitted artwork link (' + imageResponse.status + ').');
+        const contentLength = Number(imageResponse.headers.get('content-length') || 0);
+        if (contentLength > 25 * 1024 * 1024) throw new Error('Submitted artwork is larger than 25 MB.');
+        coverMimeType = String(imageResponse.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverMimeType)) {
+          throw new Error('The submitted link did not return a supported image. Use a direct JPG, PNG, WEBP, or GIF image link.');
+        }
+        const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+        if (!imageBuffer.length || imageBuffer.length > 25 * 1024 * 1024) throw new Error('Submitted artwork is empty or larger than 25 MB.');
+        coverSize = imageBuffer.length;
+        const imageExtension = ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[coverMimeType] || '.jpg';
+        coverOriginalName = path.basename(imageUrl.pathname) || 'submitted-artwork' + imageExtension;
+        if (!path.extname(coverOriginalName)) coverOriginalName += imageExtension;
+        coverTempPath = path.join(UPLOADS_DIR, 'request-art-' + Date.now() + '-' + Math.random().toString(36).slice(2) + imageExtension);
+        fs.writeFileSync(coverTempPath, imageBuffer);
+      }
+      if (!coverTempPath) return res.status(400).json({ success: false, error: 'Choose a cover image or use the submitted artwork link.' });
+      if (coverSize > 25 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverMimeType)) {
+        return res.status(400).json({ success: false, error: 'Cover must be a JPG, PNG, WEBP, or GIF image up to 25 MB.' });
+      }
 
       accessToken = await getDriveAccessToken();
       const mediaCode = await generateSongMediaCode();
       const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, requestItem.songTitle || 'Track', requestItem.artist || 'Unknown Artist', accessToken, mediaCode);
       audioTempPath = null;
       uploadedAudioId = driveAudio.fileId;
-      const coverExtension = path.extname(coverFile.originalname || '') || ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[String(coverFile.mimetype || '').toLowerCase()] || '.jpg';
-      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverFile.originalname, coverFile.mimetype || 'image/jpeg', accessToken, (requestItem.songTitle || 'Song') + ' - ' + mediaCode + coverExtension);
+      const coverExtension = path.extname(coverOriginalName || '') || ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' } as Record<string, string>)[coverMimeType] || '.jpg';
+      const driveCover = await uploadImageToGoogleDrive(coverTempPath, coverOriginalName || 'submitted-artwork' + coverExtension, coverMimeType || 'image/jpeg', accessToken, (requestItem.songTitle || 'Song') + ' - ' + mediaCode + coverExtension);
       coverTempPath = null;
       uploadedCoverId = driveCover.fileId;
 
