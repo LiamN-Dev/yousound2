@@ -55,6 +55,7 @@ export const PlayerBar: React.FC = () => {
     setPlaybackSpeed,
     equalizer,
     setEqualizer,
+    isRadioMode,
   } = useAudio();
   const { currentUser } = useAuth();
   const [showQueue, setShowQueue] = useState(false);
@@ -157,15 +158,21 @@ export const PlayerBar: React.FC = () => {
               </div>
 
               {/* Range Input for Seek */}
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime || 0}
-                onChange={(e) => seek(Number(e.target.value))}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                aria-label="Seek track position"
-              />
+              {isRadioMode ? (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[9px] font-bold tracking-widest text-rose-600 dark:text-rose-300">LIVE · SYNCED</span>
+                </div>
+              ) : (
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 100}
+                  value={currentTime || 0}
+                  onChange={(e) => seek(Number(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  aria-label="Seek track position"
+                />
+              )}
             </div>
 
             <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 w-8 shrink-0">
