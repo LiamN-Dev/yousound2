@@ -47,7 +47,34 @@ export const AdminPipelineManager: React.FC = () => {
   const [bulkEtaSaving, setBulkEtaSaving] = useState(false);
   const [requestAudioFiles, setRequestAudioFiles] = useState<Record<string, File | null>>({});
   const [requestCoverFiles, setRequestCoverFiles] = useState<Record<string, File | null>>({});
+  const [useSubmittedImage, setUseSubmittedImage] = useState<Record<string, boolean>>({});
+  const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', showImageLink: true, requireImageLink: true });
+  const [savingRequestSettings, setSavingRequestSettings] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/song-requests/settings', { credentials: 'same-origin', cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => { if (data?.settings) setRequestSettings({ enabled: data.settings.enabled !== false, notice: String(data.settings.notice || ''), icon: String(data.settings.icon || '🎵'), showImageLink: data.settings.showImageLink !== false, requireImageLink: data.settings.showImageLink !== false && data.settings.requireImageLink !== false }); })
+      .catch(() => undefined);
+  }, []);
+
+  const saveRequestSettings = async () => {
+    setSavingRequestSettings(true);
+    try {
+      const response = await fetch('/api/admin/song-requests/settings', {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestSettings),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save song request settings.');
+      setRequestSettings(data.settings);
+      setFeedback({ type: 'success', message: 'Song request settings saved.' });
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.message || 'Could not save song request settings.' });
+    } finally { setSavingRequestSettings(false); }
+  };
 
   const songOnlyRequests = useMemo(
     () => songRequests.filter((request) => request.requestType !== 'feature'),
@@ -237,8 +264,9 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: 'Connect the site-wide Google Drive account before uploading.' });
       return;
     }
-    if (!audio || !cover) {
-      setFeedback({ type: 'error', message: 'Choose both an MP3 audio file and a cover image.' });
+    const useLink = Boolean(!cover && request.webLink && useSubmittedImage[request.id] !== false);
+    if (!audio || (!cover && !useLink)) {
+      setFeedback({ type: 'error', message: 'Choose an MP3 and either use the submitted image link or select a cover image.' });
       return;
     }
     if (!/\.mp3$/i.test(audio.name) || (audio.type && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audio.type.toLowerCase()))) {
@@ -249,7 +277,7 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: 'The MP3 is larger than the 150 MB limit.' });
       return;
     }
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(cover.type.toLowerCase()) || cover.size > 25 * 1024 * 1024) {
+    if (cover && (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(cover.type.toLowerCase()) || cover.size > 25 * 1024 * 1024)) {
       setFeedback({ type: 'error', message: 'Cover images must be JPG, PNG, WEBP, or GIF and no larger than 25 MB.' });
       return;
     }
@@ -259,7 +287,8 @@ export const AdminPipelineManager: React.FC = () => {
     try {
       const form = new FormData();
       form.append('audio', audio);
-      form.append('cover', cover);
+      if (cover) form.append('cover', cover);
+      if (useLink) form.append('useSubmittedImage', 'true');
       const response = await fetch(`/api/admin/requests/${encodeURIComponent(request.id)}/upload-media`, {
         method: 'POST', credentials: 'same-origin', body: form,
       });
@@ -274,6 +303,7 @@ export const AdminPipelineManager: React.FC = () => {
       }
       setRequestAudioFiles((current) => ({ ...current, [request.id]: null }));
       setRequestCoverFiles((current) => ({ ...current, [request.id]: null }));
+      setUseSubmittedImage((current) => ({ ...current, [request.id]: false }));
       await storage.syncWithServer();
       refreshState();
       setFeedback({ type: 'success', message: `“${request.songTitle}” and its artwork are in Drive. Preview it, then publish.` });
@@ -339,6 +369,17 @@ export const AdminPipelineManager: React.FC = () => {
 
   return (
     <div className="space-y-5">
+      <div className="rounded-2xl border border-amber-400/20 bg-amber-500/[0.05] p-4">
+        <div className="mb-3 text-sm font-bold text-white">Song request availability</div>
+        <div className="grid gap-3 md:grid-cols-[auto_1fr_90px]">
+          <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.enabled} onChange={(e) => setRequestSettings((s) => ({ ...s, enabled: e.target.checked }))} className="accent-cyan-500" /> Accept song requests</label>
+          <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.showImageLink} onChange={(e) => setRequestSettings((s) => ({ ...s, showImageLink: e.target.checked, requireImageLink: e.target.checked ? s.requireImageLink : false }))} className="accent-cyan-500" /> Show artwork image link field</label>
+          <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.requireImageLink} disabled={!requestSettings.showImageLink} onChange={(e) => setRequestSettings((s) => ({ ...s, requireImageLink: e.target.checked }))} className="accent-cyan-500" /> Require image link</label>
+          <label className="text-[10px] text-slate-400">Notice icon<input value={requestSettings.icon} onChange={(e) => setRequestSettings((s) => ({ ...s, icon: e.target.value }))} maxLength={12} className={inputClass + ' mt-1'} /></label>
+        </div>
+        <label className="mt-3 block text-[10px] text-slate-400">Custom closed message<input value={requestSettings.notice} onChange={(e) => setRequestSettings((s) => ({ ...s, notice: e.target.value }))} maxLength={300} placeholder="Song requests are temporarily closed." className={inputClass + ' mt-1'} /></label>
+        <button type="button" onClick={() => void saveRequestSettings()} disabled={savingRequestSettings} className={buttonClass + ' mt-3 border-amber-400/30 bg-amber-500/10 text-amber-100'}>{savingRequestSettings ? 'Saving…' : 'Save request settings'}</button>
+      </div>
       <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.06] p-4">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
           <div className="max-w-3xl">
@@ -434,6 +475,11 @@ export const AdminPipelineManager: React.FC = () => {
                       <span className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${request.status === 'published' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : request.status === 'staging' ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200' : request.status === 'declined' ? 'border-rose-400/30 bg-rose-500/10 text-rose-200' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>{request.status}</span>
                       <span className="text-[10px] text-slate-500">Requested by {request.requestedByUsername} · {new Date(request.createdAt).toLocaleString()}</span>
                     </div>
+                    {request.webLink && <div className="mb-3 rounded-xl border border-violet-400/20 bg-violet-500/[0.06] p-3">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-violet-200">Artwork link submitted by listener</div>
+                      <a href={request.webLink} target="_blank" rel="noreferrer" className="break-all text-[11px] text-cyan-300 underline">{request.webLink}</a>
+                      <label className="mt-2 flex items-center gap-2 text-[10px] text-slate-300"><input type="checkbox" checked={useSubmittedImage[request.id] !== false} onChange={(e) => setUseSubmittedImage((current) => ({ ...current, [request.id]: e.target.checked }))} className="accent-cyan-500" /> Use this image link for the Drive artwork upload</label>
+                    </div>}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Song title</label><input className={inputClass} value={draft.songTitle} onChange={(event) => patchDraft(request.id, { songTitle: event.target.value })} disabled={busy} /></div>
                       <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Artist</label><input className={inputClass} value={draft.artist} onChange={(event) => patchDraft(request.id, { artist: event.target.value })} disabled={busy} /></div>
@@ -475,7 +521,7 @@ export const AdminPipelineManager: React.FC = () => {
                         {requestCoverFiles[request.id] && <div className="mt-1 text-[10px] text-slate-400">{requestCoverFiles[request.id]?.name}</div>}
                       </div>
                     </div>
-                    <button type="button" onClick={() => uploadRequestMedia(request)} disabled={busy || !driveConnected || !requestAudioFiles[request.id] || !requestCoverFiles[request.id]} className={`${buttonClass} mt-3 border-cyan-400/30 bg-cyan-500/15 text-cyan-100`}>
+                    <button type="button" onClick={() => uploadRequestMedia(request)} disabled={busy || !driveConnected || !requestAudioFiles[request.id] || (!requestCoverFiles[request.id] && !(request.webLink && useSubmittedImage[request.id] !== false))} className={`${buttonClass} mt-3 border-cyan-400/30 bg-cyan-500/15 text-cyan-100`}>
                       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload MP3 + cover to Drive
                     </button>
                   </div>

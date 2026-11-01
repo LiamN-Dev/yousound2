@@ -704,7 +704,7 @@ export async function createRequestDb(data: {
         id: data.id,
         songTitle: data.songTitle,
         artist: data.artist || null,
-        webLink: null,
+        webLink: data.webLink || null,
         coverUrl: null,
         notes: data.notes || null,
         requestedByUserId: data.requestedByUserId || null,
@@ -931,6 +931,21 @@ export async function getRadioChatMessagesDb(limit = 60) {
   } catch (error) {
     noteDbError('getRadioChatMessagesDb', error);
     throw new Error('Could not load radio chat messages.');
+  }
+}
+
+export async function clearRadioChatMessagesDb() {
+  if (!(await checkSqlAvailability())) {
+    localStore.setSetting('radio_chat_messages', []);
+    return true;
+  }
+  try {
+    await db.delete(radioChatMessages);
+    localStore.setSetting('radio_chat_messages', []);
+    return true;
+  } catch (error) {
+    noteDbError('clearRadioChatMessagesDb', error);
+    throw new Error('Could not clear radio chat messages.');
   }
 }
 

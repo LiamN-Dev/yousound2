@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, CalendarClock, Clock3, Headphones, ListMusic, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
+import { Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
@@ -7,9 +7,9 @@ import { useAuth } from '../context/AuthContext';
 type Program = { name: string; description?: string; songIds: string[]; startsAt?: string | null };
 type Station = {
   enabled: boolean; stationName: string; stationDescription: string;
-  currentProgram: Program | null; currentSong: Song | null; playlist: Song[];
+  currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
-  nextStartsInMs: number | null; serverNow: string;
+  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean;
 };
 type Message = { id: string; userId: string; username: string; message: string; createdAt: string };
 
@@ -26,7 +26,7 @@ const timeLeft = (raw: number) => {
 
 export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
-  const { adminAllSongs, allSongs, playRadioSong, leaveRadio, isRadioMode } = useAudio();
+  const { adminAllSongs, allSongs, playRadioSong, leaveRadio, pauseRadioPlayback, isRadioMode } = useAudio();
   const [joined, setJoined] = useState(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
@@ -47,11 +47,13 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [nextDescription, setNextDescription] = useState('');
   const [nextAt, setNextAt] = useState('');
   const [nextIds, setNextIds] = useState<string[]>([]);
+  const [autoStartScheduled, setAutoStartScheduled] = useState(true);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [adminNote, setAdminNote] = useState('');
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [banTarget, setBanTarget] = useState('');
+  const loadedProgramKey = useRef('');
 
   // A reload must not silently re-join: browsers require a fresh user gesture
   // before starting audio, otherwise listeners appear joined but hear nothing.
@@ -71,26 +73,31 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
-        const serverAgeSeconds = state.serverNow
+        const serverAgeSeconds = state.serverNow && !state.paused
           ? Math.max(0, (Date.now() - new Date(state.serverNow).getTime()) / 1000)
           : 0;
-        void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
-      } else if (joined && isRadioMode) {
+        if (state.paused) pauseRadioPlayback();
+        else void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
+      } else if (joined) {
+        setJoined(false);
+        setMessages([]);
         leaveRadio();
+      } else if (!state.enabled) {
+        setMessages([]);
       }
     } catch (e: any) {
       setError(e?.message || 'Could not connect to the station.');
     } finally {
       stationFetchInFlight.current = false;
     }
-  }, [joined, playRadioSong, leaveRadio, isRadioMode]);
+  }, [joined, playRadioSong, leaveRadio, pauseRadioPlayback, isRadioMode]);
 
   useEffect(() => {
     if (!active && !joined) return;
     void refreshStation();
     // Keep the on-air clock fresh while visible or listening, but do not make
     // every background tab poll the station when nobody is tuned in.
-    const timer = window.setInterval(() => void refreshStation(), 5000);
+    const timer = window.setInterval(() => void refreshStation(), 2500);
     return () => window.clearInterval(timer);
   }, [active, refreshStation, joined]);
 
@@ -140,11 +147,29 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           setNextDescription(config.nextProgram?.description || '');
           setNextAt(asLocalTime(config.nextProgram?.startsAt));
           setNextIds(Array.isArray(config.nextProgram?.songIds) ? config.nextProgram.songIds : []);
+          setAutoStartScheduled(config.autoStartScheduled !== false);
         }
         if (Array.isArray(banData.bannedUserIds)) setBannedIds(banData.bannedUserIds);
       } catch { /* Retryable when the admin opens the control room again. */ }
     })();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !station?.currentProgram) return;
+    const key = station.currentProgram.name + ':' + (station.currentProgram.songIds || []).join(',');
+    if (loadedProgramKey.current && loadedProgramKey.current !== key) {
+      setProgramName(station.currentProgram.name || 'Now Playing');
+      setProgramDescription(station.currentProgram.description || '');
+      setCurrentIds(Array.isArray(station.currentProgram.songIds) ? station.currentProgram.songIds : []);
+      if (!station.nextProgram) {
+        setNextName('');
+        setNextDescription('');
+        setNextAt('');
+        setNextIds([]);
+      }
+    }
+    loadedProgramKey.current = key;
+  }, [isAdmin, station?.currentProgram?.name, station?.currentProgram?.songIds?.join(',')]);
 
   const pool = isAdmin ? adminAllSongs : allSongs;
   const filteredSongs = useMemo(() => {
@@ -163,7 +188,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       ? Math.max(0, (Date.now() - new Date(station.serverNow).getTime()) / 1000)
       : 0;
     // Invoke the audio play request directly inside the Join click gesture.
-    void playRadioSong(station.currentSong, station.elapsedSeconds + serverAgeSeconds);
+    if (station.paused) pauseRadioPlayback();
+    else void playRadioSong(station.currentSong, station.elapsedSeconds + serverAgeSeconds);
   };
   const leave = () => {
     setJoined(false);
@@ -213,13 +239,30 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           enabled, startNow, stationName, stationDescription,
           currentProgram: { name: programName, description: programDescription, songIds: currentIds },
           nextProgram: scheduled,
+          autoStartScheduled,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save radio configuration.');
-      setAdminNote(enabled ? 'Broadcast started. Listeners share the same playback clock.' : 'Broadcast stopped.');
+      setAdminNote(enabled ? 'Broadcast started. Listeners share the same playback clock.' : 'Broadcast stopped. Radio chat has been cleared.');
       void refreshStation();
     } catch (e: any) { setAdminNote(e?.message || 'Could not save the station.'); }
+    finally { setSaving(false); }
+  };
+
+  const controlRadio = async (action: 'pause' | 'resume' | 'next' | 'toggle-loop') => {
+    setSaving(true);
+    setAdminNote('');
+    try {
+      const response = await fetch('/api/admin/radio/control', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Radio control failed.');
+      setAdminNote(action === 'next' ? 'Skipped to the next song.' : action === 'toggle-loop' ? (data.loopPlaylist ? 'Playlist looping enabled.' : 'Playlist looping disabled.') : (data.paused ? 'Broadcast paused for everyone.' : 'Broadcast resumed for everyone.'));
+      await refreshStation();
+    } catch (e: any) { setAdminNote(e?.message || 'Could not control the broadcast.'); }
     finally { setSaving(false); }
   };
 
@@ -265,7 +308,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
             <p className="mt-1 text-xs text-slate-300">{station?.stationDescription || 'A shared radio station curated by the admin.'}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${station?.enabled ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-slate-300'}`}>{station?.enabled ? '● ON AIR' : '○ OFF AIR'}</span>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${station?.enabled ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-slate-300'}`}>{station?.enabled ? (station.paused ? 'Ⅱ PAUSED' : '● ON AIR') : '○ OFF AIR'}</span>
             {joined
               ? <button type="button" onClick={leave} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[10px] font-bold text-rose-200">Leave radio</button>
               : <button type="button" onClick={join} disabled={!station?.enabled || !station.currentSong} className="rounded-lg border border-cyan-300/30 bg-cyan-400/15 px-3 py-2 text-[10px] font-bold text-cyan-100 disabled:opacity-40"><Headphones className="mr-1 inline h-3.5 w-3.5" /> Join radio</button>}
@@ -286,16 +329,6 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-white/10 dark:bg-slate-900/65">
-            <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"><ListMusic className="h-4 w-4 text-cyan-500" /> Station playlist</h2><span className="text-[10px] text-slate-500">{station?.playlist?.length || 0} tracks</span></div>
-            {station?.playlist?.length ? station.playlist.map((song, index) => (
-              <div key={song.id} className={`mb-1 flex items-center gap-2 rounded-lg px-2.5 py-2 ${station.currentSong?.id === song.id ? 'border border-cyan-500/20 bg-cyan-500/10' : 'bg-slate-50 dark:bg-white/[0.025]'}`}>
-                <span className="w-5 text-center text-[10px] text-slate-500">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs text-slate-800 dark:text-slate-200">{song.title}<span className="ml-1 text-slate-500">— {song.artist}</span></span>{station.currentSong?.id === song.id && <span className="text-[9px] font-bold text-cyan-500">LIVE</span>}
-              </div>
-            )) : <p className="text-xs text-slate-500">The admin has not started a broadcast yet.</p>}
-            {station?.nextProgram && <div className="mt-3 rounded-lg border border-indigo-400/20 bg-indigo-400/[0.06] p-3"><div className="text-[9px] font-bold uppercase text-indigo-500 dark:text-indigo-300">Up next</div><div className="mt-1 text-xs font-semibold text-slate-900 dark:text-white">{station.nextProgram.name}</div><div className="text-[10px] text-slate-500">{station.nextProgram.songIds.length} scheduled songs</div></div>}
-          </div>
-
           {isAdmin && <details className="rounded-2xl border border-amber-400/25 bg-slate-950 p-4 text-white" open>
             <summary className="cursor-pointer list-none flex items-center justify-between gap-2 text-sm font-bold"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-amber-300" /> Radio control room</span><span className="text-[9px] font-normal text-slate-400">Admin only</span></summary>
             <div className="mt-4 space-y-3">
@@ -308,6 +341,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
               <div><div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase text-slate-300"><span>Current playlist · {currentIds.length} chosen</span><button type="button" onClick={() => setCurrentIds([])} className="font-normal normal-case text-slate-400">Clear</button></div><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search all songs, including unpublished…" className="mb-2 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" />{picker(currentIds, setCurrentIds)}</div>
               <div className="space-y-2 rounded-xl border border-indigo-400/20 bg-indigo-500/[0.06] p-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-indigo-100"><CalendarClock className="h-4 w-4" /> Schedule next list</div>
+                <label className="flex items-center gap-2 text-[10px] text-indigo-100"><input type="checkbox" checked={autoStartScheduled} onChange={(e) => setAutoStartScheduled(e.target.checked)} className="accent-cyan-500" /> Automatically start the broadcast when the scheduled time arrives</label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-[10px] text-slate-300">Next program name<input value={nextName} onChange={(e) => setNextName(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
                   <label className="text-[10px] text-slate-300">Start time<input type="datetime-local" value={nextAt} onChange={(e) => setNextAt(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
@@ -316,6 +350,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-indigo-100"><span>Next playlist · {nextIds.length} chosen</span><button type="button" onClick={() => { setNextIds([]); setNextName(''); setNextAt(''); setNextDescription(''); }} className="font-normal text-slate-400">Clear schedule</button></div>
                 {picker(nextIds, setNextIds)}
               </div>
+              {station?.enabled && <div className="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <button type="button" disabled={saving} onClick={() => void controlRadio(station.paused ? 'resume' : 'pause')} className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold text-amber-100">{station.paused ? 'Resume broadcast' : 'Pause broadcast'}</button>
+                <button type="button" disabled={saving || station.paused} onClick={() => void controlRadio('next')} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-semibold text-cyan-100">Next song</button>
+                <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-loop')} className={`rounded-lg border px-3 py-2 text-[10px] font-semibold ${station.loopPlaylist ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>Loop playlist: {station.loopPlaylist ? 'On' : 'Off'}</button>
+              </div>}
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={saving} onClick={() => void saveConfig(true, true)} className="rounded-lg bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-50">{saving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <Radio className="mr-1 inline h-3 w-3" />} Start / restart broadcast</button>

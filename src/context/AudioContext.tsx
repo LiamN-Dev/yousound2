@@ -42,6 +42,7 @@ interface AudioContextType {
   isRadioMode: boolean;
   playRadioSong: (song: Song, elapsedSeconds: number) => Promise<void>;
   leaveRadio: () => void;
+  pauseRadioPlayback: () => void;
   // Controls
   playSong: (song: Song, newQueue?: Song[]) => void;
   togglePlay: () => void;
@@ -255,6 +256,13 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (currentSongRef.current && measured > 0 && Math.abs((currentSongRef.current.duration || 0) - measured) >= 2) {
           console.log(`Self-healing duration for "${currentSongRef.current.title}": ${currentSongRef.current.duration}s -> ${measured}s`);
           const healed = currentSongRef.current;
+          if (radioModeRef.current) {
+            void fetch('/api/radio/duration', {
+              method: 'POST', credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ songId: healed.id, seconds: measured }),
+            }).catch(() => undefined);
+          }
           if (healed.id.startsWith('staging-')) {
             // Admin test play of a not-yet-published song: the test player saves it on the request
           } else if (userRoleRef.current === 'admin') {
@@ -438,6 +446,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (needsSource) {
       setPlaybackError(null);
       audio.pause();
+      currentSongRef.current = song;
       setCurrentSong(song);
       audio.src = sourceUrl;
       audio.load();
@@ -470,7 +479,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const target = Math.max(0, Number(elapsedSeconds) || 0);
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
       // Polls are only clock corrections. Never reload/restart an already playing track.
-      if (Math.abs(audio.currentTime - target) > 1.75) {
+      if (Math.abs(audio.currentTime - target) > 0.65) {
         try { audio.currentTime = Math.min(target, Math.max(0, audio.duration - 0.25)); } catch {}
       }
       setDuration(audio.duration);
@@ -488,6 +497,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
     if (attemptId === playAttemptRef.current) setIsPlaying(true);
+  }, []);
+
+  const pauseRadioPlayback = useCallback(() => {
+    if (!radioModeRef.current) return;
+    audioRef.current?.pause();
+    setIsPlaying(false);
   }, []);
 
   const leaveRadio = useCallback(() => {
@@ -820,6 +835,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isRadioMode,
         playRadioSong,
         leaveRadio,
+        pauseRadioPlayback,
         playSong,
         togglePlay,
         seek,

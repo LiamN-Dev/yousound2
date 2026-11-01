@@ -184,7 +184,7 @@ export interface SongRequest {
   songTitle: string;
   artist?: string;
   mediaCode?: string;
-  webLink?: string; // YouTube link
+  webLink?: string; // User-submitted artwork image link
   coverUrl?: string; // Cover art image address
   notes?: string;
   requestedByUserId?: string;
