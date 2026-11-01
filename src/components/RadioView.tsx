@@ -3,7 +3,7 @@ import { Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Radio, Send, S
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
-import { formatCoverMediaUrl } from '../utils/mediaUrl';
+import { MediaCover } from './MediaCover';
 
 type Program = { name: string; description?: string; songIds: string[]; startsAt?: string | null };
 type Station = {
@@ -330,7 +330,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         </div>
         {error && <p className="mt-3 text-[11px] text-rose-300">{error}</p>}
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
-          {station?.currentSong?.coverUrl ? <img src={formatCoverMediaUrl(station.currentSong.coverUrl)} alt="" className="h-14 w-14 rounded-lg object-cover" /> : <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-white/10 text-cyan-200"><Music2 className="h-6 w-6" /></div>}
+          {station?.currentSong?.coverUrl ? <div className="h-14 w-14 overflow-hidden rounded-lg"><MediaCover src={station.currentSong.coverUrl} alt={station.currentSong.title} fallbackTitle={station.currentSong.title} fallbackGenre={station.currentSong.genre} /></div> : <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-white/10 text-cyan-200"><Music2 className="h-6 w-6" /></div>}
           <div className="min-w-0 flex-1">
             <div className="text-[9px] uppercase tracking-wider text-slate-400">Now playing · {station?.currentProgram?.name || 'No program'}</div>
             <div className="truncate text-sm font-bold text-white">{station?.currentSong?.title || 'No broadcast running'}</div>
@@ -366,7 +366,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
               </div>
               {station?.enabled && <div className="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-pause')} className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold text-amber-100">{station.paused ? 'Resume broadcast' : 'Pause broadcast'}</button>
-                <button type="button" disabled={saving || station.paused} onClick={() => void controlRadio('next')} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-semibold text-cyan-100">Next song</button>
+                <button type="button" disabled={saving} onClick={() => void controlRadio('next')} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-semibold text-cyan-100">Next song</button>
                 <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-loop')} className={`rounded-lg border px-3 py-2 text-[10px] font-semibold ${station.loopPlaylist ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>Loop playlist: {station.loopPlaylist ? 'On' : 'Off'}</button>
               </div>}
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}

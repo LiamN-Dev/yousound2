@@ -191,10 +191,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     currentSongRef.current = currentSong;
   }, [currentSong]);
 
-  // A suspension takes effect in an already-open tab too: stop playback and clear
-  // the media element. The server also protects subsequent Drive range requests.
+  // Account restrictions and remote session revocation stop existing playback too.
   useEffect(() => {
-    if (!currentUser?.isSuspended || currentUser.role === 'admin') return;
+    const mustStop = !currentUser || currentUser.isLocked || (currentUser.isSuspended && currentUser.role !== 'admin');
+    if (!mustStop) return;
     playAttemptRef.current += 1;
     radioJoinedRef.current = false;
     radioModeRef.current = false;
@@ -207,8 +207,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     setCurrentSong(null);
     setIsPlaying(false);
-    setPlaybackError('Your account has been suspended. Audio playback has been stopped.');
-  }, [currentUser?.isSuspended, currentUser?.role]);
+    setPlaybackError(!currentUser ? 'Your session has ended. Please sign in again.' : currentUser.isLocked ? 'Your account is locked. Enter the current seven-digit administrator code to resume.' : 'Your account has been suspended. Audio playback has been stopped.');
+  }, [currentUser?.id, currentUser?.isLocked, currentUser?.isSuspended, currentUser?.role]);
 
   // Initialize audio element
   useEffect(() => {

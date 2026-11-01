@@ -51,6 +51,9 @@ import {
   Pin,
   Flame,
   ShieldAlert,
+  Lock,
+  Unlock,
+  LogOut,
   Zap,
   Database,
   Snowflake,
@@ -73,6 +76,7 @@ export const AdminPanel: React.FC = () => {
   const {
     currentUser,
     logout,
+    refreshState,
     allUsers,
     approveAccount,
     rejectAccount,
@@ -110,6 +114,8 @@ export const AdminPanel: React.FC = () => {
   const [editIsSuspended, setEditIsSuspended] = useState(false);
   const [editSuspendedReason, setEditSuspendedReason] = useState('');
   const [userEditFeedback, setUserEditFeedback] = useState<string | null>(null);
+  const [lockCodeModalUser,setLockCodeModalUser]=useState<User|null>(null);
+  const [lockCode,setLockCode]=useState('');const [lockCodeExpiresAt,setLockCodeExpiresAt]=useState(0);const [lockCodeNow,setLockCodeNow]=useState(Date.now());
 
   // Maintenance State with Countdown
   const [maintEnabled, setMaintEnabled] = useState(maintenanceState.enabled);
@@ -250,11 +256,10 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleToggleUserChat = async (u: User) => {
-    await adminUpdateUser(u.id, {
-      chatBlocked: !u.chatBlocked,
-    });
-  };
+  const handleToggleUserChat = async (u: User) => { await adminUpdateUser(u.id,{chatBlocked:!u.chatBlocked}); };
+  const handleToggleAccountLock = async (u:User) => { if(u.role==='admin')return;const result=await adminUpdateUser(u.id,{isLocked:!u.isLocked});if(!result.success){setUserEditFeedback(result.error||'Could not change account lock.');return;}refreshState();setLockCodeModalUser(!u.isLocked?u:null);setUserEditFeedback(!u.isLocked?`Account @${u.username} locked.`:`Account @${u.username} unlocked.`); };
+  const handleLogoutAllSessions = async (u:User) => {if(!confirm(`Log out every active session for @${u.username}?`))return;try{const response=await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/logout-all`,{method:'POST',credentials:'same-origin'});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.error||'Could not revoke sessions.');setUserEditFeedback(`All sessions for @${u.username} have been revoked.`);}catch(e:any){setUserEditFeedback(e?.message||'Could not revoke sessions.');}};
+  useEffect(()=>{if(!lockCodeModalUser)return;let stopped=false;let timer:number|undefined;const load=async()=>{try{const response=await fetch(`/api/admin/users/${encodeURIComponent(lockCodeModalUser.id)}/lock-code`,{credentials:'same-origin',cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.error||'Could not load code.');if(stopped)return;setLockCode(data.code);setLockCodeExpiresAt(data.expiresAt);setLockCodeNow(Date.now());timer=window.setTimeout(load,Math.max(1000,data.expiresAt-Date.now()+100));}catch(e:any){if(!stopped)setUserEditFeedback(e?.message||'Could not load code.');}};void load();const clock=window.setInterval(()=>setLockCodeNow(Date.now()),1000);return()=>{stopped=true;if(timer)clearTimeout(timer);clearInterval(clock);};},[lockCodeModalUser?.id]);
 
   const handleOpenSuspendModal = (u: User) => {
     if (!u.isSuspended) {
@@ -1027,10 +1032,9 @@ export const AdminPanel: React.FC = () => {
                             </span>
                           )}
                           {u.isSuspended && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
-                              Suspended
-                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">Suspended</span>
                           )}
+                          {u.isLocked && <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 font-bold">Locked</span>}
                         </div>
                       </td>
                       <td className="py-3">
@@ -1126,6 +1130,11 @@ export const AdminPanel: React.FC = () => {
                             </button>
                           )}
 
+                          {u.role !== 'admin' && <>
+                            <button onClick={()=>void handleToggleAccountLock(u)} title={u.isLocked?'Unlock account':'Lock account'} className="p-1.5 rounded-lg border border-amber-400/25 text-amber-200">{u.isLocked?<Unlock className="w-3.5 h-3.5"/>:<Lock className="w-3.5 h-3.5"/>}</button>
+                            {u.isLocked&&<button onClick={()=>setLockCodeModalUser(u)} title="Show current unlock code" className="p-1.5 rounded-lg border border-amber-400/25 text-amber-200"><KeyRound className="w-3.5 h-3.5"/></button>}
+                            <button onClick={()=>void handleLogoutAllSessions(u)} title="Log out all sessions" className="p-1.5 rounded-lg border border-white/10 text-slate-300"><LogOut className="w-3.5 h-3.5"/></button>
+                          </>}
                           {(u.role !== 'admin' || isCurrentAdmin) && (
                             <button
                               onClick={() => setDeletingUser(u)}
@@ -1149,6 +1158,7 @@ export const AdminPanel: React.FC = () => {
             </div>
           </div>
 
+          {lockCodeModalUser&&<div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4"><div className="w-full max-w-sm rounded-3xl border border-amber-400/25 bg-slate-950 p-6 text-white"><div className="flex justify-between"><h3 className="font-bold">Unlock code · @{lockCodeModalUser.username}</h3><button onClick={()=>setLockCodeModalUser(null)}><XCircle/></button></div><div className="py-6 text-center font-mono text-4xl tracking-widest">{lockCode||'•••••••'}</div><p className="text-center text-xs text-slate-400">Refreshes in {Math.max(0,Math.ceil((lockCodeExpiresAt-lockCodeNow)/1000))} seconds</p></div></div>}
           {/* Edit User Modal */}
           {editingUser && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">

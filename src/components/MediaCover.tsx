@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { isVideoMedia, formatCoverMediaUrl } from '../utils/mediaUrl';
+import { isVideoMedia, formatCoverMediaUrl, extractDriveFileId } from '../utils/mediaUrl';
 import { handleImageFallback } from '../utils/artworkHelper';
 import { Music2 } from 'lucide-react';
 
@@ -51,7 +51,11 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
         src={formattedUrl || '/src/assets/images/lofi_study_glass_1791054585559.jpg'}
         alt={alt}
         className={className}
-        onError={(e) => handleImageFallback(e, fallbackTitle, fallbackGenre)}
+        onError={(e) => {
+          const target=e.currentTarget;const id=extractDriveFileId(src);
+          if(id&&!target.dataset.driveCdnFallback&&formattedUrl.startsWith('/api/drive/cover/')){target.dataset.driveCdnFallback='true';target.src=`https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w800`;return;}
+          handleImageFallback(e,fallbackTitle,fallbackGenre);
+        }}
       />
       {/* Subtle background fallback icon container */}
       <div className="w-full h-full absolute inset-0 -z-10 flex items-center justify-center bg-slate-100 dark:bg-slate-900">
