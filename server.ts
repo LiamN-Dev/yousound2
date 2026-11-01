@@ -1665,6 +1665,8 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
 
 app.post('/api/radio/duration', async (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Sign in before reporting radio playback duration.' });
     const songId = String(req.body?.songId || '');
     const exactSeconds = Number(req.body?.seconds);
     if (!songId || !Number.isFinite(exactSeconds) || exactSeconds < 5 || exactSeconds > 43200) {
