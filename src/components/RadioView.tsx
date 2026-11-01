@@ -58,7 +58,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   useEffect(() => {
     setJoined(false);
     leaveRadio();
-  }, [currentUser?.id]);
+  }, [currentUser?.id, leaveRadio]);
 
   const refreshStation = useCallback(async () => {
     if (stationFetchInFlight.current) return;
