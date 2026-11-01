@@ -316,6 +316,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={saving} onClick={() => void saveConfig(true, true)} className="rounded-lg bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-50">{saving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <Radio className="mr-1 inline h-3 w-3" />} Start / restart broadcast</button>
+                <button type="button" disabled={saving || !nextAt || !nextIds.length} onClick={() => void saveConfig(Boolean(station?.enabled), false)} className="rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-[10px] font-semibold text-indigo-200 disabled:opacity-40"><CalendarClock className="mr-1 inline h-3 w-3" /> Save schedule only</button>
                 <button type="button" disabled={saving} onClick={() => void saveConfig(false, false)} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[10px] font-semibold text-rose-200">Stop broadcast</button>
               </div>
             </div>
