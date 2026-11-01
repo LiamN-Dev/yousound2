@@ -258,6 +258,23 @@ export async function getSongsDb() {
   }
 }
 
+/** One shared clock for all Render instances: PostgreSQL time, not each process's wall clock. */
+export async function getPersistentDbNowMs(): Promise<number> {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The shared database clock is unavailable. Live radio cannot safely synchronize.');
+  }
+  try {
+    const result = await db.execute(sql`SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS now_ms`);
+    const rows = (result as any).rows || [];
+    const nowMs = Number(rows[0]?.now_ms);
+    if (!Number.isFinite(nowMs) || nowMs <= 0) throw new Error('The database returned an invalid clock value.');
+    return nowMs;
+  } catch (error) {
+    noteDbError('getPersistentDbNowMs', error);
+    throw new Error('Could not read the shared PostgreSQL clock for radio synchronization.');
+  }
+}
+
 /** Live radio must use the same durable song catalogue on every Render instance. */
 export async function getSongsPersistentDb() {
   if (!(await checkSqlAvailability())) {
