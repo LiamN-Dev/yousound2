@@ -8,7 +8,7 @@ export function extractDriveFileId(inputUrl?: string | null): string | null {
   if (!inputUrl) return null;
   const trimmed = inputUrl.trim();
   const match = trimmed.match(
-    /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=|thumbnail\?id=)|lh3\.googleusercontent\.com\/d\/|[?&]id=)([a-zA-Z0-9_-]{20,})/
+    /(?:^\/api\/drive\/(?:cover|stream)\/|drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=|thumbnail\?id=)|lh3\.googleusercontent\.com\/d\/|[?&]id=)([a-zA-Z0-9_-]{10,200})/
   );
   if (match && match[1]) return match[1];
   // If user pasted raw Drive ID (typically 25-45 chars)
