@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS songs (
   tags JSONB DEFAULT '[]'::jsonb,
   type_mood TEXT,
   duration INTEGER NOT NULL DEFAULT 0,
+  duration_exact DOUBLE PRECISION,
   audio_url TEXT NOT NULL,
   cover_url TEXT NOT NULL,
   added_at TEXT NOT NULL,
