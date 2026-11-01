@@ -271,6 +271,29 @@ export async function getSongsPersistentDb() {
   }
 }
 
+/** Persist the exact media duration used by the radio scheduler; never accept a local-only update. */
+export async function updateSongDurationExactDb(id: string, seconds: number) {
+  const durationExact = Math.round(seconds * 1000) / 1000;
+  if (!id || !Number.isFinite(durationExact) || durationExact < 5 || durationExact > 43200) {
+    throw new Error('The decoded song duration is invalid.');
+  }
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Radio timing was not updated.');
+  }
+  try {
+    const rows = await db.update(songs).set({
+      duration: Math.round(durationExact),
+      durationExact,
+    }).where(eq(songs.id, id)).returning();
+    if (!rows[0]) throw new Error('The current radio song no longer exists in the shared library.');
+    localStore.updateSong(id, { duration: Math.round(durationExact), durationExact });
+    return rows[0];
+  } catch (error) {
+    noteDbError('updateSongDurationExactDb', error);
+    throw new Error(error instanceof Error ? error.message : 'Could not persist the exact radio song duration.');
+  }
+}
+
 export async function getSongByIdDb(id: string) {
   if (!(await checkSqlAvailability())) {
     return localStore.getSongs().find((song: any) => song.id === id) || null;
