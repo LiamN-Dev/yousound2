@@ -41,7 +41,7 @@ interface AudioContextType {
   setEqualizer: (updates: Partial<EqualizerSettings>) => void;
   isRadioMode: boolean;
   joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean, playbackRate?: number, syncAtLocalEpochMs?: number) => Promise<void>;
-  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number) => Promise<void>;
+  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number, syncAtLocalEpochMs?: number) => Promise<void>;
   leaveRadio: () => void;
   pauseRadioPlayback: () => void;
   // Controls
