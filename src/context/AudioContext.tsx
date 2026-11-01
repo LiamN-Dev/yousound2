@@ -673,6 +673,30 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+    if (paused && radioSyncPendingRef.current) {
+      // A server pause/paused seek cancels a pending future audible start immediately.
+      playAttemptRef.current += 1;
+      if (radioSyncTimerRef.current !== null) {
+        window.clearTimeout(radioSyncTimerRef.current);
+        radioSyncTimerRef.current = null;
+      }
+      const pendingResolve = radioSyncResolveRef.current;
+      radioSyncResolveRef.current = null;
+      pendingResolve?.();
+      radioSyncPendingRef.current = false;
+      const gain = radioGainRef.current;
+      const graph = audioGraphRef.current;
+      if (gain && graph) {
+        gain.gain.cancelScheduledValues(graph.currentTime);
+        gain.gain.setValueAtTime(1, graph.currentTime);
+      }
+      if (radioFallbackMuteRef.current) {
+        audio.muted = radioFallbackMuteRef.current.muted;
+        audio.volume = radioFallbackMuteRef.current.volume;
+        radioFallbackMuteRef.current = null;
+      }
+    }
+
     playAttemptRef.current += 1;
     radioJoinedRef.current = true;
 
