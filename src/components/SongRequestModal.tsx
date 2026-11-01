@@ -295,7 +295,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
     let active = true;
     fetch('/api/song-requests/settings', { credentials: 'same-origin', cache: 'no-store' })
       .then((response) => response.json())
-      .then((data) => { if (active && data?.settings) setRequestSettings({ enabled: data.settings.enabled !== false, notice: String(data.settings.notice || ''), icon: String(data.settings.icon || '🎵'), requireImageLink: data.settings.requireImageLink !== false }); })
+      .then((data) => { if (active && data?.settings) setRequestSettings({ enabled: data.settings.enabled !== false, notice: String(data.settings.notice || ''), icon: String(data.settings.icon || '🎵'), showImageLink: data.settings.showImageLink !== false, requireImageLink: data.settings.showImageLink !== false && data.settings.requireImageLink !== false }); })
       .catch(() => undefined);
     return () => { active = false; };
   }, [isOpen]);
@@ -346,7 +346,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
       setFeedback('Please provide your initial guess for the song title.');
       return;
     }
-    if (requestSettings.requireImageLink && !imageLink.trim()) {
+    if (requestSettings.showImageLink && requestSettings.requireImageLink && !imageLink.trim()) {
       setFeedback('Please provide a link to the song artwork.');
       return;
     }
@@ -531,11 +531,11 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
               </div>
             </div>
 
-            <div>
+            {requestSettings.showImageLink && <div>
               <label className="mb-1 block text-xs font-semibold text-slate-300">Artwork image link {requestSettings.requireImageLink ? '*' : '(optional)'}</label>
               <input type="url" value={imageLink} onChange={(e) => setImageLink(e.target.value)} required={requestSettings.requireImageLink} placeholder="https://... image link" className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none" />
               <p className="mt-1 text-[10px] leading-4 text-slate-500">Use a direct, publicly accessible HTTPS image link. The administrator can upload this image into the site's Google Drive with the MP3.</p>
-            </div>
+            </div>}
 
             {/* Genre & Notes */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
