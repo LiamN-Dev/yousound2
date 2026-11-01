@@ -111,6 +111,22 @@ export async function ensureTables(): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_radio_chat_messages_created_at ON radio_chat_messages(created_at)'
   );
 
+  await run(
+    'radio_chat_bans',
+    `CREATE TABLE IF NOT EXISTS radio_chat_bans (
+       user_id TEXT PRIMARY KEY,
+       username TEXT NOT NULL,
+       reason TEXT,
+       banned_by TEXT NOT NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`
+  );
+  await run(
+    'idx_radio_chat_bans_created_at',
+    'CREATE INDEX IF NOT EXISTS idx_radio_chat_bans_created_at ON radio_chat_bans(created_at DESC)'
+  );
+
 
   // 2b. Compare every table with what the app expects and repair differences.
   //     (A table created by an older version can be missing columns, which makes every
