@@ -10,7 +10,7 @@ type Station = {
   enabled: boolean; stationName: string; stationDescription: string;
   currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
-  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean;
+  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean; playbackRate?: number;
 };
 type Message = { id: string; userId: string; username: string; message: string; createdAt: string };
 
@@ -24,14 +24,21 @@ const timeLeft = (raw: number) => {
   const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
   return h ? h + 'h ' + m + 'm ' + s + 's' : m + 'm ' + s + 's';
 };
+const formatTrackTime = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
+};
 
 export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
-  const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio, pauseRadioPlayback } = useAudio();
+  const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio } = useAudio();
   const [joined, setJoined] = useState(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
   const latestStationServerTimeRef = useRef(0);
+  const stationReceivedAtRef = useRef(Date.now());
+  const [seekDraft, setSeekDraft] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
   const [error, setError] = useState('');
   const [clock, setClock] = useState(Date.now());
   const [messages, setMessages] = useState<Message[]>([]);
@@ -55,6 +62,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [adminNote, setAdminNote] = useState('');
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [banTarget, setBanTarget] = useState('');
+  const [banSaving, setBanSaving] = useState(false);
+  const [banError, setBanError] = useState('');
   const loadedProgramKey = useRef('');
 
   // A reload must not silently re-join: browsers require a fresh user gesture
@@ -70,21 +79,24 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     try {
       const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
+      const receivedAt = Date.now();
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio is unavailable.');
       const state = data.state as Station;
       const serverTime = Date.parse(state.serverNow || '');
-      // An older poll can finish after an admin control request. Never let that
-      // stale response revert a newly confirmed pause/resume state in the UI.
+      // Reject stale responses, but never compare the server clock to the device clock.
       if (Number.isFinite(serverTime) && serverTime < latestStationServerTimeRef.current) return;
       if (Number.isFinite(serverTime)) latestStationServerTimeRef.current = serverTime;
+      stationReceivedAtRef.current = receivedAt;
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
-        const serverAgeSeconds = state.serverNow && !state.paused
-          ? Math.max(0, (Date.now() - new Date(state.serverNow).getTime()) / 1000)
-          : 0;
-        if (state.paused) pauseRadioPlayback();
-        else void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
+        const rate = Math.min(2, Math.max(0.5, Number(state.playbackRate) || 1));
+        const ageSinceReceipt = state.paused ? 0 : Math.max(0, (Date.now() - receivedAt) / 1000) * rate;
+        if (state.paused) {
+          void joinRadioPlayback(state.currentSong, state.elapsedSeconds, true, rate);
+        } else {
+          void playRadioSong(state.currentSong, state.elapsedSeconds + ageSinceReceipt, rate);
+        }
       } else if (joined) {
         setJoined(false);
         setMessages([]);
@@ -97,14 +109,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     } finally {
       stationFetchInFlight.current = false;
     }
-  }, [joined, playRadioSong, leaveRadio, pauseRadioPlayback]);
+  }, [joined, playRadioSong, joinRadioPlayback, leaveRadio]);
 
   useEffect(() => {
     if (!active && !joined) return;
     void refreshStation();
-    // Keep the on-air clock fresh while visible or listening, but do not make
-    // every background tab poll the station when nobody is tuned in.
-    const timer = window.setInterval(() => void refreshStation(), 2500);
+    // A one-second server-clock poll keeps pause, resume, seek, and track changes tight.
+    // Elapsed time is projected from receipt time, not by comparing device clocks.
+    const timer = window.setInterval(() => void refreshStation(), 1000);
     return () => window.clearInterval(timer);
   }, [active, refreshStation, joined]);
 
@@ -137,12 +149,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (!isAdmin) return;
     void (async () => {
       try {
-        const [configRes, bansRes] = await Promise.all([
-          fetch('/api/admin/radio/config', { credentials: 'same-origin' }),
-          fetch('/api/admin/radio/chat-bans', { credentials: 'same-origin' }),
-        ]);
+        const configRes = await fetch('/api/admin/radio/config', { credentials: 'same-origin' });
         const configData = await configRes.json().catch(() => ({}));
-        const banData = await bansRes.json().catch(() => ({}));
         const config = configData.config;
         if (config) {
           setStationName(config.stationName || 'YouSong Radio');
@@ -156,10 +164,28 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           setNextIds(Array.isArray(config.nextProgram?.songIds) ? config.nextProgram.songIds : []);
           setAutoStartScheduled(config.autoStartScheduled !== false);
         }
-        if (Array.isArray(banData.bannedUserIds)) setBannedIds(banData.bannedUserIds);
       } catch { /* Retryable when the admin opens the control room again. */ }
     })();
   }, [isAdmin]);
+
+  const refreshBanList = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const response = await fetch('/api/admin/radio/chat-bans', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load the radio ban list.');
+      setBannedIds(Array.isArray(data.bannedUserIds) ? data.bannedUserIds.map(String) : []);
+    } catch (e: any) {
+      setBanError(e?.message || 'Could not load the radio ban list.');
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void refreshBanList();
+    const timer = window.setInterval(() => void refreshBanList(), 5000);
+    return () => window.clearInterval(timer);
+  }, [isAdmin, refreshBanList]);
 
   useEffect(() => {
     if (!isAdmin || !station?.currentProgram) return;
@@ -191,12 +217,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const join = () => {
     if (!station?.enabled || !station.currentSong || !currentUser?.id) return;
     setJoined(true);
-    const serverAgeSeconds = station.serverNow
-      ? Math.max(0, (Date.now() - new Date(station.serverNow).getTime()) / 1000)
-      : 0;
+    const rate = Math.min(2, Math.max(0.5, Number(station.playbackRate) || 1));
+    const ageSinceReceipt = station.paused ? 0 : Math.max(0, (Date.now() - stationReceivedAtRef.current) / 1000) * rate;
     // This is the only path that grants this browser permission to play radio audio.
-    // Keep the call inside the Join click gesture so browser autoplay rules are respected.
-    void joinRadioPlayback(station.currentSong, station.elapsedSeconds + serverAgeSeconds, Boolean(station.paused));
+    // Use the last server snapshot plus time since it arrived; local wall-clock skew is irrelevant.
+    void joinRadioPlayback(station.currentSong, station.elapsedSeconds + ageSinceReceipt, Boolean(station.paused), rate);
   };
   const leave = () => {
     setJoined(false);
@@ -257,30 +282,55 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     finally { setSaving(false); }
   };
 
-  const controlRadio = async (action: 'toggle-pause' | 'next' | 'toggle-loop') => {
+  const controlRadio = async (
+    action: 'toggle-pause' | 'next' | 'toggle-loop' | 'seek' | 'set-speed',
+    extra: Record<string, number> = {}
+  ) => {
     setSaving(true);
     setAdminNote('');
     try {
       const response = await fetch('/api/admin/radio/control', {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio control failed.');
-      if (data.state) {
-        const confirmedState = data.state as Station;
+      const confirmedState = data.state as Station;
+      if (confirmedState) {
+        const receivedAt = Date.now();
         const confirmedServerTime = Date.parse(confirmedState.serverNow || '');
         if (Number.isFinite(confirmedServerTime)) latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
+        stationReceivedAtRef.current = receivedAt;
         setStation(confirmedState);
-      } else {
-        setStation((current) => current ? { ...current, paused: Boolean(data.paused), loopPlaylist: Boolean(data.loopPlaylist) } : current);
+        if (joined && confirmedState.enabled && confirmedState.currentSong) {
+          const rate = Math.min(2, Math.max(0.5, Number(confirmedState.playbackRate) || 1));
+          if (confirmedState.paused) void joinRadioPlayback(confirmedState.currentSong, confirmedState.elapsedSeconds, true, rate);
+          else void playRadioSong(confirmedState.currentSong, confirmedState.elapsedSeconds, rate);
+        }
       }
-      setAdminNote(action === 'next' ? 'Skipped to the next song.' : action === 'toggle-loop' ? (data.loopPlaylist ? 'Playlist looping enabled.' : 'Playlist looping disabled.') : (data.paused ? 'Broadcast paused for everyone.' : 'Broadcast resumed for everyone.'));
+      if (action === 'next') setAdminNote('Skipped to the next song.');
+      else if (action === 'toggle-loop') setAdminNote(confirmedState?.loopPlaylist ? 'Playlist looping enabled.' : 'Playlist looping disabled.');
+      else if (action === 'seek') setAdminNote('Broadcast position updated for every listener.');
+      else if (action === 'set-speed') setAdminNote(`Broadcast speed set to ${Number(confirmedState?.playbackRate || 1).toFixed(2)}x for everyone.`);
+      else setAdminNote(confirmedState?.paused ? 'Broadcast paused for everyone.' : 'Broadcast resumed for everyone.');
     } catch (e: any) { setAdminNote(e?.message || 'Could not control the broadcast.'); }
     finally { setSaving(false); }
   };
 
+  useEffect(() => {
+    if (!isSeeking) setSeekDraft(Math.max(0, Number(station?.elapsedSeconds) || 0));
+  }, [station?.currentSong?.id, station?.elapsedSeconds, isSeeking]);
+
+  const commitRadioSeek = () => {
+    if (!station?.enabled || !station.currentSong) return;
+    setIsSeeking(false);
+    void controlRadio('seek', { positionSeconds: seekDraft });
+  };
+
   const updateBan = async (userId: string, banned: boolean) => {
+    if (!userId || banSaving) return;
+    setBanSaving(true);
+    setBanError('');
     try {
       const response = await fetch('/api/admin/radio/chat-ban', {
         method: 'PUT', credentials: 'same-origin',
@@ -288,8 +338,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not change radio chat access.');
-      setBannedIds(Array.isArray(data.bannedUserIds) ? data.bannedUserIds : []);
-    } catch (e: any) { setChatError(e?.message || 'Could not update radio chat ban.'); }
+      setBannedIds(Array.isArray(data.bannedUserIds) ? data.bannedUserIds.map(String) : []);
+      setBanTarget('');
+      void refreshChat();
+    } catch (e: any) { setBanError(e?.message || 'Could not update radio chat ban.'); }
+    finally { setBanSaving(false); }
   };
 
   if (!active) return <div className="hidden" aria-hidden="true" />;
@@ -364,10 +417,35 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-indigo-100"><span>Next playlist · {nextIds.length} chosen</span><button type="button" onClick={() => { setNextIds([]); setNextName(''); setNextAt(''); setNextDescription(''); }} className="font-normal text-slate-400">Clear schedule</button></div>
                 {picker(nextIds, setNextIds)}
               </div>
-              {station?.enabled && <div className="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-pause')} className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold text-amber-100">{station.paused ? 'Resume broadcast' : 'Pause broadcast'}</button>
-                <button type="button" disabled={saving} onClick={() => void controlRadio('next')} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-semibold text-cyan-100">Next song</button>
-                <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-loop')} className={`rounded-lg border px-3 py-2 text-[10px] font-semibold ${station.loopPlaylist ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>Loop playlist: {station.loopPlaylist ? 'On' : 'Off'}</button>
+              {station?.enabled && <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-pause')} className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold text-amber-100">{station.paused ? 'Resume broadcast' : 'Pause broadcast'}</button>
+                  <button type="button" disabled={saving} onClick={() => void controlRadio('next')} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-semibold text-cyan-100">Next song</button>
+                  <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-loop')} className={`rounded-lg border px-3 py-2 text-[10px] font-semibold ${station.loopPlaylist ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>Loop playlist: {station.loopPlaylist ? 'On' : 'Off'}</button>
+                </div>
+                {station.currentSong && <div className="space-y-2 border-t border-white/10 pt-3">
+                  <div className="flex items-center justify-between gap-3 text-[10px] text-slate-300">
+                    <span className="font-semibold text-white">Broadcast position</span>
+                    <span className="font-mono tabular-nums">{formatTrackTime(isSeeking ? seekDraft : station.elapsedSeconds)} / {formatTrackTime(station.currentSong.duration || 0)}</span>
+                  </div>
+                  <input
+                    type="range" min={0} max={Math.max(1, station.currentSong.duration || 180)} step={0.25}
+                    value={Math.min(Math.max(0, isSeeking ? seekDraft : station.elapsedSeconds), Math.max(1, station.currentSong.duration || 180))}
+                    onChange={(event) => { setSeekDraft(Number(event.target.value)); setIsSeeking(true); }}
+                    onPointerUp={commitRadioSeek} onKeyUp={commitRadioSeek}
+                    disabled={saving}
+                    className="w-full accent-cyan-400 cursor-pointer disabled:opacity-40"
+                    aria-label="Set broadcast song position for all listeners"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-[10px] font-semibold text-slate-300" htmlFor="radio-master-speed">Master playback speed</label>
+                    <select id="radio-master-speed" value={String(station.playbackRate || 1)} disabled={saving}
+                      onChange={(event) => void controlRadio('set-speed', { playbackRate: Number(event.target.value) })}
+                      className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-[11px] text-white disabled:opacity-40">
+                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate.toFixed(rate % 1 ? 2 : 1)}x</option>)}
+                    </select>
+                  </div>
+                </div>}
               </div>}
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}
               <div className="flex flex-wrap gap-2">
@@ -377,6 +455,27 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
               </div>
             </div>
           </details>}
+          {isAdmin && <section className="rounded-2xl border border-rose-400/20 bg-slate-950 p-4 text-white">
+            <div className="flex items-start justify-between gap-3">
+              <div><div className="flex items-center gap-2 text-xs font-bold"><Ban className="h-4 w-4 text-rose-300" /> Radio chat bans</div><p className="mt-1 text-[10px] leading-relaxed text-slate-400">Manage radio-specific chat bans here. This remains available even when you have not joined the broadcast. Account-wide Chat Access restrictions are also enforced.</p></div>
+              <span className="rounded-full bg-rose-500/10 px-2 py-1 text-[9px] text-rose-200">{bannedIds.length} banned</span>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <select value={banTarget} onChange={(event) => setBanTarget(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white">
+                <option value="">Select a member account…</option>
+                {allUsers.filter((user) => user.role !== 'admin').map((user) => <option key={user.id} value={user.id}>@{user.username}{bannedIds.includes(user.id) ? ' · BANNED' : ''}</option>)}
+              </select>
+              <button type="button" disabled={!banTarget || banSaving} onClick={() => void updateBan(banTarget, !bannedIds.includes(banTarget))}
+                className={`rounded-lg px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40 ${bannedIds.includes(banTarget) ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}>
+                {banSaving ? 'Saving…' : bannedIds.includes(banTarget) ? 'Unban selected user' : 'Ban selected user'}
+              </button>
+            </div>
+            {banError && <p className="mt-2 text-[10px] text-rose-300">{banError}</p>}
+            {bannedIds.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{bannedIds.map((id) => {
+              const user = allUsers.find((item) => item.id === id);
+              return <button key={id} type="button" disabled={banSaving} onClick={() => void updateBan(id, false)} className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-[10px] text-rose-100 hover:bg-emerald-500/15 disabled:opacity-40" title="Click to remove this radio-chat ban">{user ? '@' + user.username : id.slice(0, 12)} ×</button>;
+            })}</div>}
+          </section>}
         </div>
 
         {joined ? <aside className="ys-radio-chat flex min-h-[440px] max-h-[620px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950">
@@ -384,7 +483,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           <div className="flex-1 space-y-2 overflow-y-auto p-3">{messages.length ? messages.map((item) => <div key={item.id} className="rounded-lg bg-slate-50 px-2.5 py-2 dark:bg-white/[0.035]"><div className="text-[10px] font-bold text-cyan-700 dark:text-cyan-300">@{item.username}</div><div className="mt-0.5 break-words text-[11px] text-slate-700 dark:text-slate-200">{item.message}</div></div>) : <p className="py-8 text-center text-[11px] text-slate-500">No messages yet. Start the conversation.</p>}</div>
           {chatError && <p className="px-3 pb-2 text-[10px] text-rose-500">{chatError}</p>}
           {canChat ? <form onSubmit={sendMessage} className="border-t border-slate-200 p-2.5 dark:border-white/10"><div className="flex gap-2"><input value={message} onChange={(e) => setMessage(e.target.value)} maxLength={500} placeholder="Say something…" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 dark:border-white/10 dark:bg-white/[0.05] dark:text-white" /><button type="submit" disabled={!message.trim() || sending} className="rounded-lg bg-cyan-600 px-3 text-white disabled:opacity-40"><Send className="h-4 w-4" /></button></div></form> : <p className="border-t border-rose-400/20 bg-rose-500/[0.06] p-3 text-[10px] text-rose-600 dark:text-rose-300">An administrator has disabled your radio chat access. You can still listen.</p>}
-          {isAdmin && <div className="space-y-2 border-t border-slate-200 p-3 dark:border-white/10"><div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300"><Ban className="h-3.5 w-3.5 text-rose-500" /> Chat moderation</div><div className="flex gap-2"><select value={banTarget} onChange={(e) => setBanTarget(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-[10px] text-slate-800 dark:border-white/10 dark:bg-slate-900 dark:text-white"><option value="">Choose a listener…</option>{allUsers.filter((u) => u.role !== 'admin').map((u) => <option key={u.id} value={u.id}>@{u.username}</option>)}</select><button type="button" disabled={!banTarget || bannedIds.includes(banTarget)} onClick={() => void updateBan(banTarget, true)} className="rounded-lg bg-rose-600 px-2.5 text-[10px] font-bold text-white disabled:opacity-40">Ban</button></div>{bannedIds.length > 0 && <div className="flex flex-wrap gap-1">{bannedIds.map((id) => { const user = allUsers.find((u) => u.id === id); return <button key={id} type="button" onClick={() => void updateBan(id, false)} className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-[9px] text-rose-600 dark:text-rose-200">{user ? '@' + user.username : id.slice(0, 10)} ×</button>; })}</div>}</div>}
+
         </aside> : <aside className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white/80 p-5 text-center dark:border-white/10 dark:bg-slate-950/50"><Headphones className="h-8 w-8 text-cyan-500" /><h3 className="mt-3 text-sm font-bold text-slate-900 dark:text-white">Tune in to join the conversation</h3><p className="mt-1 max-w-xs text-[11px] text-slate-500">Join the live station to hear the shared broadcast and unlock listener chat.</p></aside>}
       </div>
     </section>
