@@ -48,14 +48,14 @@ export const AdminPipelineManager: React.FC = () => {
   const [requestAudioFiles, setRequestAudioFiles] = useState<Record<string, File | null>>({});
   const [requestCoverFiles, setRequestCoverFiles] = useState<Record<string, File | null>>({});
   const [useSubmittedImage, setUseSubmittedImage] = useState<Record<string, boolean>>({});
-  const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', requireImageLink: true });
+  const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', showImageLink: true, requireImageLink: true });
   const [savingRequestSettings, setSavingRequestSettings] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   useEffect(() => {
     fetch('/api/admin/song-requests/settings', { credentials: 'same-origin', cache: 'no-store' })
       .then((response) => response.json())
-      .then((data) => { if (data?.settings) setRequestSettings({ enabled: data.settings.enabled !== false, notice: String(data.settings.notice || ''), icon: String(data.settings.icon || '🎵'), requireImageLink: data.settings.requireImageLink !== false }); })
+      .then((data) => { if (data?.settings) setRequestSettings({ enabled: data.settings.enabled !== false, notice: String(data.settings.notice || ''), icon: String(data.settings.icon || '🎵'), showImageLink: data.settings.showImageLink !== false, requireImageLink: data.settings.showImageLink !== false && data.settings.requireImageLink !== false }); })
       .catch(() => undefined);
   }, []);
 
@@ -373,7 +373,8 @@ export const AdminPipelineManager: React.FC = () => {
         <div className="mb-3 text-sm font-bold text-white">Song request availability</div>
         <div className="grid gap-3 md:grid-cols-[auto_1fr_90px]">
           <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.enabled} onChange={(e) => setRequestSettings((s) => ({ ...s, enabled: e.target.checked }))} className="accent-cyan-500" /> Accept song requests</label>
-          <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.requireImageLink} onChange={(e) => setRequestSettings((s) => ({ ...s, requireImageLink: e.target.checked }))} className="accent-cyan-500" /> Require artwork image link</label>
+          <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.showImageLink} onChange={(e) => setRequestSettings((s) => ({ ...s, showImageLink: e.target.checked, requireImageLink: e.target.checked ? s.requireImageLink : false }))} className="accent-cyan-500" /> Show artwork image link field</label>
+          <label className="flex items-center gap-2 text-xs text-slate-200"><input type="checkbox" checked={requestSettings.requireImageLink} disabled={!requestSettings.showImageLink} onChange={(e) => setRequestSettings((s) => ({ ...s, requireImageLink: e.target.checked }))} className="accent-cyan-500" /> Require image link</label>
           <label className="text-[10px] text-slate-400">Notice icon<input value={requestSettings.icon} onChange={(e) => setRequestSettings((s) => ({ ...s, icon: e.target.value }))} maxLength={12} className={inputClass + ' mt-1'} /></label>
         </div>
         <label className="mt-3 block text-[10px] text-slate-400">Custom closed message<input value={requestSettings.notice} onChange={(e) => setRequestSettings((s) => ({ ...s, notice: e.target.value }))} maxLength={300} placeholder="Song requests are temporarily closed." className={inputClass + ' mt-1'} /></label>
