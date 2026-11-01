@@ -1490,9 +1490,11 @@ async function resolveRadioState() {
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
 
   // Promote a scheduled program on the server, so every connected listener sees the same transition.
-  if (config.enabled && config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
+  if (config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
+    // A scheduled program is an instruction to go live at its start time.
     config = {
       ...config,
+      enabled: true,
       currentProgram: { ...config.nextProgram, startsAt: null },
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
@@ -2405,7 +2407,8 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     ));
     const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
     const folderId = await getDriveLibraryFolderId(accessToken, folderName);
-    const query = `'${folderId}' in parents and trashed=false`;
+    const escapedSearchTerm = searchTerm.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const query = `'${folderId}' in parents and trashed=false${searchTerm ? ` and name contains '${escapedSearchTerm}'` : ''}`;
     const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
     driveUrl.searchParams.set('q', query);
     driveUrl.searchParams.set('pageSize', '100');
@@ -2443,7 +2446,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
         const supported = kind === 'audio'
           ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
           : supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
-        const hasThreeDigitId = /\\s-\\s[0-9]{3}(?=\\.[^.]+$)/i.test(name);
+        const hasThreeDigitId = /\s-\s[0-9]{3}(?=\.[^.]+$)/i.test(name);
         if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
         if (!showNumbered && (alreadyNumberedFileIds.has(String(file.id)) || hasThreeDigitId)) continue;
         files.push({
