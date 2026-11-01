@@ -13,6 +13,7 @@ import {
   updateUserDb,
   deleteUserDb,
   getSongsDb,
+  getSongsPersistentDb,
   insertSongDb,
   updateSongDb,
   deleteSongDb,
@@ -1584,7 +1585,7 @@ async function resolveRadioState() {
     await clearRadioChatMessagesDb();
   }
 
-  const songs = await getSongsDb();
+  const songs = await getSongsPersistentDb();
   // Anchor the elapsed clock after the playlist read, immediately before deriving the state.
   now = Date.now();
   const songMap = new Map(songs.map((song: any) => [String(song.id), song]));
