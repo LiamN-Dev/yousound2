@@ -60,6 +60,30 @@ export const AdminPipelineManager: React.FC = () => {
       .catch(() => undefined);
   }, []);
 
+  // The request queue is refreshed independently of the broader app cache. This
+  // prevents the admin page from opening with an old localStorage-only snapshot.
+  useEffect(() => {
+    if (workingId) return;
+    let active = true;
+    const refreshQueue = async () => {
+      try {
+        await storage.refreshSongRequests();
+        if (active) {
+          refreshState();
+          setFeedback((current) => current?.type === 'error' ? null : current);
+        }
+      } catch (error: any) {
+        if (active) setFeedback({ type: 'error', message: error?.message || 'The live request queue could not be loaded.' });
+      }
+    };
+    void refreshQueue();
+    const timer = window.setInterval(() => void refreshQueue(), 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [refreshState, workingId]);
+
   const saveRequestSettings = async () => {
     setSavingRequestSettings(true);
     try {
