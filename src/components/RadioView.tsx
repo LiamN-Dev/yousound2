@@ -96,7 +96,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     void refreshStation();
     // Keep the on-air clock fresh while visible or listening, but do not make
     // every background tab poll the station when nobody is tuned in.
-    const timer = window.setInterval(() => void refreshStation(), 5000);
+    const timer = window.setInterval(() => void refreshStation(), 2500);
     return () => window.clearInterval(timer);
   }, [active, refreshStation, joined]);
 
