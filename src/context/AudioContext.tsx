@@ -119,6 +119,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const radioGainRef = useRef<GainNode | null>(null);
   const radioSyncPendingRef = useRef(false);
   const radioSyncTimerRef = useRef<number | null>(null);
+  const radioSyncResolveRef = useRef<(() => void) | null>(null);
   const radioFallbackMuteRef = useRef<{ muted: boolean; volume: number } | null>(null);
   const audioGraphRef = useRef<AudioContext | null>(null);
   const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
@@ -464,6 +465,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         window.clearTimeout(radioSyncTimerRef.current);
         radioSyncTimerRef.current = null;
       }
+      // Resolve the old waiter after invalidating its attempt so rapid admin
+      // seeks/speed changes cannot leave promises hanging or mutate newer state.
+      playAttemptRef.current += 1;
+      const supersededResolve = radioSyncResolveRef.current;
+      radioSyncResolveRef.current = null;
+      supersededResolve?.();
       radioSyncPendingRef.current = false;
     }
     const audio = audioRef.current;
@@ -570,17 +577,22 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         await new Promise<void>((resolve) => {
-          radioSyncTimerRef.current = window.setTimeout(() => {
+          const finishSync = () => {
             radioSyncTimerRef.current = null;
-            if (radioFallbackMuteRef.current) {
-              audio.muted = radioFallbackMuteRef.current.muted;
-              audio.volume = radioFallbackMuteRef.current.volume;
-              radioFallbackMuteRef.current = null;
+            if (radioSyncResolveRef.current === finishSync) radioSyncResolveRef.current = null;
+            if (attemptId === playAttemptRef.current) {
+              if (radioFallbackMuteRef.current) {
+                audio.muted = radioFallbackMuteRef.current.muted;
+                audio.volume = radioFallbackMuteRef.current.volume;
+                radioFallbackMuteRef.current = null;
+              }
+              radioSyncPendingRef.current = false;
+              setIsPlaying(!audio.paused);
             }
-            radioSyncPendingRef.current = false;
-            if (attemptId === playAttemptRef.current) setIsPlaying(!audio.paused);
             resolve();
-          }, remainingMs + 35);
+          };
+          radioSyncResolveRef.current = finishSync;
+          radioSyncTimerRef.current = window.setTimeout(finishSync, remainingMs + 35);
         });
       } else {
         if (playRequest) {
@@ -680,7 +692,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       currentSongRef.current = song;
       setCurrentSong(song);
-      setDuration(Math.max(0, Number(song.duration) || 0));
+      setDuration(Math.max(0, Number(song.durationExact) || Number(song.duration) || 0));
       const target = Math.max(0, Number(elapsedSeconds) || 0);
       const setPausedPosition = () => {
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
@@ -707,11 +719,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const leaveRadio = useCallback(() => {
     const hadRadioSession = radioJoinedRef.current || radioModeRef.current;
     radioJoinedRef.current = false;
+    playAttemptRef.current += 1;
     radioSyncPendingRef.current = false;
     if (radioSyncTimerRef.current !== null) {
       window.clearTimeout(radioSyncTimerRef.current);
       radioSyncTimerRef.current = null;
     }
+    const pendingResolve = radioSyncResolveRef.current;
+    radioSyncResolveRef.current = null;
+    pendingResolve?.();
     const gain = radioGainRef.current;
     const graph = audioGraphRef.current;
     if (gain && graph) {
@@ -731,7 +747,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setPlaybackSpeedState(radioPreviousSpeedRef.current);
     }
     radioPreviousSpeedRef.current = null;
-    playAttemptRef.current += 1;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
