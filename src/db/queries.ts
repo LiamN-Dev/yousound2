@@ -810,7 +810,7 @@ export async function publishStagedSongRequestDb(requestId: string) {
     throw new Error('The persistent database is unavailable. The song was not published.');
   }
   try {
-    return await db.transaction(async (tx) => {
+    const publication = await db.transaction(async (tx) => {
       const locked = await tx.select().from(songRequests)
         .where(eq(songRequests.id, requestId)).for('update').limit(1);
       const request = locked[0];
@@ -917,7 +917,7 @@ export async function unpublishSongRequestDb(requestId: string) {
     throw new Error('The persistent database is unavailable. The song was not unpublished.');
   }
   try {
-    return await db.transaction(async (tx) => {
+    const publication = await db.transaction(async (tx) => {
       const locked = await tx.select().from(songRequests)
         .where(eq(songRequests.id, requestId)).for('update').limit(1);
       const request = locked[0];
