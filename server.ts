@@ -1727,10 +1727,20 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     } else if (action === 'next') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast.' });
       const state = await resolveRadioState();
-      if (!state.currentSong) return res.status(409).json({ success: false, error: 'There is no current song to skip.' });
-      const duration = Math.max(1, Number(state.currentSong.duration) || 180);
-      config.startedAt = new Date(Date.now() - (state.elapsedSeconds * 1000) + (duration * 1000)).toISOString();
-      config.pausedAt = null;
+      const playlist = Array.isArray(state.playlist) ? state.playlist : [];
+      if (!state.currentSong || !playlist.length) return res.status(409).json({ success: false, error: 'There is no current song to skip.' });
+      const nextIndex = Number(state.currentIndex) + 1;
+      if (nextIndex >= playlist.length && !config.loopPlaylist) {
+        config.enabled = false;
+        config.pausedAt = null;
+        await clearRadioChatMessagesDb();
+      } else {
+        const targetIndex = nextIndex % playlist.length;
+        const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0);
+        const now = Date.now();
+        config.startedAt = new Date(now - elapsedBeforeTarget * 1000).toISOString();
+        config.pausedAt = config.pausedAt ? new Date(now).toISOString() : null;
+      }
     } else if (action === 'toggle-loop') {
       config.loopPlaylist = !config.loopPlaylist;
     } else {
