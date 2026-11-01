@@ -1526,6 +1526,8 @@ type RadioConfig = {
   pausedAt?: string | null;
   loopPlaylist?: boolean;
   playbackRate?: number;
+  /** Changes whenever the authoritative playback timeline is repositioned. */
+  syncRevision?: number;
 };
 
 const DEFAULT_RADIO_CONFIG: RadioConfig = {
@@ -1539,6 +1541,7 @@ const DEFAULT_RADIO_CONFIG: RadioConfig = {
   pausedAt: null,
   loopPlaylist: false,
   playbackRate: 1,
+  syncRevision: 0,
 };
 
 function cleanRadioProgram(value: any): RadioProgram {
@@ -1555,7 +1558,7 @@ function cleanRadioProgram(value: any): RadioProgram {
 
 async function resolveRadioState() {
   let config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
-  const now = Date.now();
+  let now = Date.now();
   const playbackRate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
 
@@ -1569,12 +1572,15 @@ async function resolveRadioState() {
       currentProgram: { ...config.nextProgram, startsAt: null },
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
+      syncRevision: Math.max(0, Number(config.syncRevision) || 0) + 1,
     };
     await setSettingDb(RADIO_CONFIG_SETTING, config);
     await clearRadioChatMessagesDb();
   }
 
   const songs = await getSongsDb();
+  // Anchor the elapsed clock after the playlist read, immediately before deriving the state.
+  now = Date.now();
   const songMap = new Map(songs.map((song: any) => [String(song.id), song]));
   const playlist = (config.currentProgram?.songIds || [])
     .map((id) => songMap.get(String(id)))
@@ -1625,6 +1631,7 @@ async function resolveRadioState() {
     paused: Boolean(config.pausedAt),
     loopPlaylist: Boolean(config.loopPlaylist),
     playbackRate,
+    syncRevision: Math.max(0, Number(config.syncRevision) || 0),
     serverNow: new Date(now).toISOString(),
   };
 }
@@ -1713,6 +1720,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
       loopPlaylist: existing.loopPlaylist === true,
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
+      syncRevision: Math.max(0, Number(existing.syncRevision) || 0) + 1,
     };
     await setSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
@@ -1801,6 +1809,9 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       config.loopPlaylist = !config.loopPlaylist;
     } else {
       return res.status(400).json({ success: false, error: 'Unknown radio control action.' });
+    }
+    if (['toggle-pause', 'pause', 'resume', 'seek', 'set-speed', 'next'].includes(action)) {
+      config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
     }
     await setSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
