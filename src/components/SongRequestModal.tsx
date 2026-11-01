@@ -289,6 +289,16 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
   useEffect(() => {
     if (isOpen) setMode(initialMode);
   }, [isOpen, initialMode]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    fetch('/api/song-requests/settings', { credentials: 'same-origin', cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => { if (active && data?.settings) setRequestSettings({ enabled: data.settings.enabled !== false, notice: String(data.settings.notice || ''), icon: String(data.settings.icon || '🎵'), requireImageLink: data.settings.requireImageLink !== false }); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [isOpen]);
   const [activeTab, setActiveTab] = useState<'submit' | 'my-requests'>('submit');
 
   // Form fields as requested:
@@ -297,6 +307,8 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
   const [artist, setArtist] = useState('');
   const [genre, setGenre] = useState('Vibe / Chill');
   const [notes, setNotes] = useState('');
+  const [imageLink, setImageLink] = useState('');
+  const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', requireImageLink: true });
 
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -329,9 +341,18 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!requestSettings.enabled) { setFeedback(requestSettings.notice || 'Song requests are temporarily closed.'); return; }
     if (!songTitle.trim()) {
       setFeedback('Please provide your initial guess for the song title.');
       return;
+    }
+    if (requestSettings.requireImageLink && !imageLink.trim()) {
+      setFeedback('Please provide a link to the song artwork.');
+      return;
+    }
+    if (imageLink.trim()) {
+      try { const parsed = new URL(imageLink.trim()); if (parsed.protocol !== 'https:') throw new Error('invalid'); }
+      catch { setFeedback('Enter a valid HTTPS image link.'); return; }
     }
 
     setIsSubmitting(true);
@@ -339,6 +360,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
       await submitSongRequest({
         songTitle: songTitle.trim(),
         artist: artist.trim() || 'Unknown Artist',
+        webLink: imageLink.trim() || undefined,
         genre: genre.trim(),
         notes: notes.trim() || undefined,
         requestType: 'song',
@@ -346,6 +368,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
 
       setSongTitle('');
       setArtist('');
+      setImageLink('');
       setNotes('');
       setFeedback('Your song request was submitted. You can follow its review and upload status under My Requests.');
       setActiveTab('my-requests');
@@ -465,7 +488,8 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
         )}
 
         {activeTab === 'submit' ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {!requestSettings.enabled && <div className="mb-4 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-100"><span className="mr-2 text-lg">{requestSettings.icon}</span>{requestSettings.notice || 'Song requests are temporarily closed.'}</div>}
+          <form onSubmit={handleSubmit} className={requestSettings.enabled ? 'space-y-4' : 'hidden'}>
             {/* Holding Queue Security Notice */}
             <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-cyan-500/20 text-xs text-slate-300 space-y-1">
               <div className="flex items-center gap-1.5 text-cyan-400 font-semibold text-[11px]">
@@ -507,8 +531,10 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-slate-950/50 p-3 text-[11px] leading-5 text-slate-400">
-              Cover artwork is added by the administrator when the MP3 is uploaded. Both files are stored in the site's Google Drive.
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-300">Artwork image link {requestSettings.requireImageLink ? '*' : '(optional)'}</label>
+              <input type="url" value={imageLink} onChange={(e) => setImageLink(e.target.value)} required={requestSettings.requireImageLink} placeholder="https://... image link" className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none" />
+              <p className="mt-1 text-[10px] leading-4 text-slate-500">Use a direct, publicly accessible HTTPS image link. The administrator can upload this image into the site's Google Drive with the MP3.</p>
             </div>
 
             {/* Genre & Notes */}
