@@ -7,9 +7,9 @@ import { useAuth } from '../context/AuthContext';
 type Program = { name: string; description?: string; songIds: string[]; startsAt?: string | null };
 type Station = {
   enabled: boolean; stationName: string; stationDescription: string;
-  currentProgram: Program | null; currentSong: Song | null; playlist: Song[];
+  currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
-  nextStartsInMs: number | null; serverNow: string;
+  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean;
 };
 type Message = { id: string; userId: string; username: string; message: string; createdAt: string };
 
@@ -47,6 +47,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [nextDescription, setNextDescription] = useState('');
   const [nextAt, setNextAt] = useState('');
   const [nextIds, setNextIds] = useState<string[]>([]);
+  const [autoStartScheduled, setAutoStartScheduled] = useState(true);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [adminNote, setAdminNote] = useState('');
@@ -140,6 +141,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           setNextDescription(config.nextProgram?.description || '');
           setNextAt(asLocalTime(config.nextProgram?.startsAt));
           setNextIds(Array.isArray(config.nextProgram?.songIds) ? config.nextProgram.songIds : []);
+          setAutoStartScheduled(config.autoStartScheduled !== false);
         }
         if (Array.isArray(banData.bannedUserIds)) setBannedIds(banData.bannedUserIds);
       } catch { /* Retryable when the admin opens the control room again. */ }
@@ -213,11 +215,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           enabled, startNow, stationName, stationDescription,
           currentProgram: { name: programName, description: programDescription, songIds: currentIds },
           nextProgram: scheduled,
+          autoStartScheduled,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save radio configuration.');
-      setAdminNote(enabled ? 'Broadcast started. Listeners share the same playback clock.' : 'Broadcast stopped.');
+      setAdminNote(enabled ? 'Broadcast started. Listeners share the same playback clock.' : 'Broadcast stopped. Radio chat has been cleared.');
       void refreshStation();
     } catch (e: any) { setAdminNote(e?.message || 'Could not save the station.'); }
     finally { setSaving(false); }
@@ -286,16 +289,6 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-white/10 dark:bg-slate-900/65">
-            <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white"><ListMusic className="h-4 w-4 text-cyan-500" /> Station playlist</h2><span className="text-[10px] text-slate-500">{station?.playlist?.length || 0} tracks</span></div>
-            {station?.playlist?.length ? station.playlist.map((song, index) => (
-              <div key={song.id} className={`mb-1 flex items-center gap-2 rounded-lg px-2.5 py-2 ${station.currentSong?.id === song.id ? 'border border-cyan-500/20 bg-cyan-500/10' : 'bg-slate-50 dark:bg-white/[0.025]'}`}>
-                <span className="w-5 text-center text-[10px] text-slate-500">{index + 1}</span><span className="min-w-0 flex-1 truncate text-xs text-slate-800 dark:text-slate-200">{song.title}<span className="ml-1 text-slate-500">— {song.artist}</span></span>{station.currentSong?.id === song.id && <span className="text-[9px] font-bold text-cyan-500">LIVE</span>}
-              </div>
-            )) : <p className="text-xs text-slate-500">The admin has not started a broadcast yet.</p>}
-            {station?.nextProgram && <div className="mt-3 rounded-lg border border-indigo-400/20 bg-indigo-400/[0.06] p-3"><div className="text-[9px] font-bold uppercase text-indigo-500 dark:text-indigo-300">Up next</div><div className="mt-1 text-xs font-semibold text-slate-900 dark:text-white">{station.nextProgram.name}</div><div className="text-[10px] text-slate-500">{station.nextProgram.songIds.length} scheduled songs</div></div>}
-          </div>
-
           {isAdmin && <details className="rounded-2xl border border-amber-400/25 bg-slate-950 p-4 text-white" open>
             <summary className="cursor-pointer list-none flex items-center justify-between gap-2 text-sm font-bold"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-amber-300" /> Radio control room</span><span className="text-[9px] font-normal text-slate-400">Admin only</span></summary>
             <div className="mt-4 space-y-3">
@@ -308,6 +301,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
               <div><div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase text-slate-300"><span>Current playlist · {currentIds.length} chosen</span><button type="button" onClick={() => setCurrentIds([])} className="font-normal normal-case text-slate-400">Clear</button></div><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search all songs, including unpublished…" className="mb-2 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" />{picker(currentIds, setCurrentIds)}</div>
               <div className="space-y-2 rounded-xl border border-indigo-400/20 bg-indigo-500/[0.06] p-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-indigo-100"><CalendarClock className="h-4 w-4" /> Schedule next list</div>
+                <label className="flex items-center gap-2 text-[10px] text-indigo-100"><input type="checkbox" checked={autoStartScheduled} onChange={(e) => setAutoStartScheduled(e.target.checked)} className="accent-cyan-500" /> Automatically start the broadcast when the scheduled time arrives</label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-[10px] text-slate-300">Next program name<input value={nextName} onChange={(e) => setNextName(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
                   <label className="text-[10px] text-slate-300">Start time<input type="datetime-local" value={nextAt} onChange={(e) => setNextAt(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
