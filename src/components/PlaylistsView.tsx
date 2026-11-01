@@ -5,6 +5,7 @@ import { SongCard } from './SongCard';
 import { Song, Playlist } from '../types';
 import { handleImageFallback } from '../utils/artworkHelper';
 import { storage } from '../services/storage';
+import { formatCoverMediaUrl } from '../utils/mediaUrl';
 import {
   ListMusic,
   Plus,
@@ -138,7 +139,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ onOpenPlaylistModa
             <div className="relative group w-36 h-36 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shrink-0 shadow-lg">
               {selectedPlaylist.coverUrl ? (
                 <img
-                  src={selectedPlaylist.coverUrl}
+                  src={formatCoverMediaUrl(selectedPlaylist.coverUrl)}
                   alt={selectedPlaylist.name}
                   className="w-full h-full object-cover"
                   onError={(e) => handleImageFallback(e, selectedPlaylist.name, 'Playlist')}
@@ -288,7 +289,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ onOpenPlaylistModa
                     <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shrink-0 relative">
                       {pl.coverUrl ? (
                         <img
-                          src={pl.coverUrl}
+                          src={formatCoverMediaUrl(pl.coverUrl)}
                           alt={pl.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                           onError={(e) => handleImageFallback(e, pl.name, 'Playlist')}
@@ -524,7 +525,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ onOpenPlaylistModa
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <img
-                          src={s.coverUrl}
+                          src={formatCoverMediaUrl(s.coverUrl)}
                           alt={s.title}
                           className="w-10 h-10 rounded-xl object-cover shrink-0"
                           onError={(e) => handleImageFallback(e, s.title, s.genre)}
