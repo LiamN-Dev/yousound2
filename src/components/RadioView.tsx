@@ -53,6 +53,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [adminNote, setAdminNote] = useState('');
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [banTarget, setBanTarget] = useState('');
+  const loadedProgramKey = useRef('');
 
   // A reload must not silently re-join: browsers require a fresh user gesture
   // before starting audio, otherwise listeners appear joined but hear nothing.
@@ -152,6 +153,17 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       } catch { /* Retryable when the admin opens the control room again. */ }
     })();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !station?.currentProgram) return;
+    const key = station.currentProgram.name + ':' + (station.currentProgram.songIds || []).join(',');
+    if (loadedProgramKey.current && loadedProgramKey.current !== key) {
+      setProgramName(station.currentProgram.name || 'Now Playing');
+      setProgramDescription(station.currentProgram.description || '');
+      setCurrentIds(Array.isArray(station.currentProgram.songIds) ? station.currentProgram.songIds : []);
+    }
+    loadedProgramKey.current = key;
+  }, [isAdmin, station?.currentProgram?.name, station?.currentProgram?.songIds?.join(',')]);
 
   const pool = isAdmin ? adminAllSongs : allSongs;
   const filteredSongs = useMemo(() => {
@@ -290,7 +302,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
             <p className="mt-1 text-xs text-slate-300">{station?.stationDescription || 'A shared radio station curated by the admin.'}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${station?.enabled ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-slate-300'}`}>{station?.enabled ? '● ON AIR' : '○ OFF AIR'}</span>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${station?.enabled ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/10 text-slate-300'}`}>{station?.enabled ? (station.paused ? 'Ⅱ PAUSED' : '● ON AIR') : '○ OFF AIR'}</span>
             {joined
               ? <button type="button" onClick={leave} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[10px] font-bold text-rose-200">Leave radio</button>
               : <button type="button" onClick={join} disabled={!station?.enabled || !station.currentSong} className="rounded-lg border border-cyan-300/30 bg-cyan-400/15 px-3 py-2 text-[10px] font-bold text-cyan-100 disabled:opacity-40"><Headphones className="mr-1 inline h-3.5 w-3.5" /> Join radio</button>}
