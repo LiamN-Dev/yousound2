@@ -529,62 +529,67 @@ class StorageService {
   }
 
   async adminUpdateRequest(id: string, updates: Partial<SongRequest>): Promise<SongRequest | null> {
-    const idx = this.requests.findIndex((item) => item.id === id);
-    if (idx !== -1) {
-      this.requests[idx] = { ...this.requests[idx], ...updates };
-      this.saveRequests();
-      this.notify();
-    }
-
     try {
-      const res = await fetch(`/api/admin/requests/${id}`, {
+      const res = await fetch(`/api/admin/requests/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
         body: JSON.stringify(updates),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'The server rejected the request update.');
-      if (data.request) {
-        if (idx !== -1) this.requests[idx] = data.request;
-        this.saveRequests();
-        this.notify();
-        return data.request;
+      if (!res.ok || !data.success || !data.request) {
+        throw new Error(data.error || `The server rejected the request update (${res.status}).`);
       }
-      throw new Error('The server did not return the updated request.');
-    } catch (e) {
-      console.error('Admin update request error:', e);
-      if (idx !== -1) {
-        await this.syncWithServer();
-      }
-      throw e;
+
+      const savedRequest = data.request as SongRequest;
+      const index = this.requests.findIndex((item) => item.id === id);
+      if (index === -1) this.requests = [savedRequest, ...this.requests];
+      else this.requests[index] = savedRequest;
+      this.requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      this.saveRequests();
+      this.notify();
+      return savedRequest;
+    } catch (error) {
+      console.error('Admin update request error:', error);
+      // Reconcile local state after an error; never leave an optimistic "approved" badge behind.
+      try { await this.syncWithServer(); } catch { /* Preserve and return the original server error. */ }
+      throw error;
     }
   }
 
   async adminPublishRequest(id: string, isPublished: boolean, hideVideo: boolean = false): Promise<{ success: boolean; request?: SongRequest; error?: string }> {
     try {
-      const res = await fetch(`/api/admin/requests/${id}/publish`, {
+      const res = await fetch(`/api/admin/requests/${encodeURIComponent(id)}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
         body: JSON.stringify({ isPublished, hideVideo }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Publish failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.request) {
+        throw new Error(data.error || `Publish request failed (${res.status}).`);
       }
 
-      const idx = this.requests.findIndex((r) => r.id === id);
-      if (idx !== -1 && data.request) {
-        this.requests[idx] = data.request;
-        this.saveRequests();
-        this.notify();
-      }
+      const savedRequest = data.request as SongRequest;
+      const index = this.requests.findIndex((request) => request.id === id);
+      if (index === -1) this.requests = [savedRequest, ...this.requests];
+      else this.requests[index] = savedRequest;
+      this.saveRequests();
+      this.notify();
 
-      // Re-read the canonical server library so a newly published Drive-hosted song appears immediately.
+      // Reload the canonical song library after the server transaction commits.
       await this.syncWithServer();
-      return { success: true, request: data.request };
+      const canonicalIndex = this.requests.findIndex((request) => request.id === id);
+      if (canonicalIndex === -1) this.requests = [savedRequest, ...this.requests];
+      else this.requests[canonicalIndex] = savedRequest;
+      this.saveRequests();
+      this.notify();
+      return { success: true, request: savedRequest };
     } catch (err: any) {
       console.error('Publish request error:', err);
-      return { success: false, error: err.message };
+      return { success: false, error: err?.message || 'Publish failed.' };
     }
   }
 
