@@ -2113,10 +2113,14 @@ app.get('/api/song-requests/settings', async (_req: Request, res: Response) => {
 });
 
 app.get('/api/admin/song-requests/settings', async (req: Request, res: Response) => {
-  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-  const settings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
-  res.setHeader('Cache-Control', 'no-store, private');
-  return res.json({ success: true, settings });
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const settings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, settings });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error.message || 'Could not load persistent song request settings.' });
+  }
 });
 
 app.put('/api/admin/song-requests/settings', async (req: Request, res: Response) => {
@@ -2140,7 +2144,7 @@ app.put('/api/admin/song-requests/settings', async (req: Request, res: Response)
 app.post('/api/requests', async (req: Request, res: Response) => {
   try {
     const { songTitle, artist, notes, genre } = req.body || {};
-    const requestSettings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+    const requestSettings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
     if (!requestSettings.enabled) {
       return res.status(403).json({ success: false, error: requestSettings.notice || 'Song requests are temporarily closed.', requestClosed: true, icon: requestSettings.icon });
     }
