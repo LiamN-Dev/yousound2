@@ -1809,7 +1809,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         await clearRadioChatMessagesDb();
       } else {
         const targetIndex = nextIndex % playlist.length;
-        const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0);
+        const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0);
         const now = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
         const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
         config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
