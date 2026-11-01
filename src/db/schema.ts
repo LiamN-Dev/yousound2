@@ -208,6 +208,16 @@ export const radioChatMessages = pgTable('radio_chat_messages', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+/** Persistent, radio-only moderation records. These must never fall back to process-local storage. */
+export const radioChatBans = pgTable('radio_chat_bans', {
+  userId: text('user_id').primaryKey(),
+  username: text('username').notNull(),
+  reason: text('reason'),
+  bannedBy: text('banned_by').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 export const chatPairingBlocks = pgTable('chat_pairing_blocks', {
   id: serial('id').primaryKey(),
   user1Id: text('user1_id').notNull(),
