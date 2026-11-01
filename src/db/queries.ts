@@ -883,7 +883,7 @@ export async function publishStagedSongRequestDb(requestId: string) {
         album: 'YouSong Community',
         genre: String(request.genre || 'Vibe / Chill').trim() || 'Vibe / Chill',
         duration: Math.max(5, Number(request.duration) || 180),
-        durationExact: Number(request.duration) > 0 ? Number(request.duration) : null,
+        durationExact: null,
         audioUrl: String(request.audioUrl),
         coverUrl,
         addedAt,
