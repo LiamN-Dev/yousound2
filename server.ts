@@ -1593,6 +1593,25 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/radio/duration', async (req: Request, res: Response) => {
+  try {
+    const songId = String(req.body?.songId || '');
+    const seconds = Math.round(Number(req.body?.seconds));
+    if (!songId || !Number.isFinite(seconds) || seconds < 5 || seconds > 43200) {
+      return res.status(400).json({ success: false, error: 'Invalid radio song duration.' });
+    }
+    const state = await resolveRadioState();
+    if (!state.enabled || String(state.currentSong?.id || '') !== songId) {
+      return res.status(409).json({ success: false, error: 'Duration can only be reported for the current live radio song.' });
+    }
+    const current = Number(state.currentSong?.duration) || 0;
+    if (Math.abs(current - seconds) >= 2) await updateSongDb(songId, { duration: seconds });
+    return res.json({ success: true, duration: seconds });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not update radio duration.' });
+  }
+});
+
 app.get('/api/admin/radio/config', async (_req: Request, res: Response) => {
   try {
     const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
