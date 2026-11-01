@@ -1557,7 +1557,7 @@ function cleanRadioProgram(value: any): RadioProgram {
 }
 
 async function resolveRadioState() {
-  let config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
+  let config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
   let now = Date.now();
   const playbackRate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
@@ -1574,7 +1574,7 @@ async function resolveRadioState() {
       nextProgram: null,
       syncRevision: Math.max(0, Number(config.syncRevision) || 0) + 1,
     };
-    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     await clearRadioChatMessagesDb();
   }
 
@@ -1599,7 +1599,7 @@ async function resolveRadioState() {
     if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
-      await setSettingDb(RADIO_CONFIG_SETTING, config);
+      await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
       await clearRadioChatMessagesDb();
     }
     let offset = config.loopPlaylist ? programElapsedSeconds % totalDuration : Math.min(programElapsedSeconds, Math.max(0, totalDuration - 0.25));
@@ -1676,7 +1676,7 @@ app.post('/api/radio/duration', async (req: Request, res: Response) => {
 
 app.get('/api/admin/radio/config', async (_req: Request, res: Response) => {
   try {
-    const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     return res.json({ success: true, config });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load radio settings.' });
@@ -1687,7 +1687,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const body = req.body || {};
-    const existing = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const existing = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     const currentProgram = cleanRadioProgram(body.currentProgram || existing.currentProgram);
     const nextProgram = body.nextProgram ? cleanRadioProgram(body.nextProgram) : null;
     const allSongs = await getSongsDb();
@@ -1722,7 +1722,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
       syncRevision: Math.max(0, Number(existing.syncRevision) || 0) + 1,
     };
-    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
     return res.json({ success: true, config });
   } catch (error: any) {
@@ -1735,7 +1735,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
-    const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     if (action === 'toggle-pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause or resume.' });
       if (config.pausedAt) {
@@ -1813,7 +1813,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     if (['toggle-pause', 'pause', 'resume', 'seek', 'set-speed', 'next'].includes(action)) {
       config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
     }
-    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
     return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist), state });
   } catch (error: any) {
