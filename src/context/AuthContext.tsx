@@ -125,6 +125,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = storage.subscribe(() => {
       refreshState();
     });
+    // Hydrate the canonical database state immediately after a page reload.
+    // Previously this only happened on login or at the first 15-second interval.
+    void storage.syncWithServer().then(refreshState).catch((error) => {
+      console.warn('Initial server hydration deferred:', error);
+    });
     const interval = setInterval(() => {
       storage.syncWithServer();
     }, 15000);
