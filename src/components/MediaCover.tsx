@@ -51,10 +51,16 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
         src={formattedUrl || '/src/assets/images/lofi_study_glass_1791054585559.jpg'}
         alt={alt}
         className={className}
+        decoding="async"
         onError={(e) => {
-          const target=e.currentTarget;const id=extractDriveFileId(src);
-          if(id&&!target.dataset.driveCdnFallback&&formattedUrl.startsWith('/api/drive/cover/')){target.dataset.driveCdnFallback='true';target.src=`https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w800`;return;}
-          handleImageFallback(e,fallbackTitle,fallbackGenre);
+          const target = e.currentTarget;
+          const id = extractDriveFileId(src);
+          if (id && !target.dataset.driveProxyFallback && formattedUrl.startsWith('https://lh3.googleusercontent.com/')) {
+            target.dataset.driveProxyFallback = 'true';
+            target.src = `/api/drive/cover/${encodeURIComponent(id)}`;
+            return;
+          }
+          handleImageFallback(e, fallbackTitle, fallbackGenre);
         }}
       />
       {/* Subtle background fallback icon container */}
