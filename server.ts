@@ -1473,6 +1473,8 @@ type RadioConfig = {
   startedAt: string;
   nextProgram: RadioProgram | null;
   autoStartScheduled?: boolean;
+  pausedAt?: string | null;
+  loopPlaylist?: boolean;
 };
 
 const DEFAULT_RADIO_CONFIG: RadioConfig = {
@@ -1483,6 +1485,8 @@ const DEFAULT_RADIO_CONFIG: RadioConfig = {
   startedAt: new Date().toISOString(),
   nextProgram: null,
   autoStartScheduled: true,
+  pausedAt: null,
+  loopPlaylist: false,
 };
 
 function cleanRadioProgram(value: any): RadioProgram {
@@ -1508,6 +1512,7 @@ async function resolveRadioState() {
     config = {
       ...config,
       enabled: config.autoStartScheduled !== false,
+      pausedAt: null,
       currentProgram: { ...config.nextProgram, startsAt: null },
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
@@ -1530,14 +1535,15 @@ async function resolveRadioState() {
     const durations = playlist.map((song) => Math.max(1, Number(song.duration) || 180));
     const totalDuration = durations.reduce((sum, value) => sum + value, 0);
     const startedAtMs = new Date(config.startedAt || now).getTime();
-    programElapsedSeconds = Math.max(0, (now - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000);
-    if (programElapsedSeconds >= totalDuration) {
+    const radioClockMs = config.pausedAt ? new Date(config.pausedAt).getTime() : now;
+    programElapsedSeconds = Math.max(0, ((Number.isFinite(radioClockMs) ? radioClockMs : now) - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000);
+    if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
       await setSettingDb(RADIO_CONFIG_SETTING, config);
       await clearRadioChatMessagesDb();
     }
-    let offset = programElapsedSeconds % totalDuration;
+    let offset = config.loopPlaylist ? programElapsedSeconds % totalDuration : Math.min(programElapsedSeconds, Math.max(0, totalDuration - 0.25));
     for (let index = 0; index < playlist.length; index++) {
       if (offset < durations[index] || index === playlist.length - 1) {
         currentSong = playlist[index];
@@ -1563,6 +1569,8 @@ async function resolveRadioState() {
     playlist,
     nextProgram: config.nextProgram || null,
     nextStartsInMs: Number.isFinite(nextAt) ? Math.max(0, nextAt - now) : null,
+    paused: Boolean(config.pausedAt),
+    loopPlaylist: Boolean(config.loopPlaylist),
     serverNow: new Date(now).toISOString(),
   };
 }
@@ -1628,6 +1636,8 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       startedAt: startNow ? new Date().toISOString() : existing.startedAt,
       nextProgram,
       autoStartScheduled: body.autoStartScheduled !== false,
+      pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
+      loopPlaylist: existing.loopPlaylist === true,
     };
     await setSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
@@ -1635,6 +1645,41 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[Radio] Config update error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Could not save radio settings.' });
+  }
+});
+
+app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const action = String(req.body?.action || '');
+    const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    if (action === 'pause') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause.' });
+      config.pausedAt = config.pausedAt || new Date().toISOString();
+    } else if (action === 'resume') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to resume.' });
+      if (config.pausedAt) {
+        const pausedAtMs = new Date(config.pausedAt).getTime();
+        const startedAtMs = new Date(config.startedAt).getTime();
+        config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
+        config.pausedAt = null;
+      }
+    } else if (action === 'next') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast.' });
+      const state = await resolveRadioState();
+      if (!state.currentSong) return res.status(409).json({ success: false, error: 'There is no current song to skip.' });
+      const duration = Math.max(1, Number(state.currentSong.duration) || 180);
+      config.startedAt = new Date(Date.now() - (state.elapsedSeconds * 1000) + (duration * 1000)).toISOString();
+      config.pausedAt = null;
+    } else if (action === 'toggle-loop') {
+      config.loopPlaylist = !config.loopPlaylist;
+    } else {
+      return res.status(400).json({ success: false, error: 'Unknown radio control action.' });
+    }
+    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist) });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not control radio.' });
   }
 });
 
@@ -1655,6 +1700,8 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to chat.' });
+    const station = await resolveRadioState();
+    if (!station.enabled) return res.status(409).json({ success: false, error: 'Radio chat is closed because there is no active broadcast.' });
     const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
     if (banned && user.role !== 'admin') return res.status(403).json({ success: false, error: 'You are blocked from radio chat by an administrator.' });
     const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
