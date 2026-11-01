@@ -2275,6 +2275,7 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
     }
 
     await setPersistentSettingDb(DRIVE_TOKEN_SETTING, encryptDriveToken(refreshToken));
+    cachedDriveAccessToken = null; // The new grant may include additional Drive file permissions.
     await setPersistentSettingDb(DRIVE_LIBRARY_SCOPE_VERSION_SETTING, DRIVE_LIBRARY_SCOPE_VERSION);
     await setPersistentSettingDb(DRIVE_STATE_SETTING, null);
     const base = String(process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || 'https://yousound.onrender.com').replace(/\/$/, '');
