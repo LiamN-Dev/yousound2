@@ -1673,7 +1673,20 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
     const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
-    if (action === 'pause') {
+    if (action === 'toggle-pause') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause or resume.' });
+      if (config.pausedAt) {
+        const pausedAtMs = new Date(config.pausedAt).getTime();
+        const startedAtMs = new Date(config.startedAt).getTime();
+        if (!Number.isFinite(pausedAtMs) || !Number.isFinite(startedAtMs)) {
+          return res.status(409).json({ success: false, error: 'The saved radio clock is invalid. Restart the broadcast to reset it.' });
+        }
+        config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
+        config.pausedAt = null;
+      } else {
+        config.pausedAt = new Date().toISOString();
+      }
+    } else if (action === 'pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause.' });
       config.pausedAt = config.pausedAt || new Date().toISOString();
     } else if (action === 'resume') {
@@ -1697,7 +1710,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Unknown radio control action.' });
     }
     await setSettingDb(RADIO_CONFIG_SETTING, config);
-    return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist) });
+    const state = await resolveRadioState();
+    return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist), state });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not control radio.' });
   }
@@ -2059,8 +2073,13 @@ function signDriveState(payload: string): string {
   if (secret.length < 32) throw new Error('SESSION_SECRET must be configured before connecting Google Drive.');
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }
+let cachedDriveAccessToken: { token: string; expiresAt: number } | null = null;
+
 async function getDriveAccessToken(): Promise<string> {
   if (!driveClientId() || !driveClientSecret()) throw new Error('Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Render.');
+  if (cachedDriveAccessToken && cachedDriveAccessToken.expiresAt > Date.now() + 60_000) {
+    return cachedDriveAccessToken.token;
+  }
   const encrypted = await getPersistentSettingDb<string>(DRIVE_TOKEN_SETTING);
   if (!encrypted) throw new Error('The site Google Drive account is not connected yet. Connect it once in Admin → Requests.');
 
@@ -2079,8 +2098,75 @@ async function getDriveAccessToken(): Promise<string> {
     }
     throw new Error(`Google Drive could not refresh its access token (${tokenRes.status}${tokenData.error ? `: ${tokenData.error}` : ''}). Check Render logs; reconnect only if Google has actually revoked or expired the refresh token.`);
   }
-  return tokenData.access_token as string;
+  const accessToken = String(tokenData.access_token);
+  const expiresInSeconds = Math.max(60, Number(tokenData.expires_in) || 3600);
+  cachedDriveAccessToken = { token: accessToken, expiresAt: Date.now() + expiresInSeconds * 1000 };
+  return accessToken;
 }
+
+// Stream private Google Drive artwork through the site's connected account.
+// The browser never depends on Drive's public thumbnail CDN or link-sharing settings.
+app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
+  const fileId = String(req.params.fileId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return res.status(400).send('Invalid Google Drive artwork ID.');
+
+  try {
+    const accessToken = await getDriveAccessToken();
+    const metadataResponse = await fetch(
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size',
+      { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) },
+    );
+    if (!metadataResponse.ok) {
+      const detail = (await metadataResponse.text().catch(() => '')).slice(0, 300);
+      const status = metadataResponse.status === 404 || metadataResponse.status === 403 ? 404 : 502;
+      console.warn('[DriveArtwork] Metadata lookup failed:', metadataResponse.status, detail);
+      return res.status(status).send('Artwork is unavailable in the connected Google Drive account.');
+    }
+
+    const metadata: any = await metadataResponse.json().catch(() => ({}));
+    const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+    const mimeType = String(metadata.mimeType || '').toLowerCase();
+    const size = Number(metadata.size || 0);
+    if (!allowedImageTypes.has(mimeType)) return res.status(415).send('The selected Google Drive file is not a supported image.');
+    if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
+
+    const imageResponse = await fetch(
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media',
+      { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
+    );
+    if (!imageResponse.ok || !imageResponse.body) {
+      console.warn('[DriveArtwork] Download failed:', imageResponse.status);
+      return res.status(502).send('Google Drive could not stream this artwork.');
+    }
+
+    const responseLength = Number(imageResponse.headers.get('content-length') || size || 0);
+    if (responseLength > 25 * 1024 * 1024) {
+      await imageResponse.body.cancel().catch(() => undefined);
+      return res.status(413).send('Artwork exceeds the 25 MB image limit.');
+    }
+    res.status(200);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    if (responseLength > 0) res.setHeader('Content-Length', String(responseLength));
+    const etag = imageResponse.headers.get('etag');
+    if (etag) res.setHeader('ETag', etag);
+
+    const imageStream = (await import('stream')).Readable.fromWeb(imageResponse.body as any);
+    imageStream.on('error', (error) => {
+      console.error('[DriveArtwork] Stream error:', error);
+      if (!res.headersSent) res.status(502).end(); else res.destroy(error);
+    });
+    res.on('close', () => {
+      if (!res.writableEnded) imageStream.destroy();
+    });
+    return imageStream.pipe(res);
+  } catch (error: any) {
+    console.error('[DriveArtwork] Could not stream Google Drive artwork:', error);
+    return res.status(502).send('Could not connect to Google Drive to load this artwork.');
+  }
+});
 
 app.get('/api/admin/google-drive/status', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ error: 'Admin only' });
