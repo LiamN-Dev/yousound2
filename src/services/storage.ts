@@ -1014,6 +1014,7 @@ class StorageService {
       adminNote?: string;
       colorAccent?: string;
       dailyListenLimit?: number | null;
+      christmasMode?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1044,6 +1045,7 @@ class StorageService {
             ...(typeof params.chatBlocked === 'boolean' ? { chatBlocked: params.chatBlocked } : {}),
             ...(typeof params.isSuspended === 'boolean' ? { isSuspended: params.isSuspended, suspendedReason: params.suspendedReason } : {}),
             ...(params.dailyListenLimit !== undefined ? { dailyListenLimit: params.dailyListenLimit } : {}),
+            ...(typeof params.christmasMode === 'boolean' ? { christmasMode: params.christmasMode } : {}),
           };
         });
       }

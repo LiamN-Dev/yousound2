@@ -25,19 +25,20 @@ import { ChatHub } from './components/ChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { FeedbackNotifier } from './components/FeedbackNotifier';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
-import { Song } from './types';
+import { Song, MaintenanceTab } from './types';
 import { Music, ListPlus, KeyRound } from 'lucide-react';
 import { SpotlightShowcase } from './components/SpotlightShowcase';
 import { SectionMaintenanceNotice } from './components/SectionMaintenanceNotice';
 import { ChristmasEffects } from './components/ChristmasEffects';
-import { useTheme } from './context/ThemeContext';
+import { StatusView } from './components/StatusView';
+import { BetterStackAnnouncement } from './components/BetterStackAnnouncement';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
   const { allSongs, adminAllSongs, spotlightConfig } = useAudio();
-  const { christmasMode } = useTheme();
+  const christmasMode = !!currentUser?.christmasMode;
 
-  const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'chat' | 'admin'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
 
@@ -147,7 +148,10 @@ const MainAppContent: React.FC = () => {
     setIsPlaylistModalOpen(true);
   };
 
-  const maintenanceKey = activeTab === 'admin' ? null : activeTab;
+  const maintenanceKey: MaintenanceTab | null =
+    activeTab === 'library' || activeTab === 'playlists' || activeTab === 'favorites' || activeTab === 'chat'
+      ? activeTab
+      : null;
   const activeMaintenance = maintenanceKey ? maintenanceState.tabMaintenance?.[maintenanceKey] : undefined;
   const activeMaintenanceTitle = activeTab === 'playlists'
     ? 'Playlists'
@@ -299,6 +303,7 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'chat' && <ChatHub />}
 
         {/* Tab 5: Admin Panel */}
+        {activeTab === 'status' && <StatusView />}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
@@ -374,6 +379,7 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <AudioProvider>
+          <BetterStackAnnouncement />
           <MainAppContent />
         </AudioProvider>
       </AuthProvider>

@@ -63,6 +63,7 @@ interface AuthContextType {
           adminNote?: string;
           colorAccent?: string;
           dailyListenLimit?: number | null;
+          christmasMode?: boolean;
         }
       | string,
     newPassword?: string
@@ -287,6 +288,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           adminNote?: string;
           colorAccent?: string;
           dailyListenLimit?: number | null;
+          christmasMode?: boolean;
         }
       | string,
     newPassword?: string
@@ -302,6 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       adminNote?: string;
       colorAccent?: string;
       dailyListenLimit?: number | null;
+      christmasMode?: boolean;
     };
 
     if (typeof paramsOrUsername === 'object' && paramsOrUsername !== null) {
@@ -316,6 +319,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminNote: paramsOrUsername.adminNote,
         colorAccent: paramsOrUsername.colorAccent,
         dailyListenLimit: paramsOrUsername.dailyListenLimit,
+        christmasMode: paramsOrUsername.christmasMode,
       };
     } else {
       params = {

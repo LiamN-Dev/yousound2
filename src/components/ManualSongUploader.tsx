@@ -187,8 +187,9 @@ const DriveLibraryPicker: React.FC<{
   );
 };
 
-export const ManualSongUploader: React.FC = () => {
+export const ManualSongUploader: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const { refreshState } = useAuth();
+  const [uploaderExpanded, setUploaderExpanded] = useState(!compact);
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [genre, setGenre] = useState('Lo-Fi');
@@ -451,18 +452,33 @@ export const ManualSongUploader: React.FC = () => {
   const fileClass = `${fieldClass} file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-400/15 file:px-2 file:py-1 file:text-cyan-100`;
 
   return (
-    <section className="liquid-glass-surface rounded-3xl p-5 sm:p-6 border border-white/10 space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2"><Cloud className="h-5 w-5 text-cyan-300" /> Google Drive song uploader</h2>
-          <p className="mt-1 text-xs text-slate-400 max-w-2xl">Choose the MP3 and artwork from the site's Google Drive folders, paste a Drive link, or upload files directly. Existing Drive files are reused instead of copied again.</p>
+    <section className={`ys-uploader liquid-glass-surface border border-white/10 ${compact ? 'is-compact rounded-2xl p-3 sm:p-4 space-y-3' : 'rounded-3xl p-5 sm:p-6 space-y-5'}`}>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={`flex items-center gap-2 font-bold text-white ${compact ? 'text-sm' : 'text-lg'}`}><Cloud className="h-4 w-4 text-cyan-300" /> {compact ? 'Add a song to the library' : 'Google Drive song uploader'}</h2>
+          {!compact && <p className="mt-1 text-xs text-slate-300 max-w-2xl">Choose the MP3 and artwork from the site's Google Drive folders, paste a Drive link, or upload files directly. Existing Drive files are reused instead of copied again.</p>}
+          {compact && <p className="mt-0.5 text-[11px] text-slate-300">Upload or select existing audio and artwork in Google Drive.</p>}
         </div>
-        <button type="button" onClick={connectDrive} disabled={connecting || (driveConnected && driveLibraryReady)} className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${driveConnected && driveLibraryReady ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'} disabled:opacity-60`}>
+        <div className="flex items-center gap-2 shrink-0">
+          <button type="button" onClick={connectDrive} disabled={connecting || (driveConnected && driveLibraryReady)} className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${driveConnected && driveLibraryReady ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-100'} disabled:opacity-60`}>
           {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Cloud className="h-4 w-4" />}
-          {driveConnected && driveLibraryReady ? 'Site Drive connected' : driveReconnectRequired ? 'Grant Drive folder access' : 'Connect Google Drive'}
-        </button>
+          {driveConnected && driveLibraryReady ? 'Site Drive connected' : driveReconnectRequired ? 'Grant Drive folder access' : 'Connect Drive'}
+          </button>
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setUploaderExpanded((expanded) => !expanded)}
+              aria-expanded={uploaderExpanded}
+              className="inline-flex items-center justify-center rounded-lg border border-white/15 bg-white/[0.06] px-3 py-1.5 text-[11px] font-semibold text-slate-100 hover:bg-white/[0.11]"
+            >
+              {uploaderExpanded ? 'Close' : 'Add song'}
+            </button>
+          )}
+        </div>
       </div>
 
+      {(!compact || uploaderExpanded) && (
+        <div className="ys-uploader-body space-y-3">
       {driveReconnectRequired && (
         <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-xs text-amber-100">
           Google Drive is connected, but the current permission does not allow YouSong to search and rename existing file names. Click <strong>Grant Drive folder access</strong> and approve the Drive metadata permission so the selector can find files and pair audio with artwork.
@@ -591,6 +607,8 @@ export const ManualSongUploader: React.FC = () => {
           </button>
         </div>
       </form>
+        </div>
+      )}
     </section>
   );
 };

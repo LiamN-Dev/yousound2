@@ -15,8 +15,6 @@ interface ThemeContextType {
   highContrast: boolean;
   toggleHighContrast: () => void;
   setHighContrast: (v: boolean) => void;
-  christmasMode: boolean;
-  toggleChristmasMode: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -60,13 +58,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   });
 
-  const [christmasMode, setChristmasModeState] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('yousong_christmas_mode') === 'true';
-    } catch {
-      return false;
-    }
-  });
 
   // Apply theme class to root
   useEffect(() => {
@@ -113,11 +104,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('yousong_high_contrast', String(highContrast));
   }, [highContrast]);
 
-  // Christmas effects are a personal appearance preference, saved on this device.
-  useEffect(() => {
-    localStorage.setItem('yousong_christmas_mode', String(christmasMode));
-    document.documentElement.classList.toggle('christmas-mode', christmasMode);
-  }, [christmasMode]);
 
   const toggleTheme = () => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
   const setTheme = (t: Theme) => setThemeState(t);
@@ -125,7 +111,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const setFontSize = (s: FontSize) => setFontSizeState(s);
   const toggleHighContrast = () => setHighContrastState((prev) => !prev);
   const setHighContrast = (v: boolean) => setHighContrastState(v);
-  const toggleChristmasMode = () => setChristmasModeState((prev) => !prev);
 
   return (
     <ThemeContext.Provider
@@ -140,8 +125,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         highContrast,
         toggleHighContrast,
         setHighContrast,
-        christmasMode,
-        toggleChristmasMode,
       }}
     >
       {children}

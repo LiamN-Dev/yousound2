@@ -111,6 +111,7 @@ export async function updateUserDb(
     chatBlocked?: boolean;
     colorAccent?: string;
     dailyListenLimit?: number | null;
+    christmasMode?: boolean;
   }
 ) {
   if (!(await checkSqlAvailability())) {

@@ -277,23 +277,19 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
         </div>
       )}
 
-      {/* Keep card metadata compact; tags open only on demand. */}
-      <div className="flex items-center justify-between gap-2 mt-2.5">
-        <span className="px-2.5 py-1 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 text-xs font-black tracking-wide shadow-xs uppercase">
-          {song.genre}
-        </span>
+      {/* Compact metadata with high-contrast, easy-to-read tag chips. */}
+      <div className="ys-song-meta">
+        <span className="ys-genre-pill">{song.genre}</span>
         {song.tags && song.tags.length > 0 && (
-          <details className="min-w-0" onClick={(event) => event.stopPropagation()}>
-            <summary className="cursor-pointer select-none rounded-lg border border-blue-300/40 dark:border-blue-700/50 bg-blue-100/70 dark:bg-blue-900/30 px-2.5 py-1 text-[10px] font-bold text-blue-900 dark:text-blue-100">
-              Tags ({song.tags.length})
+          <details className="ys-tags-details" onClick={(event) => event.stopPropagation()}>
+            <summary className="ys-tags-summary">
+              <Tag className="h-3.5 w-3.5" />
+              Tags <span className="ys-tag-count">{song.tags.length}</span>
             </summary>
-            <div className="mt-1.5 flex max-w-full flex-wrap gap-1">
+            <div className="ys-tag-list">
               {song.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center gap-1 rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/40 px-2 py-1 text-[10px] font-semibold text-blue-900 dark:text-blue-100"
-                >
-                  <Tag className="h-3 w-3 text-blue-700 dark:text-blue-300" />
+                <span key={tag} className="ys-tag-chip">
+                  <Tag className="h-3 w-3 shrink-0" />
                   <span>#{tag.replace(/^#/, '')}</span>
                 </span>
               ))}
