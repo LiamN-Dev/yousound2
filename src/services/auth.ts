@@ -182,11 +182,14 @@ const RULES: Rule[] = [
   ['GET', /^\/api\/users$/, 'member'],
   ['POST', /^\/api\/chat\/threads\/[^/]+\/hide$/, 'member'],
   ['DELETE', /^\/api\/chat\/requests\/[^/]+$/, 'member'],
+  // Existing media is readable by approved members, but never anonymously or by suspended users.
+  ['GET', /^\/api\/media\/(audio|cover)\//, 'member'],
 
   // Admin only
   ['*', /^\/api\/admin\//, 'admin'],
   ['POST', /^\/api\/banner$/, 'admin'],
-  ['*', /^\/api\/(upload|media)\//, 'admin'],
+  ['*', /^\/api\/upload\//, 'admin'],
+  ['*', /^\/api\/media\//, 'admin'],
   ['!GET', /^\/api\/songs/, 'admin'],
   ['!GET', /^\/api\/settings\//, 'admin'],
   ['!GET', /^\/api\/popups/, 'admin'],
