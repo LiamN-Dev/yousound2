@@ -529,6 +529,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         void playRequest.catch(() => undefined);
       }
       await graphResume;
+      if (audioGraphRef.current && audioGraphRef.current.state !== 'running') {
+        throw new Error('Your browser suspended its audio engine. Keep this tab active and press Join again to synchronize.');
+      }
 
       if (needsSource) {
         await new Promise<void>((resolve, reject) => {
