@@ -31,7 +31,7 @@ const formatTrackTime = (seconds: number) => {
 
 export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
-  const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio } = useAudio();
+  const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio, playbackError, clearPlaybackError } = useAudio();
   const [joined, setJoined] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const previousStationClockRef = useRef<{ songId: string | null; paused: boolean | null; syncRevision: number | null }>({ songId: null, paused: null, syncRevision: null });
@@ -70,6 +70,13 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [banError, setBanError] = useState('');
   const [banReason, setBanReason] = useState('');
   const loadedProgramKey = useRef('');
+
+  useEffect(() => {
+    if (joined && playbackError) {
+      setError(playbackError);
+      setSyncing(false);
+    }
+  }, [joined, playbackError]);
 
   // A reload must not silently re-join: browsers require a fresh user gesture
   // before starting audio, otherwise listeners appear joined but hear nothing.
@@ -265,6 +272,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const join = () => {
     if (!station?.enabled || !station.currentSong || !currentUser?.id) return;
     setJoined(true);
+    setError('');
+    clearPlaybackError();
     const rate = Math.min(2, Math.max(0.5, Number(station.playbackRate) || 1));
     const snapshotServerTime = Date.parse(station.serverNow || '');
     const offset = serverClockOffsetRef.current || 0;
