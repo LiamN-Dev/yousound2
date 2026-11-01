@@ -23,6 +23,7 @@ import { PendingApprovalScreen } from './components/PendingApprovalScreen';
 import { SuspendedScreen } from './components/SuspendedScreen';
 import { ChatHub } from './components/ChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
+import { RadioView } from './components/RadioView';
 import { FeedbackNotifier } from './components/FeedbackNotifier';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
@@ -38,7 +39,7 @@ const MainAppContent: React.FC = () => {
   const { allSongs, adminAllSongs, spotlightConfig } = useAudio();
   const christmasMode = !!currentUser?.christmasMode;
 
-  const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
 
@@ -139,7 +140,15 @@ const MainAppContent: React.FC = () => {
       });
   }, [allSongs, searchQuery, selectedGenre]);
 
+  useEffect(() => {
+    if (spotlightConfig.enabled && !isAdmin && (activeTab === 'playlists' || activeTab === 'favorites')) {
+      setActiveTab('library');
+      setIsPlaylistModalOpen(false);
+    }
+  }, [spotlightConfig.enabled, isAdmin, activeTab]);
+
   const handleOpenPlaylistModal = (song: Song | null) => {
+    if (spotlightConfig.enabled && !isAdmin) return;
     if (maintenanceState.tabMaintenance?.playlists?.enabled && !isAdmin) {
       setActiveTab('playlists');
       return;
@@ -187,7 +196,7 @@ const MainAppContent: React.FC = () => {
       </div>
 
       {/* Main View Area */}
-      <main className="ys-main-content relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="ys-main-content relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {activeMaintenance?.enabled && !isAdmin ? (
           <SectionMaintenanceNotice title={activeMaintenanceTitle} message={activeMaintenance.message} />
         ) : (
@@ -307,6 +316,7 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
+        <RadioView active={activeTab === 'radio'} />
       </main>
 
       {/* Floating Bottom Player */}

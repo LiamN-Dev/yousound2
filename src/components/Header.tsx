@@ -20,11 +20,12 @@ import {
   X,
   Volume2,
   Activity,
+  Headphones,
 } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'library' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin';
-  setActiveTab: (tab: 'library' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin') => void;
+  activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin';
+  setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin') => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   selectedGenre: string;
@@ -63,7 +64,8 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const feedbackUnread = useSyncExternalStore(subscribeFeedback, getFeedbackState).unreadCount;
   const { currentUser, isAdmin, maintenanceState, bannerConfig, logout, unreadChatCount, markChatsRead } = useAuth();
-  const { userFavorites, userPlaylists } = useAudio();
+  const { userFavorites, userPlaylists, spotlightConfig } = useAudio();
+  const spotlightLocked = spotlightConfig.enabled && !isAdmin;
   const { theme, toggleTheme } = useTheme();
   const [showChatBlockedModal, setShowChatBlockedModal] = useState(false);
   const [isRibbonDismissed, setIsRibbonDismissed] = useState(false);
@@ -101,16 +103,16 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2.5 shrink-0">
-              <span className="px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-md text-white font-extrabold text-[10px] uppercase tracking-wider border border-white/30 shadow-xs">
-                {bannerConfig.versionName || 'YouSong'}
-              </span>
-              <span className="font-bold text-white drop-shadow-xs hidden sm:inline text-xs">
-                {bannerConfig.sloganText || 'School Audio Stream Hub'}
-              </span>
+              {bannerConfig.versionName?.trim() ? (
+                <span className="px-2 py-0.5 rounded-md bg-white/20 text-white font-extrabold text-[10px] uppercase tracking-wider border border-white/30">{bannerConfig.versionName.trim()}</span>
+              ) : null}
+              {bannerConfig.sloganText?.trim() ? (
+                <span className="font-bold text-white text-[11px] hidden sm:inline">{bannerConfig.sloganText.trim()}</span>
+              ) : null}
             </div>
 
             {currentUser && (
-              <span className="text-[11px] font-semibold text-white/90 px-2.5 py-0.5 rounded-md bg-black/20 backdrop-blur-md border border-white/15 shadow-xs shrink-0 hidden md:inline">
+              <span className="text-[9px] sm:text-[11px] font-semibold text-white/90 px-2 py-0.5 rounded-md bg-black/20 border border-white/15 shrink-0">
                 Signed in as <strong className="text-white">@{currentUser.username}</strong>
               </span>
             )}
@@ -157,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* 3. Main Sticky Header Navigation */}
       <header className="ys-site-header sticky top-0 z-40 w-full bg-white/95 dark:bg-[#090d16]/95 border-b border-slate-200 dark:border-white/[0.08] backdrop-blur-xl transition-colors shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 gap-3">
+          <div className="flex items-center justify-between h-14 gap-2.5">
             {/* Zone 1: Logo & App Brand (Compact & shrink-0) */}
             <div className="flex items-center gap-3 shrink-0">
               <button
@@ -200,11 +202,15 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Library</span>
                 </button>
 
+                <button type="button" onClick={() => setActiveTab('radio')} className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-xl font-semibold transition-colors shrink-0 ${activeTab === 'radio' ? 'bg-cyan-600 text-white' : 'text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-600/15'}`} title="Listen to the live station"><Headphones className="w-3.5 h-3.5" /><span>Radio</span></button>
+
                 {/* 2. Playlists */}
                 <button
                   type="button"
-                  onClick={() => setActiveTab('playlists')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
+                  onClick={() => { if (!spotlightLocked) setActiveTab('playlists'); }}
+                  disabled={spotlightLocked}
+                  title={spotlightLocked ? 'Playlists are locked while Spotlight mode is active.' : 'Open playlists'}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-colors shrink-0 ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
                     activeTab === 'playlists'
                       ? 'bg-white dark:bg-blue-600 text-blue-700 dark:text-white shadow-sm border border-slate-200 dark:border-blue-500/50'
                       : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/[0.05]'
@@ -212,6 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <ListMusic className="w-3.5 h-3.5 shrink-0" />
                   <span>Playlists</span>
+                  {spotlightLocked && <Lock className="h-3 w-3" />}
                   {userPlaylists.length > 0 && (
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-white/10 font-bold">
                       {userPlaylists.length}
@@ -222,8 +229,10 @@ export const Header: React.FC<HeaderProps> = ({
                 {/* 3. Favorites */}
                 <button
                   type="button"
-                  onClick={() => setActiveTab('favorites')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
+                  onClick={() => { if (!spotlightLocked) setActiveTab('favorites'); }}
+                  disabled={spotlightLocked}
+                  title={spotlightLocked ? 'Favorites are locked while Spotlight mode is active.' : 'Open favorites'}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-colors shrink-0 ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
                     activeTab === 'favorites'
                       ? 'bg-white dark:bg-rose-600 text-rose-600 dark:text-white shadow-sm border border-slate-200 dark:border-rose-500/50'
                       : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/[0.05]'
@@ -231,6 +240,7 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                   <span>Favorites</span>
+                  {spotlightLocked && <Lock className="h-3 w-3" />}
                   {userFavorites.length > 0 && (
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-bold">
                       {userFavorites.length}
@@ -391,9 +401,12 @@ export const Header: React.FC<HeaderProps> = ({
             >
               Library
             </button>
+            <button onClick={() => setActiveTab('radio')} className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${activeTab === 'radio' ? 'bg-cyan-600 text-white' : 'bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300'}`}>Radio</button>
             <button
-              onClick={() => setActiveTab('playlists')}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${
+              disabled={spotlightLocked}
+              title={spotlightLocked ? 'Locked during Spotlight mode' : 'Open playlists'}
+              onClick={() => { if (!spotlightLocked) setActiveTab('playlists'); }}
+              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
                 activeTab === 'playlists'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
@@ -402,8 +415,10 @@ export const Header: React.FC<HeaderProps> = ({
               Playlists ({userPlaylists.length})
             </button>
             <button
-              onClick={() => setActiveTab('favorites')}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${
+              disabled={spotlightLocked}
+              title={spotlightLocked ? 'Locked during Spotlight mode' : 'Open favorites'}
+              onClick={() => { if (!spotlightLocked) setActiveTab('favorites'); }}
+              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
                 activeTab === 'favorites'
                   ? 'bg-rose-600 text-white shadow-sm'
                   : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
