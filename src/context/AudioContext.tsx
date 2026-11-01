@@ -42,6 +42,7 @@ interface AudioContextType {
   isRadioMode: boolean;
   playRadioSong: (song: Song, elapsedSeconds: number) => Promise<void>;
   leaveRadio: () => void;
+  pauseRadioPlayback: () => void;
   // Controls
   playSong: (song: Song, newQueue?: Song[]) => void;
   togglePlay: () => void;
@@ -488,6 +489,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
     if (attemptId === playAttemptRef.current) setIsPlaying(true);
+  }, []);
+
+  const pauseRadioPlayback = useCallback(() => {
+    if (!radioModeRef.current) return;
+    audioRef.current?.pause();
+    setIsPlaying(false);
   }, []);
 
   const leaveRadio = useCallback(() => {
