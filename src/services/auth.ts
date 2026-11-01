@@ -168,9 +168,8 @@ const RULES: Rule[] = [
   ['GET', /^\/api\/admin\/google-drive\/oauth\/callback$/, 'public'],
   ['POST', /^\/api\/auth\/(login|register|logout)$/, 'public'],
   ['POST', /^\/api\/feedback$/, 'public'],
-  // Drive-backed media requires an approved member session. This lets account suspension
-  // revoke fresh range requests instead of leaving the stream endpoint public.
-  ['GET', /^\/api\/(media\/(audio|cover))\//, 'public'],
+  // Media streams are member-protected. Do not classify audio or cover URLs as public:
+  // otherwise suspended users can keep listening through direct media requests.
 
   // Any signed-in account (even pending / suspended)
   ['*', /^\/api\/auth\/(me|change-password)/, 'login'],
@@ -221,7 +220,15 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
   if (!user) {
     return res.status(401).json({ success: false, error: 'Please log in again.', code: 'AUTH_REQUIRED' });
   }
-  if (level === 'login') return next();
+  if (level === 'login') {
+    const isSafeSuspendedRoute =
+      (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
+      (req.method === 'POST' && url === '/api/chat/appeal');
+    if (user.role !== 'admin' && user.isSuspended && !isSafeSuspendedRoute) {
+      return res.status(403).json({ success: false, error: 'This account is suspended. Contact an administrator or submit an appeal.', code: 'ACCOUNT_SUSPENDED' });
+    }
+    return next();
+  }
   if (level === 'admin') {
     if (user.role !== 'admin') return res.status(403).json({ success: false, error: 'Administrators only.' });
     return next();
