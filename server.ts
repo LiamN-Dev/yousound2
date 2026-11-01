@@ -14,6 +14,7 @@ import {
   deleteUserDb,
   getSongsDb,
   getSongsPersistentDb,
+  getPersistentDbNowMs,
   updateSongDurationExactDb,
   insertSongDb,
   updateSongDb,
@@ -1566,7 +1567,7 @@ function cleanRadioProgram(value: any): RadioProgram {
 
 async function resolveRadioState() {
   let config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
-  let now = Date.now();
+  let now = await getPersistentDbNowMs();
   const playbackRate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
 
@@ -1588,7 +1589,7 @@ async function resolveRadioState() {
 
   const songs = await getSongsPersistentDb();
   // Anchor the elapsed clock after the playlist read, immediately before deriving the state.
-  now = Date.now();
+  now = await getPersistentDbNowMs();
   const songMap = new Map(songs.map((song: any) => [String(song.id), song]));
   const playlist = (config.currentProgram?.songIds || [])
     .map((id) => songMap.get(String(id)))
@@ -1702,10 +1703,11 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const body = req.body || {};
+    const sharedNowMs = await getPersistentDbNowMs();
     const existing = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     const currentProgram = cleanRadioProgram(body.currentProgram || existing.currentProgram);
     const nextProgram = body.nextProgram ? cleanRadioProgram(body.nextProgram) : null;
-    const allSongs = await getSongsDb();
+    const allSongs = await getSongsPersistentDb();
     const validIds = new Set(allSongs.map((song: any) => String(song.id)));
     const requestedIds = [...currentProgram.songIds, ...(nextProgram?.songIds || [])];
     if (requestedIds.some((id) => !validIds.has(id))) {
@@ -1719,7 +1721,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       if (!nextProgram.startsAt || !Number.isFinite(new Date(nextProgram.startsAt).getTime())) {
         return res.status(400).json({ success: false, error: 'Set a valid start time for the next program.' });
       }
-      if (new Date(nextProgram.startsAt).getTime() <= Date.now()) {
+      if (new Date(nextProgram.startsAt).getTime() <= sharedNowMs) {
         return res.status(400).json({ success: false, error: 'The next program must be scheduled in the future.' });
       }
     }
@@ -1729,7 +1731,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       stationName: String(body.stationName || existing.stationName || 'YouSong Radio').trim().slice(0, 80) || 'YouSong Radio',
       stationDescription: String(body.stationDescription || '').trim().slice(0, 240),
       currentProgram,
-      startedAt: startNow ? new Date().toISOString() : existing.startedAt,
+      startedAt: startNow ? new Date(sharedNowMs).toISOString() : existing.startedAt,
       nextProgram,
       autoStartScheduled: body.autoStartScheduled !== false,
       pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
@@ -1751,6 +1753,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
     const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const commandNowMs = await getPersistentDbNowMs();
     if (action === 'toggle-pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause or resume.' });
       if (config.pausedAt) {
@@ -1759,20 +1762,20 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         if (!Number.isFinite(pausedAtMs) || !Number.isFinite(startedAtMs)) {
           return res.status(409).json({ success: false, error: 'The saved radio clock is invalid. Restart the broadcast to reset it.' });
         }
-        config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
+        config.startedAt = new Date(startedAtMs + Math.max(0, commandNowMs - pausedAtMs)).toISOString();
         config.pausedAt = null;
       } else {
-        config.pausedAt = new Date().toISOString();
+        config.pausedAt = new Date(commandNowMs).toISOString();
       }
     } else if (action === 'pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause.' });
-      config.pausedAt = config.pausedAt || new Date().toISOString();
+      config.pausedAt = config.pausedAt || new Date(commandNowMs).toISOString();
     } else if (action === 'resume') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to resume.' });
       if (config.pausedAt) {
         const pausedAtMs = new Date(config.pausedAt).getTime();
         const startedAtMs = new Date(config.startedAt).getTime();
-        config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
+        config.startedAt = new Date(startedAtMs + Math.max(0, commandNowMs - pausedAtMs)).toISOString();
         config.pausedAt = null;
       }
     } else if (action === 'seek') {
@@ -1786,7 +1789,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       if (!Number.isFinite(requested)) return res.status(400).json({ success: false, error: 'A valid song position is required.' });
       const positionSeconds = Math.min(duration - 0.25, Math.max(0, requested));
       const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + positionSeconds;
-      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : commandNowMs;
       const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
       config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
     } else if (action === 'set-speed') {
@@ -1800,7 +1803,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to change speed.' });
       const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
-      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : commandNowMs;
       config.playbackRate = requestedRate;
       config.startedAt = new Date(anchor - (programOffset / requestedRate) * 1000).toISOString();
     } else if (action === 'next') {
@@ -1816,7 +1819,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       } else {
         const targetIndex = nextIndex % playlist.length;
         const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0);
-        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : commandNowMs;
         const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
         config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
       }
