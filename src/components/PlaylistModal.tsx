@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
 import { Playlist, Song } from '../types';
+import { formatCoverMediaUrl } from '../utils/mediaUrl';
 import { X, Plus, Music, Check, ListMusic } from 'lucide-react';
 
 interface PlaylistModalProps {
@@ -91,7 +92,7 @@ export const PlaylistModal: React.FC<PlaylistModalProps> = ({ isOpen, onClose, s
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
                       {pl.coverUrl ? (
-                        <img src={pl.coverUrl} alt={pl.name} className="w-full h-full object-cover" />
+                        <img src={formatCoverMediaUrl(pl.coverUrl)} alt={pl.name} className="w-full h-full object-cover" />
                       ) : (
                         <Music className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       )}
