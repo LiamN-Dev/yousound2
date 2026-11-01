@@ -63,6 +63,7 @@ export const ChatHub: React.FC = () => {
   const [blockUser2Id, setBlockUser2Id] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [blockFeedback, setBlockFeedback] = useState<string | null>(null);
+  const [globalChatFeedback, setGlobalChatFeedback] = useState<string | null>(null);
 
   // Terminate Thread Modal State
   const [terminatingThread, setTerminatingThread] = useState<ChatThread | null>(null);
@@ -381,10 +382,10 @@ export const ChatHub: React.FC = () => {
     const newBlockedState = !user.chatBlocked;
     const result = await adminUpdateUser(user.id, { chatBlocked: newBlockedState });
     if (!result.success) {
-      setBlockFeedback(result.error || 'Could not update this user’s chat access.');
+      setGlobalChatFeedback(result.error || 'Could not update this user’s chat access.');
       return;
     }
-    setBlockFeedback(`@${user.username} is now ${newBlockedState ? 'blocked from' : 'allowed to use'} chat.`);
+    setGlobalChatFeedback(`@${user.username} is now ${newBlockedState ? 'blocked from' : 'allowed to use'} chat.`);
     await loadChatData();
   };
 
@@ -969,6 +970,7 @@ export const ChatHub: React.FC = () => {
                     Toggle off a user's ability to request or use chat entirely.
                   </p>
                 </div>
+                {globalChatFeedback && <p className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] text-slate-600 dark:text-slate-300">{globalChatFeedback}</p>}
 
                 <div className="divide-y divide-slate-100 dark:divide-white/5 max-h-[400px] overflow-y-auto">
                   {allUsers.map((u) => (
