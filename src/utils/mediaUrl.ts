@@ -54,8 +54,8 @@ export function formatCoverMediaUrl(url?: string | null): string {
   if (!url) return '';
   const trimmed = url.trim();
 
-  // If already a local uploaded file or data URI, keep as is
-  if (trimmed.startsWith('/api/media/') || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+  // Keep explicit stream routes and local media URLs intact.
+  if (trimmed.startsWith('/api/media/') || trimmed.startsWith('/api/drive/stream/') || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
     return trimmed;
   }
 
@@ -66,9 +66,10 @@ export function formatCoverMediaUrl(url?: string | null): string {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${driveId}`;
     }
-    // Drive artwork is private to the site's connected Google account. Stream it
-    // through the authenticated same-origin endpoint rather than relying on public CDN links.
-    return `/api/drive/cover/${encodeURIComponent(driveId)}`;
+    // YouSong uploads enable link viewing in the site-wide Drive account. Use Google's
+    // image CDN first to avoid a metadata+media API request for every card thumbnail;
+    // MediaCover falls back to the authenticated server proxy for older/private files.
+    return `https://lh3.googleusercontent.com/d/${encodeURIComponent(driveId)}=w800`;
   }
 
   return trimmed;
