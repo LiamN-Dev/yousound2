@@ -86,10 +86,13 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   }, [joined, playRadioSong, leaveRadio, isRadioMode]);
 
   useEffect(() => {
+    if (!active && !joined) return;
     void refreshStation();
-    const timer = window.setInterval(() => void refreshStation(), joined ? 5000 : 20000);
+    // Keep the on-air clock fresh while visible or listening, but do not make
+    // every background tab poll the station when nobody is tuned in.
+    const timer = window.setInterval(() => void refreshStation(), 5000);
     return () => window.clearInterval(timer);
-  }, [refreshStation, joined]);
+  }, [active, refreshStation, joined]);
 
   useEffect(() => {
     if (!active) return;
