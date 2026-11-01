@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ban, CalendarClock, Clock3, Headphones, ListMusic, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
@@ -28,6 +28,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
   const { adminAllSongs, allSongs, playRadioSong, leaveRadio, isRadioMode } = useAudio();
   const [joined, setJoined] = useState(false);
+  const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
   const [error, setError] = useState('');
   const [clock, setClock] = useState(Date.now());
@@ -52,12 +53,16 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [bannedIds, setBannedIds] = useState<string[]>([]);
   const [banTarget, setBanTarget] = useState('');
 
+  // A reload must not silently re-join: browsers require a fresh user gesture
+  // before starting audio, otherwise listeners appear joined but hear nothing.
   useEffect(() => {
-    if (!currentUser?.id) { setJoined(false); return; }
-    try { setJoined(localStorage.getItem('yousong_radio_joined_' + currentUser.id) === '1'); } catch { setJoined(false); }
+    setJoined(false);
+    leaveRadio();
   }, [currentUser?.id]);
 
   const refreshStation = useCallback(async () => {
+    if (stationFetchInFlight.current) return;
+    stationFetchInFlight.current = true;
     try {
       const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
@@ -66,18 +71,23 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
-        void playRadioSong(state.currentSong, state.elapsedSeconds);
+        const serverAgeSeconds = state.serverNow
+          ? Math.max(0, (Date.now() - new Date(state.serverNow).getTime()) / 1000)
+          : 0;
+        void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
       } else if (joined && isRadioMode) {
         leaveRadio();
       }
     } catch (e: any) {
       setError(e?.message || 'Could not connect to the station.');
+    } finally {
+      stationFetchInFlight.current = false;
     }
   }, [joined, playRadioSong, leaveRadio, isRadioMode]);
 
   useEffect(() => {
     void refreshStation();
-    const timer = window.setInterval(() => void refreshStation(), joined ? 4000 : 15000);
+    const timer = window.setInterval(() => void refreshStation(), joined ? 5000 : 20000);
     return () => window.clearInterval(timer);
   }, [refreshStation, joined]);
 
@@ -145,13 +155,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
   const join = () => {
     if (!station?.enabled || !station.currentSong || !currentUser?.id) return;
-    try { localStorage.setItem('yousong_radio_joined_' + currentUser.id, '1'); } catch {}
     setJoined(true);
+    const serverAgeSeconds = station.serverNow
+      ? Math.max(0, (Date.now() - new Date(station.serverNow).getTime()) / 1000)
+      : 0;
+    // Invoke the audio play request directly inside the Join click gesture.
+    void playRadioSong(station.currentSong, station.elapsedSeconds + serverAgeSeconds);
   };
   const leave = () => {
-    if (currentUser?.id) {
-      try { localStorage.removeItem('yousong_radio_joined_' + currentUser.id); } catch {}
-    }
     setJoined(false);
     leaveRadio();
   };
