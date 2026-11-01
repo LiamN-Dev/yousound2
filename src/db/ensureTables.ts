@@ -63,6 +63,7 @@ export async function ensureTables(): Promise<void> {
 
   // 2. Columns that older databases may be missing
   const columns: Array<[string, string]> = [
+    ['songs', 'duration_exact DOUBLE PRECISION'],
     ['users', 'chat_blocked BOOLEAN DEFAULT false'],
     ['users', 'is_suspended BOOLEAN DEFAULT false'],
     ['users', 'daily_listen_limit INTEGER'],
@@ -109,6 +110,22 @@ export async function ensureTables(): Promise<void> {
   await run(
     'idx_radio_chat_messages_created_at',
     'CREATE INDEX IF NOT EXISTS idx_radio_chat_messages_created_at ON radio_chat_messages(created_at)'
+  );
+
+  await run(
+    'radio_chat_bans',
+    `CREATE TABLE IF NOT EXISTS radio_chat_bans (
+       user_id TEXT PRIMARY KEY,
+       username TEXT NOT NULL,
+       reason TEXT,
+       banned_by TEXT NOT NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`
+  );
+  await run(
+    'idx_radio_chat_bans_created_at',
+    'CREATE INDEX IF NOT EXISTS idx_radio_chat_bans_created_at ON radio_chat_bans(created_at DESC)'
   );
 
 

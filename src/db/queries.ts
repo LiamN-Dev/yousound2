@@ -15,6 +15,7 @@ import {
   chatThreads,
   chatMessages,
   radioChatMessages,
+  radioChatBans,
   chatPairingBlocks,
 } from './schema.ts';
 
@@ -257,6 +258,59 @@ export async function getSongsDb() {
   }
 }
 
+/** One shared clock for all Render instances: PostgreSQL time, not each process's wall clock. */
+export async function getPersistentDbNowMs(): Promise<number> {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The shared database clock is unavailable. Live radio cannot safely synchronize.');
+  }
+  try {
+    const result = await db.execute(sql`SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS now_ms`);
+    const rows = (result as any).rows || [];
+    const nowMs = Number(rows[0]?.now_ms);
+    if (!Number.isFinite(nowMs) || nowMs <= 0) throw new Error('The database returned an invalid clock value.');
+    return nowMs;
+  } catch (error) {
+    noteDbError('getPersistentDbNowMs', error);
+    throw new Error('Could not read the shared PostgreSQL clock for radio synchronization.');
+  }
+}
+
+/** Live radio must use the same durable song catalogue on every Render instance. */
+export async function getSongsPersistentDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The radio song catalogue is unavailable because the persistent database is disconnected.');
+  }
+  try {
+    return await db.select().from(songs).orderBy(desc(songs.addedAt));
+  } catch (error) {
+    noteDbError('getSongsPersistentDb', error);
+    throw new Error('Could not load the radio song catalogue from the persistent database.');
+  }
+}
+
+/** Persist the exact media duration used by the radio scheduler; never accept a local-only update. */
+export async function updateSongDurationExactDb(id: string, seconds: number) {
+  const durationExact = Math.round(seconds * 1000) / 1000;
+  if (!id || !Number.isFinite(durationExact) || durationExact < 5 || durationExact > 43200) {
+    throw new Error('The decoded song duration is invalid.');
+  }
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Radio timing was not updated.');
+  }
+  try {
+    const rows = await db.update(songs).set({
+      duration: Math.round(durationExact),
+      durationExact,
+    }).where(eq(songs.id, id)).returning();
+    if (!rows[0]) throw new Error('The current radio song no longer exists in the shared library.');
+    localStore.updateSong(id, { duration: Math.round(durationExact), durationExact });
+    return rows[0];
+  } catch (error) {
+    noteDbError('updateSongDurationExactDb', error);
+    throw new Error(error instanceof Error ? error.message : 'Could not persist the exact radio song duration.');
+  }
+}
+
 export async function getSongByIdDb(id: string) {
   if (!(await checkSqlAvailability())) {
     return localStore.getSongs().find((song: any) => song.id === id) || null;
@@ -280,6 +334,7 @@ export async function insertSongDb(songData: {
   tags?: string[];
   typeMood?: string;
   duration: number;
+  durationExact?: number;
   audioUrl: string;
   coverUrl: string;
   addedAt: string;
@@ -324,6 +379,7 @@ export async function insertSongDb(songData: {
         tags: songData.tags || [],
         typeMood: songData.typeMood || null,
         duration: songData.duration,
+        durationExact: songData.durationExact ?? null,
         audioUrl: songData.audioUrl.trim(),
         coverUrl: songData.coverUrl.trim(),
         addedAt: songData.addedAt,
@@ -668,6 +724,33 @@ export async function getRequestsDb() {
   }
 }
 
+/** Request queue reads used by the admin pipeline must never return a process-local shadow copy. */
+export async function getRequestsPersistentDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Song requests are unavailable because the persistent database is disconnected.');
+  }
+  try {
+    await cleanupExpiredSongRequestsDb();
+    return await db.select().from(songRequests).orderBy(desc(songRequests.createdAt));
+  } catch (error) {
+    noteDbError('getRequestsPersistentDb', error);
+    throw new Error('Could not load song requests from the persistent database.');
+  }
+}
+
+export async function getRequestByIdPersistentDb(id: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Song requests are unavailable because the persistent database is disconnected.');
+  }
+  try {
+    const rows = await db.select().from(songRequests).where(eq(songRequests.id, id)).limit(1);
+    return rows[0] || null;
+  } catch (error) {
+    noteDbError('getRequestByIdPersistentDb', error);
+    throw new Error('Could not read the request from the persistent database.');
+  }
+}
+
 export async function getRequestByIdDb(id: string) {
   if (!(await checkSqlAvailability())) {
     return localStore.getRequestById(id);
@@ -767,6 +850,186 @@ export async function updateRequestFullDb(
     return updated[0];
   } catch (error) {
     noteDbError('updateRequestFullDb', error);
+    throw error;
+  }
+}
+
+/**
+ * Publish a staged song request as one atomic database transaction. Retrying the
+ * endpoint cannot create duplicate library songs or leave the request halfway published.
+ */
+export async function publishStagedSongRequestDb(requestId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The song was not published.');
+  }
+  try {
+    const publication = await db.transaction(async (tx) => {
+      const locked = await tx.select().from(songRequests)
+        .where(eq(songRequests.id, requestId)).for('update').limit(1);
+      const request = locked[0];
+      if (!request) throw new Error('Song request not found.');
+
+      if (request.status === 'published' && request.publishedSongId) {
+        const existing = await tx.select().from(songs)
+          .where(eq(songs.id, request.publishedSongId)).limit(1);
+        if (!existing[0]) throw new Error('This request is marked published, but its library song is missing. Do not retry until the database is reviewed.');
+        return { request, song: existing[0], alreadyPublished: true };
+      }
+      if (request.status !== 'staging') {
+        throw new Error('Only a staged request with an uploaded MP3 can be published.');
+      }
+
+      const audioFileId = String(request.driveFileId || '').trim();
+      const coverUrl = String(request.coverUrl || '').trim();
+      const artworkFileId = coverUrl.match(/\/d\/([A-Za-z0-9_-]+)/i)?.[1] || '';
+      const mediaCode = String(request.mediaCode || '').trim();
+      if (!audioFileId || !artworkFileId || !/^[0-9]{3}$/.test(mediaCode) || !request.audioUrl) {
+        throw new Error('This staged request is missing its Drive audio, Drive artwork, or Media ID. Upload the files again before publishing.');
+      }
+
+      const songId = 'song-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const title = String(request.songTitle || '').trim();
+      const artist = String(request.artist || 'Unknown Artist').trim() || 'Unknown Artist';
+      if (!title) throw new Error('A song title is required before publishing.');
+      const addedAt = new Date().toISOString();
+      const inserted = await tx.insert(songs).values({
+        id: songId,
+        title,
+        artist,
+        mediaCode,
+        album: 'YouSong Community',
+        genre: String(request.genre || 'Vibe / Chill').trim() || 'Vibe / Chill',
+        duration: Math.max(5, Number(request.duration) || 180),
+        durationExact: null,
+        audioUrl: String(request.audioUrl),
+        coverUrl,
+        addedAt,
+        plays: 0,
+        featured: false,
+        description: `Requested by ${request.requestedByUsername} via YouSong Pipeline.`,
+        tags: [String(request.genre || 'vibe').toLowerCase(), 'community', 'drive-mp3'],
+      }).returning();
+      if (!inserted[0]) throw new Error('The database did not confirm the new library song.');
+
+      const now = new Date();
+      await tx.insert(mediaIds).values({
+        code: mediaCode,
+        status: 'assigned',
+        songId,
+        requestId: null,
+        title: inserted[0].title,
+        artist: inserted[0].artist,
+        audioFileId,
+        artworkFileId,
+        updatedAt: now,
+      }).onConflictDoUpdate({
+        target: mediaIds.code,
+        set: {
+          status: 'assigned',
+          songId,
+          requestId: null,
+          title: inserted[0].title,
+          artist: inserted[0].artist,
+          audioFileId,
+          artworkFileId,
+          updatedAt: now,
+        },
+      });
+
+      const publishedAt = now.toISOString();
+      const updated = await tx.update(songRequests).set({
+        status: 'published',
+        publishedSongId: songId,
+        publishedAt,
+        processingProgress: 'Published. Audio streams directly from Google Drive.',
+        processingError: null,
+      }).where(eq(songRequests.id, requestId)).returning();
+      if (!updated[0]) throw new Error('The song was added, but the request record could not be updated. The transaction was rolled back.');
+      return { request: updated[0], song: inserted[0], alreadyPublished: false };
+    });
+    if (!publication.alreadyPublished) {
+      localStore.insertSong(publication.song);
+      localStore.updateRequestFull(requestId, {
+        status: 'published',
+        publishedSongId: publication.song.id,
+        publishedAt: publication.request.publishedAt,
+        processingProgress: 'Published. Audio streams directly from Google Drive.',
+        processingError: null,
+      });
+    }
+    return publication;
+  } catch (error) {
+    noteDbError('publishStagedSongRequestDb', error);
+    throw error;
+  }
+}
+
+/** Undo publication without deleting the Drive files; all database rows change together. */
+export async function unpublishSongRequestDb(requestId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The song was not unpublished.');
+  }
+  try {
+    const publication = await db.transaction(async (tx) => {
+      const locked = await tx.select().from(songRequests)
+        .where(eq(songRequests.id, requestId)).for('update').limit(1);
+      const request = locked[0];
+      if (!request) throw new Error('Song request not found.');
+      if (request.status === 'staging' && !request.publishedSongId) return request;
+      if (request.status !== 'published' || !request.publishedSongId) {
+        throw new Error('Only a published request can be unpublished.');
+      }
+
+      await tx.delete(songs).where(eq(songs.id, request.publishedSongId));
+      const mediaCode = String(request.mediaCode || '').trim();
+      if (/^[0-9]{3}$/.test(mediaCode)) {
+        const now = new Date();
+        await tx.insert(mediaIds).values({
+          code: mediaCode,
+          status: 'reserved',
+          songId: null,
+          requestId,
+          title: request.songTitle,
+          artist: request.artist || 'Unknown Artist',
+          audioFileId: request.driveFileId || null,
+          artworkFileId: String(request.coverUrl || '').match(/\/d\/([A-Za-z0-9_-]+)/i)?.[1] || null,
+          updatedAt: now,
+        }).onConflictDoUpdate({
+          target: mediaIds.code,
+          set: {
+            status: 'reserved',
+            songId: null,
+            requestId,
+            title: request.songTitle,
+            artist: request.artist || 'Unknown Artist',
+            audioFileId: request.driveFileId || null,
+            artworkFileId: String(request.coverUrl || '').match(/\/d\/([A-Za-z0-9_-]+)/i)?.[1] || null,
+            updatedAt: now,
+          },
+        });
+      }
+
+      const updated = await tx.update(songRequests).set({
+        status: 'staging',
+        publishedSongId: null,
+        publishedAt: null,
+        processingProgress: 'Unpublished; MP3 remains in staging.',
+        processingError: null,
+      }).where(eq(songRequests.id, requestId)).returning();
+      if (!updated[0]) throw new Error('The request could not be restored to staging.');
+      return updated[0];
+    });
+    if (publication.publishedSongId) localStore.deleteSong(publication.publishedSongId);
+    localStore.updateRequestFull(requestId, {
+      status: 'staging',
+      publishedSongId: null,
+      publishedAt: null,
+      processingProgress: 'Unpublished; MP3 remains in staging.',
+      processingError: null,
+    });
+    return publication;
+  } catch (error) {
+    noteDbError('unpublishSongRequestDb', error);
     throw error;
   }
 }
@@ -917,37 +1180,38 @@ export async function deletePopupDb(id: string) {
 
 
 /** Recent station chat messages, ordered oldest-to-newest for the client. */
+/** Radio chat is shared across Render instances; never return process-local phantom messages. */
 export async function getRadioChatMessagesDb(limit = 60) {
   const safeLimit = Math.max(1, Math.min(100, Math.floor(limit) || 60));
   if (!(await checkSqlAvailability())) {
-    const cached = localStore.getSetting('radio_chat_messages');
-    return Array.isArray(cached) ? cached.slice(-safeLimit) : [];
+    throw new Error('Radio chat is unavailable because the persistent database is disconnected.');
   }
   try {
     const rows = await db.select().from(radioChatMessages)
       .orderBy(desc(radioChatMessages.createdAt)).limit(safeLimit);
     return rows.reverse().map((row) => ({
-      id: row.id, userId: row.userId, username: row.username,
-      message: row.message, createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+      id: row.id,
+      userId: row.userId,
+      username: row.username,
+      message: row.message,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
     }));
   } catch (error) {
     noteDbError('getRadioChatMessagesDb', error);
-    throw new Error('Could not load radio chat messages.');
+    throw new Error('Could not load radio chat messages from the persistent database.');
   }
 }
 
 export async function clearRadioChatMessagesDb() {
   if (!(await checkSqlAvailability())) {
-    localStore.setSetting('radio_chat_messages', []);
-    return true;
+    throw new Error('Radio chat cannot be cleared because the persistent database is disconnected.');
   }
   try {
     await db.delete(radioChatMessages);
-    localStore.setSetting('radio_chat_messages', []);
     return true;
   } catch (error) {
     noteDbError('clearRadioChatMessagesDb', error);
-    throw new Error('Could not clear radio chat messages.');
+    throw new Error('Could not clear persistent radio chat messages.');
   }
 }
 
@@ -955,20 +1219,93 @@ export async function createRadioChatMessageDb(data: {
   id: string; userId: string; username: string; message: string;
 }) {
   if (!(await checkSqlAvailability())) {
-    const cached = localStore.getSetting('radio_chat_messages');
-    const list = Array.isArray(cached) ? cached : [];
-    const message = { ...data, createdAt: new Date().toISOString() };
-    localStore.setSetting('radio_chat_messages', [...list, message].slice(-100));
-    return message;
+    throw new Error('Radio chat is unavailable because the persistent database is disconnected. Your message was not sent.');
   }
   try {
     const rows = await db.insert(radioChatMessages).values(data).returning();
     const row = rows[0];
-    return { id: row.id, userId: row.userId, username: row.username, message: row.message,
-      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString() };
+    if (!row) throw new Error('The database did not confirm your message.');
+    return {
+      id: row.id,
+      userId: row.userId,
+      username: row.username,
+      message: row.message,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+    };
   } catch (error) {
     noteDbError('createRadioChatMessageDb', error);
-    throw new Error('Could not send your radio chat message.');
+    throw new Error(error instanceof Error ? error.message : 'Could not send your radio chat message.');
+  }
+}
+
+/** Strict persistent radio-moderation reads. A disconnected database is an error, not an empty ban list. */
+export async function listRadioChatBansDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected. No moderation changes were applied.');
+  }
+  try {
+    return await db.select().from(radioChatBans).orderBy(desc(radioChatBans.createdAt));
+  } catch (error) {
+    noteDbError('listRadioChatBansDb', error);
+    throw new Error('Could not read the persistent radio ban list.');
+  }
+}
+
+export async function getRadioChatBanDb(userId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected.');
+  }
+  try {
+    const rows = await db.select().from(radioChatBans).where(eq(radioChatBans.userId, userId)).limit(1);
+    return rows[0] || null;
+  } catch (error) {
+    noteDbError('getRadioChatBanDb', error);
+    throw new Error('Could not verify radio chat permissions.');
+  }
+}
+
+export async function upsertRadioChatBanDb(data: {
+  userId: string; username: string; reason?: string | null; bannedBy: string;
+}) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected. The user was not banned.');
+  }
+  try {
+    const now = new Date();
+    const rows = await db.insert(radioChatBans).values({
+      userId: data.userId,
+      username: data.username,
+      reason: data.reason || null,
+      bannedBy: data.bannedBy,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: radioChatBans.userId,
+      set: {
+        username: data.username,
+        reason: data.reason || null,
+        bannedBy: data.bannedBy,
+        updatedAt: now,
+      },
+    }).returning();
+    if (!rows[0]) throw new Error('The database did not confirm the ban.');
+    return rows[0];
+  } catch (error) {
+    noteDbError('upsertRadioChatBanDb', error);
+    throw new Error(error instanceof Error ? error.message : 'Could not save the radio ban.');
+  }
+}
+
+export async function deleteRadioChatBanDb(userId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected. The ban was not removed.');
+  }
+  try {
+    const rows = await db.delete(radioChatBans).where(eq(radioChatBans.userId, userId)).returning({ userId: radioChatBans.userId });
+    return rows.length > 0;
+  } catch (error) {
+    noteDbError('deleteRadioChatBanDb', error);
+    throw new Error('Could not remove the persistent radio ban.');
   }
 }
 
@@ -1094,6 +1431,93 @@ export async function reserveMediaIdDb(code: string): Promise<boolean> {
     .onConflictDoNothing({ target: mediaIds.code })
     .returning({ code: mediaIds.code });
   return rows.length > 0;
+}
+
+/** Release a reservation created by a failed upload; never delete an assigned or another request's ID. */
+export async function releaseUnusedMediaIdReservationDb(code: string, requestId?: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Media ID reservation could not be cleaned up.');
+  }
+  try {
+    const rows = await db.select().from(mediaIds).where(eq(mediaIds.code, code)).limit(1);
+    const record = rows[0];
+    if (!record || record.status !== 'reserved' || record.songId) return false;
+    if (record.requestId && record.requestId !== requestId) return false;
+    const deleted = await db.delete(mediaIds)
+      .where(eq(mediaIds.code, code))
+      .returning({ code: mediaIds.code });
+    return deleted.length > 0;
+  } catch (error) {
+    noteDbError('releaseUnusedMediaIdReservationDb', error);
+    throw new Error('Could not safely release the unused Media ID reservation.');
+  }
+}
+
+/**
+ * Complete a Drive upload in one transaction: bind its reserved Media ID and move
+ * the approved request into staging together, or persist neither change.
+ */
+export async function stageSongRequestMediaDb(
+  requestId: string,
+  media: {
+    code: string;
+    title: string;
+    artist: string;
+    audioFileId: string;
+    artworkFileId: string;
+  },
+  requestUpdates: Partial<typeof songRequests.$inferInsert>,
+) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The uploaded media was not attached to the request.');
+  }
+  if (!/^[0-9]{3}$/.test(media.code)) throw new Error('Media IDs must contain exactly three digits.');
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const locked = await tx.select().from(songRequests)
+        .where(eq(songRequests.id, requestId)).for('update').limit(1);
+      const request = locked[0];
+      if (!request) throw new Error('Song request not found.');
+      if (request.status !== 'approved') throw new Error('This request is no longer approved for upload. Refresh the pipeline before retrying.');
+
+      const reservedRows = await tx.select().from(mediaIds)
+        .where(eq(mediaIds.code, media.code)).for('update').limit(1);
+      const reservation = reservedRows[0];
+      if (!reservation || reservation.status !== 'reserved' || reservation.songId
+        || (reservation.requestId && reservation.requestId !== requestId)) {
+        throw new Error('The selected Media ID is no longer reserved for this upload. Try the upload again.');
+      }
+
+      const now = new Date();
+      const mediaRows = await tx.update(mediaIds).set({
+        status: 'reserved',
+        songId: null,
+        requestId,
+        title: media.title,
+        artist: media.artist,
+        audioFileId: media.audioFileId,
+        artworkFileId: media.artworkFileId,
+        updatedAt: now,
+      }).where(eq(mediaIds.code, media.code)).returning();
+      if (!mediaRows[0]) throw new Error('The Media ID reservation could not be attached to this request.');
+
+      const requestRows = await tx.update(songRequests).set({
+        ...requestUpdates,
+        status: 'staging',
+        mediaCode: media.code,
+      }).where(eq(songRequests.id, requestId)).returning();
+      if (!requestRows[0] || requestRows[0].status !== 'staging') {
+        throw new Error('The request could not be moved into staging. The database rolled back the Media ID update.');
+      }
+      return requestRows[0];
+    });
+    localStore.updateRequestFull(requestId, requestUpdates);
+    localStore.updateRequestFull(requestId, { status: 'staging', mediaCode: media.code });
+    return updated;
+  } catch (error) {
+    noteDbError('stageSongRequestMediaDb', error);
+    throw error;
+  }
 }
 
 export async function saveMediaIdDb(record: {

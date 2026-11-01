@@ -1,6 +1,9 @@
 name: Verify YouSong
 
 on:
+  push:
+    branches:
+      - fix-radio-sync-pipeline-moderation
   pull_request:
     branches: [main]
 

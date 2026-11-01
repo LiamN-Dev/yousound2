@@ -40,8 +40,8 @@ interface AudioContextType {
   equalizer: EqualizerSettings;
   setEqualizer: (updates: Partial<EqualizerSettings>) => void;
   isRadioMode: boolean;
-  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean, playbackRate?: number) => Promise<void>;
-  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number) => Promise<void>;
+  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean, playbackRate?: number, syncAtLocalEpochMs?: number) => Promise<void>;
+  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number, syncAtLocalEpochMs?: number) => Promise<void>;
   leaveRadio: () => void;
   pauseRadioPlayback: () => void;
   // Controls
@@ -116,6 +116,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Polling can synchronize playback only after that opt-in has happened.
   const radioJoinedRef = useRef(false);
   const radioPreviousSpeedRef = useRef<number | null>(null);
+  const radioGainRef = useRef<GainNode | null>(null);
+  const radioSyncPendingRef = useRef(false);
+  const radioSyncTimerRef = useRef<number | null>(null);
+  const radioSyncResolveRef = useRef<(() => void) | null>(null);
+  const radioFallbackMuteRef = useRef<{ muted: boolean; volume: number } | null>(null);
   const audioGraphRef = useRef<AudioContext | null>(null);
   const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
   const equalizerOwnerRef = useRef<string | null>(null);
@@ -240,9 +245,13 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return filter;
         });
         source.connect(filters[0]);
-        filters.forEach((filter, index) => filter.connect(filters[index + 1] || graph.destination));
+        const radioGain = graph.createGain();
+        radioGain.gain.value = 1;
+        filters.forEach((filter, index) => filter.connect(filters[index + 1] || radioGain));
+        radioGain.connect(graph.destination);
         audioGraphRef.current = graph;
         eqFiltersRef.current = filters;
+        radioGainRef.current = radioGain;
       } catch (error) {
         console.warn('Equalizer audio graph could not be initialized:', error);
       }
@@ -254,32 +263,37 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleLoadedMetadata = () => {
       if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-        const measured = Math.round(audio.duration);
+        const measuredExact = Math.round(audio.duration * 1000) / 1000;
+        const measured = Math.round(measuredExact);
         setDuration(audio.duration);
 
-        // Self-heal: If measured duration differs from song's labeled duration by >= 2 seconds, update it permanently!
-        if (currentSongRef.current && measured > 0 && Math.abs((currentSongRef.current.duration || 0) - measured) >= 2) {
-          console.log(`Self-healing duration for "${currentSongRef.current.title}": ${currentSongRef.current.duration}s -> ${measured}s`);
-          const healed = currentSongRef.current;
+        // Radio uses the exact media duration, not rounded display seconds. A half-second
+        // rounding error on each track becomes cumulative playlist drift over time.
+        const healed = currentSongRef.current;
+        if (healed && measuredExact >= 5 && (!Number(healed.durationExact) || Math.abs(Number(healed.durationExact) - measuredExact) >= 0.02)) {
           if (radioModeRef.current) {
             void fetch('/api/radio/duration', {
               method: 'POST', credentials: 'same-origin',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ songId: healed.id, seconds: measured }),
+              body: JSON.stringify({ songId: healed.id, seconds: measuredExact }),
             }).catch(() => undefined);
           }
-          if (healed.id.startsWith('staging-')) {
-            // Admin test play of a not-yet-published song: the test player saves it on the request
-          } else if (userRoleRef.current === 'admin') {
-            storage.updateSong(healed.id, { duration: measured });
-          } else {
-            // Any listener's player can supply the real length when the song only has a placeholder
-            storage.reportSongDuration(healed.id, measured);
+
+          if (Math.abs((Number(healed.duration) || 0) - measured) >= 2) {
+            console.log(`Self-healing duration for "${healed.title}": ${healed.duration}s -> ${measured}s (${measuredExact}s exact)`);
+            if (healed.id.startsWith('staging-')) {
+              // Admin test play of a not-yet-published song: the test player saves it on the request
+            } else if (userRoleRef.current === 'admin') {
+              storage.updateSong(healed.id, { duration: measured, durationExact: measuredExact });
+            } else {
+              storage.reportSongDuration(healed.id, measured);
+            }
+          } else if (!healed.durationExact && !radioModeRef.current && !healed.id.startsWith('staging-')) {
+            storage.updateSong(healed.id, { durationExact: measuredExact });
           }
         }
       }
     };
-
     const handleEnded = () => {
       handleTrackEndRef.current();
     };
@@ -307,6 +321,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
       eqFiltersRef.current = [];
+      radioGainRef.current = null;
       const graph = audioGraphRef.current;
       audioGraphRef.current = null;
       if (graph && graph.state !== 'closed') void graph.close().catch(() => undefined);
@@ -436,62 +451,207 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setIsPlaying(false);
   }, [repeatMode, queue, allSongs, currentSong, isShuffled, playSong]);
 
-  const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number, playbackRate = 1) => {
-    // Background polling must never start audio for a listener who has not opted in.
+  const playRadioSong = useCallback(async (
+    song: Song,
+    elapsedSeconds: number,
+    playbackRate = 1,
+    syncAtLocalEpochMs?: number,
+  ) => {
     if (!radioJoinedRef.current) return;
+    if (radioSyncPendingRef.current) {
+      // A newer admin command supersedes a start already waiting at the barrier.
+      if (!Number.isFinite(syncAtLocalEpochMs)) return;
+      if (radioSyncTimerRef.current !== null) {
+        window.clearTimeout(radioSyncTimerRef.current);
+        radioSyncTimerRef.current = null;
+      }
+      // Resolve the old waiter after invalidating its attempt so rapid admin
+      // seeks/speed changes cannot leave promises hanging or mutate newer state.
+      playAttemptRef.current += 1;
+      const supersededResolve = radioSyncResolveRef.current;
+      radioSyncResolveRef.current = null;
+      supersededResolve?.();
+      radioSyncPendingRef.current = false;
+    }
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+
     if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
     radioModeRef.current = true;
     const safePlaybackRate = Math.min(2, Math.max(0.5, Number(playbackRate) || 1));
     audio.playbackRate = safePlaybackRate;
     setIsRadioMode(true);
+
     const sourceUrl = getPlayableAudioUrl(song.audioUrl);
     let absoluteUrl = sourceUrl;
     try { absoluteUrl = new URL(sourceUrl, window.location.href).href; } catch {}
     const needsSource = audio.src !== absoluteUrl || currentSongRef.current?.id !== song.id;
     const attemptId = needsSource ? ++playAttemptRef.current : playAttemptRef.current;
-    if (needsSource) {
-      setPlaybackError(null);
-      audio.pause();
-      currentSongRef.current = song;
-      setCurrentSong(song);
-      audio.src = sourceUrl;
-      audio.load();
-      // Start the play request immediately. This is important when the first call
-      // comes from the user's Join click; waiting for metadata can lose autoplay permission.
+    const useBarrier = Number.isFinite(syncAtLocalEpochMs);
+    const targetAtSync = Math.max(0, Number(elapsedSeconds) || 0);
+
+    if (useBarrier) {
+      radioSyncPendingRef.current = true;
+      const graph = audioGraphRef.current;
+      const gain = radioGainRef.current;
+      if (graph && gain) {
+        gain.gain.cancelScheduledValues(graph.currentTime);
+        gain.gain.setValueAtTime(0, graph.currentTime);
+      } else {
+        if (!radioFallbackMuteRef.current) {
+          radioFallbackMuteRef.current = { muted: audio.muted, volume: audio.volume };
+        }
+        audio.muted = true;
+      }
+    }
+
+    try {
+      if (needsSource) {
+        setPlaybackError(null);
+        audio.pause();
+        currentSongRef.current = song;
+        setCurrentSong(song);
+        audio.src = sourceUrl;
+        audio.load();
+      } else {
+        currentSongRef.current = song;
+        setCurrentSong(song);
+      }
+
       const graphResume = audioGraphRef.current?.state === 'suspended'
         ? audioGraphRef.current.resume().catch(() => undefined)
         : Promise.resolve();
-      const playRequest = audio.play();
-      await graphResume;
-      await new Promise<void>((resolve) => {
-        if (audio.readyState >= 1) return resolve();
-        const done = () => resolve();
-        audio.addEventListener('loadedmetadata', done, { once: true });
-        audio.addEventListener('error', done, { once: true });
-      });
-      if (attemptId !== playAttemptRef.current || !radioModeRef.current) return;
-      try { await playRequest; } catch {
-        if (attemptId === playAttemptRef.current) {
-          setIsPlaying(false);
-          setPlaybackError('Radio audio could not start. Press Join to allow playback.');
-        }
-        return;
+      let playRequest: Promise<void> | null = null;
+      if (needsSource) {
+        // Start a muted buffering request immediately so a Join click retains browser
+        // user activation. It is repositioned before the common audible start.
+        playRequest = audio.play();
+        void playRequest.catch(() => undefined);
       }
-    } else if (currentSongRef.current?.id !== song.id) {
-      setCurrentSong(song);
+      await graphResume;
+      if (audioGraphRef.current && audioGraphRef.current.state !== 'running') {
+        throw new Error('Your browser suspended its audio engine. Keep this tab active and press Join again to synchronize.');
+      }
+
+      if (needsSource) {
+        await new Promise<void>((resolve, reject) => {
+          if (audio.readyState >= 3) return resolve();
+          let settled = false;
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timeout);
+            audio.removeEventListener('canplay', onReady);
+            audio.removeEventListener('error', onError);
+            error ? reject(error) : resolve();
+          };
+          const onReady = () => finish();
+          const onError = () => finish(new Error('The radio stream failed to load. Check the Google Drive audio file and try again.'));
+          const timeout = window.setTimeout(() => finish(new Error('The radio stream did not buffer in time. Leave and rejoin to retry.')), 20000);
+          audio.addEventListener('canplay', onReady, { once: true });
+          audio.addEventListener('error', onError, { once: true });
+          if (audio.readyState >= 3) finish();
+        });
+      }
+      if (attemptId !== playAttemptRef.current || !radioModeRef.current) return;
+
+      if (useBarrier) {
+        // Do not make the stream audible until it is buffered and aligned to the
+        // same future server-clock boundary used by every other listener.
+        if (playRequest) await playRequest;
+        audio.pause();
+        const remainingBeforeStart = Math.max(0, (Number(syncAtLocalEpochMs) - Date.now()) / 1000);
+        const positionAtBufferStart = Math.max(0, targetAtSync - remainingBeforeStart * safePlaybackRate);
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          audio.currentTime = Math.min(positionAtBufferStart, Math.max(0, audio.duration - 0.25));
+        }
+        audio.playbackRate = safePlaybackRate;
+        await audio.play();
+
+        const remainingMs = Math.max(0, Number(syncAtLocalEpochMs) - Date.now());
+        const context = audioGraphRef.current;
+        const gain = radioGainRef.current;
+        if (context && gain && context.state === 'running') {
+          const audibleAt = context.currentTime + remainingMs / 1000;
+          gain.gain.cancelScheduledValues(context.currentTime);
+          gain.gain.setValueAtTime(0, context.currentTime);
+          gain.gain.setValueAtTime(0, audibleAt);
+          gain.gain.linearRampToValueAtTime(1, audibleAt + 0.015);
+        }
+
+        await new Promise<void>((resolve) => {
+          const finishSync = () => {
+            radioSyncTimerRef.current = null;
+            if (radioSyncResolveRef.current === finishSync) radioSyncResolveRef.current = null;
+            if (attemptId === playAttemptRef.current) {
+              if (radioFallbackMuteRef.current) {
+                audio.muted = radioFallbackMuteRef.current.muted;
+                audio.volume = radioFallbackMuteRef.current.volume;
+                radioFallbackMuteRef.current = null;
+              }
+              radioSyncPendingRef.current = false;
+              setIsPlaying(!audio.paused);
+            }
+            resolve();
+          };
+          radioSyncResolveRef.current = finishSync;
+          radioSyncTimerRef.current = window.setTimeout(finishSync, remainingMs + 35);
+        });
+      } else {
+        if (playRequest) {
+          try { await playRequest; } catch {
+            if (attemptId === playAttemptRef.current) {
+              setIsPlaying(false);
+              setPlaybackError('Radio audio could not start. Press Join to allow playback.');
+            }
+            return;
+          }
+        }
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          audio.currentTime = Math.min(targetAtSync, Math.max(0, audio.duration - 0.25));
+        }
+      }
+    } catch (error: any) {
+      radioSyncPendingRef.current = false;
+      if (radioSyncTimerRef.current !== null) {
+        window.clearTimeout(radioSyncTimerRef.current);
+        radioSyncTimerRef.current = null;
+      }
+      const gain = radioGainRef.current;
+      const graph = audioGraphRef.current;
+      if (gain && graph) {
+        gain.gain.cancelScheduledValues(graph.currentTime);
+        gain.gain.setValueAtTime(1, graph.currentTime);
+      }
+      if (radioFallbackMuteRef.current) {
+        audio.muted = radioFallbackMuteRef.current.muted;
+        audio.volume = radioFallbackMuteRef.current.volume;
+        radioFallbackMuteRef.current = null;
+      }
+      if (attemptId === playAttemptRef.current) {
+        setIsPlaying(false);
+        setPlaybackError(error?.message || 'Radio could not prepare this stream. Press Leave and Join to retry.');
+      }
+      return;
     }
 
-    if (attemptId !== playAttemptRef.current || !radioModeRef.current) return;
-    const target = Math.max(0, Number(elapsedSeconds) || 0);
+    if (attemptId !== playAttemptRef.current || !radioModeRef.current || radioSyncPendingRef.current) return;
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      // Polls are only clock corrections. Never reload/restart an already playing track.
-      if (Math.abs(audio.currentTime - target) > 0.65) {
-        try { audio.currentTime = Math.min(target, Math.max(0, audio.duration - 0.25)); } catch {}
+      const target = Math.min(targetAtSync, Math.max(0, audio.duration - 0.25));
+      const drift = target - audio.currentTime;
+      const absoluteDrift = Math.abs(drift);
+      if (absoluteDrift > 0.45) {
+        try { audio.currentTime = target; } catch {}
+        audio.playbackRate = safePlaybackRate;
+      } else if (absoluteDrift > 0.035) {
+        const correction = Math.max(-0.03, Math.min(0.03, drift * 0.12));
+        audio.playbackRate = safePlaybackRate * (1 + correction);
+      } else {
+        audio.playbackRate = safePlaybackRate;
       }
       setDuration(audio.duration);
     }
+
     if (audio.paused) {
       try {
         if (audioGraphRef.current?.state === 'suspended') await audioGraphRef.current.resume();
@@ -507,10 +667,39 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (attemptId === playAttemptRef.current) setIsPlaying(true);
   }, []);
 
-  const joinRadioPlayback = useCallback(async (song: Song, elapsedSeconds: number, paused = false, playbackRate = 1) => {
+  const joinRadioPlayback = useCallback(async (
+    song: Song,
+    elapsedSeconds: number,
+    paused = false,
+    playbackRate = 1,
+    syncAtLocalEpochMs?: number,
+  ) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
-    // Invalidate any ordinary-track play request that was still awaiting authorization.
+    if (paused && radioSyncPendingRef.current) {
+      // A server pause/paused seek cancels a pending future audible start immediately.
+      playAttemptRef.current += 1;
+      if (radioSyncTimerRef.current !== null) {
+        window.clearTimeout(radioSyncTimerRef.current);
+        radioSyncTimerRef.current = null;
+      }
+      const pendingResolve = radioSyncResolveRef.current;
+      radioSyncResolveRef.current = null;
+      pendingResolve?.();
+      radioSyncPendingRef.current = false;
+      const gain = radioGainRef.current;
+      const graph = audioGraphRef.current;
+      if (gain && graph) {
+        gain.gain.cancelScheduledValues(graph.currentTime);
+        gain.gain.setValueAtTime(1, graph.currentTime);
+      }
+      if (radioFallbackMuteRef.current) {
+        audio.muted = radioFallbackMuteRef.current.muted;
+        audio.volume = radioFallbackMuteRef.current.volume;
+        radioFallbackMuteRef.current = null;
+      }
+    }
+
     playAttemptRef.current += 1;
     radioJoinedRef.current = true;
 
@@ -530,7 +719,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       currentSongRef.current = song;
       setCurrentSong(song);
-      setDuration(Math.max(0, Number(song.duration) || 0));
+      setDuration(Math.max(0, Number(song.durationExact) || Number(song.duration) || 0));
       const target = Math.max(0, Number(elapsedSeconds) || 0);
       const setPausedPosition = () => {
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
@@ -545,7 +734,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    await playRadioSong(song, elapsedSeconds, playbackRate);
+    await playRadioSong(song, elapsedSeconds, playbackRate, syncAtLocalEpochMs);
   }, [playRadioSong]);
 
   const pauseRadioPlayback = useCallback(() => {
@@ -557,6 +746,26 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const leaveRadio = useCallback(() => {
     const hadRadioSession = radioJoinedRef.current || radioModeRef.current;
     radioJoinedRef.current = false;
+    playAttemptRef.current += 1;
+    radioSyncPendingRef.current = false;
+    if (radioSyncTimerRef.current !== null) {
+      window.clearTimeout(radioSyncTimerRef.current);
+      radioSyncTimerRef.current = null;
+    }
+    const pendingResolve = radioSyncResolveRef.current;
+    radioSyncResolveRef.current = null;
+    pendingResolve?.();
+    const gain = radioGainRef.current;
+    const graph = audioGraphRef.current;
+    if (gain && graph) {
+      gain.gain.cancelScheduledValues(graph.currentTime);
+      gain.gain.setValueAtTime(1, graph.currentTime);
+    }
+    if (audioRef.current && radioFallbackMuteRef.current) {
+      audioRef.current.muted = radioFallbackMuteRef.current.muted;
+      audioRef.current.volume = radioFallbackMuteRef.current.volume;
+      radioFallbackMuteRef.current = null;
+    }
     if (!hadRadioSession) return;
     radioModeRef.current = false;
     setIsRadioMode(false);
@@ -565,7 +774,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setPlaybackSpeedState(radioPreviousSpeedRef.current);
     }
     radioPreviousSpeedRef.current = null;
-    playAttemptRef.current += 1;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();

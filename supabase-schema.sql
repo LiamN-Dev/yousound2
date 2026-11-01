@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS songs (
   tags JSONB DEFAULT '[]'::jsonb,
   type_mood TEXT,
   duration INTEGER NOT NULL DEFAULT 0,
+  duration_exact DOUBLE PRECISION,
   audio_url TEXT NOT NULL,
   cover_url TEXT NOT NULL,
   added_at TEXT NOT NULL,
@@ -212,7 +213,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 12. Chat Pairing Blocks Table
+-- 12. Radio Chat Bans (separate from account-wide chat restrictions)
+CREATE TABLE IF NOT EXISTS radio_chat_bans (
+  user_id TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  reason TEXT,
+  banned_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 13. Chat Pairing Blocks Table
 CREATE TABLE IF NOT EXISTS chat_pairing_blocks (
   id SERIAL PRIMARY KEY,
   user1_id TEXT NOT NULL,

@@ -13,6 +13,9 @@ import {
   updateUserDb,
   deleteUserDb,
   getSongsDb,
+  getSongsPersistentDb,
+  getPersistentDbNowMs,
+  updateSongDurationExactDb,
   insertSongDb,
   updateSongDb,
   deleteSongDb,
@@ -27,6 +30,10 @@ import {
   toggleFavoriteDb,
   getRequestsDb,
   getRequestByIdDb,
+  getRequestsPersistentDb,
+  getRequestByIdPersistentDb,
+  publishStagedSongRequestDb,
+  unpublishSongRequestDb,
   createRequestDb,
   updateRequestDb,
   updateRequestFullDb,
@@ -46,6 +53,8 @@ import {
   getMediaIdByCodeDb,
   reserveMediaIdDb,
   saveMediaIdDb,
+  stageSongRequestMediaDb,
+  releaseUnusedMediaIdReservationDb,
   saveMediaFileDb,
   getMediaFileDb,
   recordUserLoginDb,
@@ -72,6 +81,10 @@ import {
   getRadioChatMessagesDb,
   createRadioChatMessageDb,
   clearRadioChatMessagesDb,
+  listRadioChatBansDb,
+  getRadioChatBanDb,
+  upsertRadioChatBanDb,
+  deleteRadioChatBanDb,
   createChatMessageDb,
   deleteChatMessageDb,
   getChatPairingBlocksDb,
@@ -1522,6 +1535,8 @@ type RadioConfig = {
   pausedAt?: string | null;
   loopPlaylist?: boolean;
   playbackRate?: number;
+  /** Changes whenever the authoritative playback timeline is repositioned. */
+  syncRevision?: number;
 };
 
 const DEFAULT_RADIO_CONFIG: RadioConfig = {
@@ -1535,6 +1550,7 @@ const DEFAULT_RADIO_CONFIG: RadioConfig = {
   pausedAt: null,
   loopPlaylist: false,
   playbackRate: 1,
+  syncRevision: 0,
 };
 
 function cleanRadioProgram(value: any): RadioProgram {
@@ -1550,8 +1566,8 @@ function cleanRadioProgram(value: any): RadioProgram {
 }
 
 async function resolveRadioState() {
-  let config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
-  const now = Date.now();
+  let config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
+  let now = await getPersistentDbNowMs();
   const playbackRate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
 
@@ -1565,12 +1581,15 @@ async function resolveRadioState() {
       currentProgram: { ...config.nextProgram, startsAt: null },
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
+      syncRevision: Math.max(0, Number(config.syncRevision) || 0) + 1,
     };
-    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     await clearRadioChatMessagesDb();
   }
 
-  const songs = await getSongsDb();
+  const songs = await getSongsPersistentDb();
+  // Anchor the elapsed clock after the playlist read, immediately before deriving the state.
+  now = await getPersistentDbNowMs();
   const songMap = new Map(songs.map((song: any) => [String(song.id), song]));
   const playlist = (config.currentProgram?.songIds || [])
     .map((id) => songMap.get(String(id)))
@@ -1581,7 +1600,7 @@ async function resolveRadioState() {
   let programElapsedSeconds = 0;
 
   if (config.enabled && playlist.length) {
-    const durations = playlist.map((song) => Math.max(1, Number(song.duration) || 180));
+    const durations = playlist.map((song) => Math.max(1, Number(song.durationExact) || Number(song.duration) || 180));
     const totalDuration = durations.reduce((sum, value) => sum + value, 0);
     const startedAtMs = new Date(config.startedAt || now).getTime();
     const radioClockMs = config.pausedAt ? new Date(config.pausedAt).getTime() : now;
@@ -1589,7 +1608,7 @@ async function resolveRadioState() {
     if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
-      await setSettingDb(RADIO_CONFIG_SETTING, config);
+      await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
       await clearRadioChatMessagesDb();
     }
     let offset = config.loopPlaylist ? programElapsedSeconds % totalDuration : Math.min(programElapsedSeconds, Math.max(0, totalDuration - 0.25));
@@ -1621,6 +1640,7 @@ async function resolveRadioState() {
     paused: Boolean(config.pausedAt),
     loopPlaylist: Boolean(config.loopPlaylist),
     playbackRate,
+    syncRevision: Math.max(0, Number(config.syncRevision) || 0),
     serverNow: new Date(now).toISOString(),
   };
 }
@@ -1646,26 +1666,33 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
 
 app.post('/api/radio/duration', async (req: Request, res: Response) => {
   try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Sign in before reporting radio playback duration.' });
     const songId = String(req.body?.songId || '');
-    const seconds = Math.round(Number(req.body?.seconds));
-    if (!songId || !Number.isFinite(seconds) || seconds < 5 || seconds > 43200) {
+    const exactSeconds = Number(req.body?.seconds);
+    if (!songId || !Number.isFinite(exactSeconds) || exactSeconds < 5 || exactSeconds > 43200) {
       return res.status(400).json({ success: false, error: 'Invalid radio song duration.' });
     }
+    const exact = Math.round(exactSeconds * 1000) / 1000;
+    const rounded = Math.round(exact);
     const state = await resolveRadioState();
     if (!state.enabled || String(state.currentSong?.id || '') !== songId) {
       return res.status(409).json({ success: false, error: 'Duration can only be reported for the current live radio song.' });
     }
-    const current = Number(state.currentSong?.duration) || 0;
-    if (Math.abs(current - seconds) >= 2) await updateSongDb(songId, { duration: seconds });
-    return res.json({ success: true, duration: seconds });
+    const currentExact = Number(state.currentSong?.durationExact) || Number(state.currentSong?.duration) || 0;
+    if (!Number(state.currentSong?.durationExact) || Math.abs(currentExact - exact) >= 0.02) {
+      await updateSongDurationExactDb(songId, exact);
+    }
+    return res.json({ success: true, duration: rounded, durationExact: exact });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not update radio duration.' });
   }
 });
 
-app.get('/api/admin/radio/config', async (_req: Request, res: Response) => {
+app.get('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
-    const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     return res.json({ success: true, config });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load radio settings.' });
@@ -1676,10 +1703,11 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const body = req.body || {};
-    const existing = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const sharedNowMs = await getPersistentDbNowMs();
+    const existing = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     const currentProgram = cleanRadioProgram(body.currentProgram || existing.currentProgram);
     const nextProgram = body.nextProgram ? cleanRadioProgram(body.nextProgram) : null;
-    const allSongs = await getSongsDb();
+    const allSongs = await getSongsPersistentDb();
     const validIds = new Set(allSongs.map((song: any) => String(song.id)));
     const requestedIds = [...currentProgram.songIds, ...(nextProgram?.songIds || [])];
     if (requestedIds.some((id) => !validIds.has(id))) {
@@ -1693,7 +1721,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       if (!nextProgram.startsAt || !Number.isFinite(new Date(nextProgram.startsAt).getTime())) {
         return res.status(400).json({ success: false, error: 'Set a valid start time for the next program.' });
       }
-      if (new Date(nextProgram.startsAt).getTime() <= Date.now()) {
+      if (new Date(nextProgram.startsAt).getTime() <= sharedNowMs) {
         return res.status(400).json({ success: false, error: 'The next program must be scheduled in the future.' });
       }
     }
@@ -1703,14 +1731,15 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       stationName: String(body.stationName || existing.stationName || 'YouSong Radio').trim().slice(0, 80) || 'YouSong Radio',
       stationDescription: String(body.stationDescription || '').trim().slice(0, 240),
       currentProgram,
-      startedAt: startNow ? new Date().toISOString() : existing.startedAt,
+      startedAt: startNow ? new Date(sharedNowMs).toISOString() : existing.startedAt,
       nextProgram,
       autoStartScheduled: body.autoStartScheduled !== false,
       pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
       loopPlaylist: existing.loopPlaylist === true,
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
+      syncRevision: Math.max(0, Number(existing.syncRevision) || 0) + 1,
     };
-    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
     return res.json({ success: true, config });
   } catch (error: any) {
@@ -1723,7 +1752,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
-    const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const commandNowMs = await getPersistentDbNowMs();
     if (action === 'toggle-pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause or resume.' });
       if (config.pausedAt) {
@@ -1732,20 +1762,20 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         if (!Number.isFinite(pausedAtMs) || !Number.isFinite(startedAtMs)) {
           return res.status(409).json({ success: false, error: 'The saved radio clock is invalid. Restart the broadcast to reset it.' });
         }
-        config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
+        config.startedAt = new Date(startedAtMs + Math.max(0, commandNowMs - pausedAtMs)).toISOString();
         config.pausedAt = null;
       } else {
-        config.pausedAt = new Date().toISOString();
+        config.pausedAt = new Date(commandNowMs).toISOString();
       }
     } else if (action === 'pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause.' });
-      config.pausedAt = config.pausedAt || new Date().toISOString();
+      config.pausedAt = config.pausedAt || new Date(commandNowMs).toISOString();
     } else if (action === 'resume') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to resume.' });
       if (config.pausedAt) {
         const pausedAtMs = new Date(config.pausedAt).getTime();
         const startedAtMs = new Date(config.startedAt).getTime();
-        config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
+        config.startedAt = new Date(startedAtMs + Math.max(0, commandNowMs - pausedAtMs)).toISOString();
         config.pausedAt = null;
       }
     } else if (action === 'seek') {
@@ -1754,12 +1784,13 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to seek.' });
-      const duration = Math.max(1, Number(playlist[index].duration) || 180);
+      const duration = Math.max(1, Number(playlist[index].durationExact) || Number(playlist[index].duration) || 180);
       const requested = Number(req.body?.positionSeconds);
       if (!Number.isFinite(requested)) return res.status(400).json({ success: false, error: 'A valid song position is required.' });
       const positionSeconds = Math.min(duration - 0.25, Math.max(0, requested));
-      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0) + positionSeconds;
-      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + positionSeconds;
+      const stateNowMs = Date.parse(state.serverNow);
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
       const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
       config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
     } else if (action === 'set-speed') {
@@ -1772,8 +1803,9 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to change speed.' });
-      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
-      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
+      const stateNowMs = Date.parse(state.serverNow);
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
       config.playbackRate = requestedRate;
       config.startedAt = new Date(anchor - (programOffset / requestedRate) * 1000).toISOString();
     } else if (action === 'next') {
@@ -1788,8 +1820,9 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         await clearRadioChatMessagesDb();
       } else {
         const targetIndex = nextIndex % playlist.length;
-        const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0);
-        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+        const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0);
+        const stateNowMs = Date.parse(state.serverNow);
+        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
         const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
         config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
       }
@@ -1798,7 +1831,10 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     } else {
       return res.status(400).json({ success: false, error: 'Unknown radio control action.' });
     }
-    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    if (['toggle-pause', 'pause', 'resume', 'seek', 'set-speed', 'next'].includes(action)) {
+      config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
+    }
+    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
     return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist), state });
   } catch (error: any) {
@@ -1806,17 +1842,64 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
   }
 });
 
+let radioBanMigrationPromise: Promise<void> | null = null;
+
+/**
+ * Import the old JSON settings list into the durable moderation table exactly once.
+ * Every current permission check uses the dedicated SQL table and fails closed if
+ * the persistent database is unavailable.
+ */
+async function ensureRadioBanMigration(): Promise<void> {
+  if (!radioBanMigrationPromise) {
+    radioBanMigrationPromise = (async () => {
+      await listRadioChatBansDb(); // Assert persistent storage before trusting any ban state.
+      const legacy = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
+      if (!Array.isArray(legacy) || legacy.length === 0) return;
+      for (const rawId of legacy) {
+        const userId = String(rawId || '').trim();
+        if (!userId) continue;
+        const existing = await getRadioChatBanDb(userId);
+        if (existing) continue;
+        const target = await getUserByUid(userId);
+        if (!target || target.role === 'admin') continue;
+        await upsertRadioChatBanDb({
+          userId: target.uid,
+          username: String(target.username || 'Member'),
+          reason: 'Migrated from the previous radio moderation system.',
+          bannedBy: 'system-migration',
+        });
+      }
+      // Clearing the old list is cleanup only. A failed clear is harmless because
+      // the migration is idempotent and will not duplicate the dedicated records.
+      await setSettingDb(RADIO_CHAT_BANS_SETTING, []);
+    })().catch((error) => {
+      radioBanMigrationPromise = null;
+      throw error;
+    });
+  }
+  await radioBanMigrationPromise;
+}
+
 app.get('/api/radio/chat', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to join radio chat.' });
-    const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
+    await ensureRadioBanMigration();
     const station = await resolveRadioState();
-    const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
+    const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
-    return res.json({ success: true, messages, canChat, banReason: user.chatBlocked ? 'account-chat-block' : banned ? 'radio-chat-ban' : null });
+    const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
+    return res.json({
+      success: true,
+      messages,
+      canChat,
+      banned: Boolean(banned),
+      banReason: user.chatBlocked ? 'account-chat-block' : banned ? 'radio-chat-ban' : null,
+      banNote: banned?.reason || null,
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat.' });
+    console.error('[RadioChat] Could not read chat or moderation state:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Radio chat is temporarily unavailable.' });
   }
 });
 
@@ -1824,11 +1907,17 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to chat.' });
+    await ensureRadioBanMigration();
     const station = await resolveRadioState();
     if (!station.enabled) return res.status(409).json({ success: false, error: 'Radio chat is closed because there is no active broadcast.' });
-    const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
+    const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     if (user.role !== 'admin' && (banned || user.chatBlocked)) {
-      return res.status(403).json({ success: false, error: user.chatBlocked ? 'Chat access is disabled for this account.' : 'You are banned from radio chat by an administrator.', code: user.chatBlocked ? 'CHAT_ACCOUNT_BLOCKED' : 'RADIO_CHAT_BANNED' });
+      return res.status(403).json({
+        success: false,
+        error: user.chatBlocked ? 'Chat access is disabled for this account.' : 'You are banned from radio chat by an administrator.',
+        code: user.chatBlocked ? 'CHAT_ACCOUNT_BLOCKED' : 'RADIO_CHAT_BANNED',
+        banNote: banned?.reason || null,
+      });
     }
     const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (!message) return res.status(400).json({ success: false, error: 'Write a message first.' });
@@ -1840,37 +1929,72 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
     });
     return res.json({ success: true, message: created });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not send radio chat message.' });
+    console.error('[RadioChat] Could not send chat message:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Radio chat is temporarily unavailable.' });
   }
 });
 
-app.get('/api/admin/radio/chat-bans', async (_req: Request, res: Response) => {
+app.get('/api/admin/radio/chat-bans', async (req: Request, res: Response) => {
   try {
-    const stored = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
-    const bannedUserIds = Array.isArray(stored) ? [...new Set(stored.map((id) => String(id).trim()).filter(Boolean))] : [];
-    return res.json({ success: true, bannedUserIds });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    await ensureRadioBanMigration();
+    const bans = await listRadioChatBansDb();
+    return res.json({
+      success: true,
+      bans: bans.map((ban) => ({
+        userId: ban.userId,
+        username: ban.username,
+        reason: ban.reason || '',
+        bannedBy: ban.bannedBy,
+        createdAt: ban.createdAt instanceof Date ? ban.createdAt.toISOString() : String(ban.createdAt || ''),
+      })),
+      bannedUserIds: bans.map((ban) => ban.userId),
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat bans.' });
+    console.error('[RadioModeration] Could not load bans:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Could not load the persistent radio ban list.' });
   }
 });
 
 app.put('/api/admin/radio/chat-ban', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    await ensureRadioBanMigration();
     const userId = String(req.body?.userId || '').trim();
+    if (!userId || userId.length > 200) return res.status(400).json({ success: false, error: 'Choose a valid user account.' });
     if (typeof req.body?.banned !== 'boolean') return res.status(400).json({ success: false, error: 'The ban action must be true or false.' });
     const target = await getUserByUid(userId);
-    if (!target) return res.status(404).json({ success: false, error: 'User not found.' });
+    if (!target) return res.status(404).json({ success: false, error: 'User not found. Refresh the account list and try again.' });
     if (target.role === 'admin') return res.status(400).json({ success: false, error: 'An administrator cannot be blocked from radio chat.' });
-    const banned = req.body.banned;
-    const stored = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
-    const current = new Set<string>(Array.isArray(stored) ? stored.map((id) => String(id).trim()).filter(Boolean) : []);
-    if (banned) current.add(target.uid); else current.delete(target.uid);
-    const bannedUserIds = [...current];
-    await setSettingDb(RADIO_CHAT_BANS_SETTING, bannedUserIds);
-    return res.json({ success: true, bannedUserIds });
+
+    if (req.body.banned) {
+      await upsertRadioChatBanDb({
+        userId: target.uid,
+        username: String(target.username || 'Member').slice(0, 80),
+        reason: String(req.body?.reason || '').trim().slice(0, 300) || null,
+        bannedBy: String(getAuthUser(req)?.uid || 'admin'),
+      });
+    } else {
+      await deleteRadioChatBanDb(target.uid);
+    }
+
+    const bans = await listRadioChatBansDb();
+    return res.json({
+      success: true,
+      bannedUserIds: bans.map((ban) => ban.userId),
+      bans: bans.map((ban) => ({
+        userId: ban.userId,
+        username: ban.username,
+        reason: ban.reason || '',
+        bannedBy: ban.bannedBy,
+        createdAt: ban.createdAt instanceof Date ? ban.createdAt.toISOString() : String(ban.createdAt || ''),
+      })),
+      changedUserId: target.uid,
+      banned: req.body.banned,
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || 'Could not update radio chat permissions.' });
+    console.error('[RadioModeration] Ban update failed:', error);
+    return res.status(503).json({ success: false, error: error.message || 'Radio moderation could not save this change.' });
   }
 });
 
@@ -1972,15 +2096,17 @@ app.post('/api/favorites/:userId/toggle', async (req: Request, res: Response) =>
 // ----------------- SONG REQUESTS & GOOGLE DRIVE UPLOAD PIPELINE -----------------
 app.get('/api/requests', async (req: Request, res: Response) => {
   try {
-    const list = await getRequestsDb();
+    const list = await getRequestsPersistentDb();
     // Regular users only ever see their own submissions. The holding queue stays hidden.
     if (!isAdminReq(req)) {
       const me = getAuthUser(req).uid;
       const userFiltered = list.filter((r) => r.requestedByUserId === me);
+      res.setHeader('Cache-Control', 'no-store, private');
       return res.json({ requests: userFiltered });
     }
 
     // Admin sees all requests in the admin dashboard review queue
+    res.setHeader('Cache-Control', 'no-store, private');
     res.json({ requests: list });
   } catch (error: any) {
     console.error('Get requests error:', error);
@@ -1996,16 +2122,22 @@ const DEFAULT_SONG_REQUEST_SETTINGS: SongRequestSettings = {
 
 app.get('/api/song-requests/settings', async (_req: Request, res: Response) => {
   try {
-    const settings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+    const settings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
     return res.json({ success: true, settings });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load song request settings.' });
   }
 });
 
-app.get('/api/admin/song-requests/settings', async (_req: Request, res: Response) => {
-  const settings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
-  return res.json({ success: true, settings });
+app.get('/api/admin/song-requests/settings', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const settings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, settings });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error.message || 'Could not load persistent song request settings.' });
+  }
 });
 
 app.put('/api/admin/song-requests/settings', async (req: Request, res: Response) => {
@@ -2019,7 +2151,7 @@ app.put('/api/admin/song-requests/settings', async (req: Request, res: Response)
       showImageLink: body.showImageLink !== false,
       requireImageLink: body.showImageLink !== false && body.requireImageLink !== false,
     };
-    await setSettingDb(SONG_REQUEST_SETTINGS, settings);
+    await setPersistentSettingDb(SONG_REQUEST_SETTINGS, settings);
     return res.json({ success: true, settings });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not save song request settings.' });
@@ -2029,7 +2161,7 @@ app.put('/api/admin/song-requests/settings', async (req: Request, res: Response)
 app.post('/api/requests', async (req: Request, res: Response) => {
   try {
     const { songTitle, artist, notes, genre } = req.body || {};
-    const requestSettings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+    const requestSettings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
     if (!requestSettings.enabled) {
       return res.status(403).json({ success: false, error: requestSettings.notice || 'Song requests are temporarily closed.', requestClosed: true, icon: requestSettings.icon });
     }
@@ -2077,6 +2209,7 @@ app.post('/api/requests', async (req: Request, res: Response) => {
 app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. The request was not changed.' });
     const { id } = req.params;
     const {
       songTitle,
@@ -2090,14 +2223,21 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       estimatedUploadAt,
     } = req.body;
 
-    const existingReq = await getRequestByIdDb(id);
+    const existingReq = await getRequestByIdPersistentDb(id);
     if (!existingReq) {
       return res.status(404).json({ error: 'Request not found' });
     }
 
     const updates: any = {};
-    if (songTitle !== undefined) updates.songTitle = songTitle.trim();
-    if (artist !== undefined) updates.artist = artist.trim();
+    if (existingReq.status === 'published' && (songTitle !== undefined || artist !== undefined || genre !== undefined || coverUrl !== undefined)) {
+      return res.status(409).json({ success: false, error: 'Unpublish this song before changing its request metadata. This keeps the request and published library entry consistent.' });
+    }
+    if (songTitle !== undefined) {
+      const cleanTitle = String(songTitle || '').trim();
+      if (!cleanTitle) return res.status(400).json({ success: false, error: 'Song title cannot be empty.' });
+      updates.songTitle = cleanTitle.slice(0, 160);
+    }
+    if (artist !== undefined) updates.artist = String(artist || '').trim().slice(0, 120);
     if (coverUrl !== undefined) {
       const normalizedCover = String(coverUrl).trim();
       if (normalizedCover && !/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(normalizedCover)) {
@@ -2105,21 +2245,29 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       }
       updates.coverUrl = normalizedCover;
     }
-    if (notes !== undefined) updates.notes = notes.trim();
-    if (genre !== undefined) updates.genre = genre.trim();
-    if (adminNote !== undefined) updates.adminNote = adminNote;
+    if (notes !== undefined) updates.notes = String(notes || '').trim().slice(0, 1000);
+    if (genre !== undefined) updates.genre = String(genre || '').trim().slice(0, 80);
+    if (adminNote !== undefined) updates.adminNote = String(adminNote || '').trim().slice(0, 1000);
     if (estimatedUploadAt !== undefined) {
       const parsedEta = estimatedUploadAt ? new Date(estimatedUploadAt) : null;
       if (parsedEta && Number.isNaN(parsedEta.getTime())) return res.status(400).json({ error: 'Estimated upload time is invalid.' });
       updates.estimatedUploadAt = parsedEta ? parsedEta.toISOString() : null;
     }
     if (status !== undefined) {
+      if (!['approved', 'declined'].includes(String(status))) return res.status(400).json({ success: false, error: 'Use the dedicated upload and publish actions for staging or publishing. Direct status changes are limited to approve or decline.' });
+      const eligible = status === 'approved'
+        ? ['pending', 'processing', 'approved'].includes(existingReq.status)
+        : ['pending', 'processing', 'approved', 'declined'].includes(existingReq.status);
+      if (!eligible) return res.status(409).json({ success: false, error: 'This request has already moved beyond review. Refresh the pipeline before trying again.' });
       updates.status = status;
+      updates.reviewedAt = new Date().toISOString();
       if (status === 'approved') {
         updates.approvedAt = new Date().toISOString();
         updates.reviewedAt = new Date().toISOString();
         updates.processingProgress = 'Approved and waiting for an administrator to upload the audio file.';
         updates.processingError = null;
+      } else {
+        updates.processingProgress = 'Declined by an administrator.';
       }
     }
     if (typeof duration === 'number' && duration >= 5 && duration <= 43200) updates.duration = Math.round(duration);
@@ -2386,8 +2534,9 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
 });
 
 // Admin uploads both request assets on the website. Temporary files are immediately moved to Drive.
-app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) => {
+app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Upload was stopped before any files were transferred.' });
   const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
   upload(req, res, async (uploadError: any) => {
     const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
@@ -2400,6 +2549,8 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
     let coverSize = Number(coverFile?.size || 0);
     let uploadedAudioId: string | null = null;
     let uploadedCoverId: string | null = null;
+    let claimedMediaCode: string | null = null;
+    let mediaStaged = false;
     let accessToken: string | null = null;
     try {
       if (uploadError) {
@@ -2419,7 +2570,7 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
       if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
         return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
       }
-      const requestItem = await getRequestByIdDb(req.params.id);
+      const requestItem = await getRequestByIdPersistentDb(req.params.id);
       if (!requestItem) return res.status(404).json({ success: false, error: 'Request not found.' });
       if (requestItem.status !== 'approved') return res.status(409).json({ success: false, error: 'Approve this request for upload before selecting its files.' });
 
@@ -2467,6 +2618,7 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
 
       accessToken = await getDriveAccessToken();
       const mediaCode = await generateSongMediaCode();
+      claimedMediaCode = mediaCode;
       const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, requestItem.songTitle || 'Track', requestItem.artist || 'Unknown Artist', accessToken, mediaCode);
       audioTempPath = null;
       uploadedAudioId = driveAudio.fileId;
@@ -2475,10 +2627,13 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
       coverTempPath = null;
       uploadedCoverId = driveCover.fileId;
 
-      await saveMediaIdDb({ code: mediaCode, status: 'reserved', requestId: req.params.id, title: requestItem.songTitle || 'Song', artist: requestItem.artist || 'Unknown Artist', audioFileId: driveAudio.fileId, artworkFileId: driveCover.fileId });
-      const updated = await updateRequestFullDb(req.params.id, {
-        status: 'staging',
-        mediaCode,
+      const updated = await stageSongRequestMediaDb(req.params.id, {
+        code: mediaCode,
+        title: requestItem.songTitle || 'Song',
+        artist: requestItem.artist || 'Unknown Artist',
+        audioFileId: driveAudio.fileId,
+        artworkFileId: driveCover.fileId,
+      }, {
         audioUrl: driveAudio.streamingUrl,
         stagingAudioUrl: driveAudio.streamingUrl,
         driveFileId: driveAudio.fileId,
@@ -2488,13 +2643,19 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
         processingProgress: 'MP3 and artwork uploaded to Google Drive. Waiting for the administrator to publish.',
         processingError: null,
       });
-      if (!updated || updated.status !== 'staging') throw new Error('Media uploaded, but the request record could not be updated. Check Drive and database status before retrying.');
+      if (!updated || updated.status !== 'staging') throw new Error('Media uploaded, but the request could not be moved into staging.');
+      mediaStaged = true;
       console.log(`[SongPipeline] Uploaded request media to Drive: ${driveAudio.fileId}, ${driveCover.fileId}`);
       return res.json({ success: true, request: updated, audioFileId: driveAudio.fileId, coverFileId: driveCover.fileId });
     } catch (error: any) {
       console.error('[SongPipeline] Request media upload failed:', error);
-      if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
-      if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+      if (!mediaStaged) {
+        if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
+        if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+        if (claimedMediaCode) await releaseUnusedMediaIdReservationDb(claimedMediaCode, req.params.id).catch((cleanupError) => {
+          console.error('[SongPipeline] Could not release unused Media ID reservation:', cleanupError);
+        });
+      }
       return res.status(500).json({ success: false, error: error?.message || 'Could not upload request files to Google Drive.' });
     } finally {
       if (audioTempPath && fs.existsSync(audioTempPath)) { try { fs.unlinkSync(audioTempPath); } catch {} }
@@ -3158,68 +3319,47 @@ app.post('/api/admin/library/upload-cover', (req: Request, res: Response) => {
 });
 
 // Publish only a staged MP3 hosted directly on Google Drive. This keeps song bytes out of this app host.
+// Publish/unpublish a request atomically. Retries reuse the existing library row.
 app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Nothing was published or unpublished.' });
+    }
     const { isPublished } = req.body || {};
-    const requestItem = await getRequestByIdDb(id);
-    if (!requestItem) return res.status(404).json({ error: 'Request not found' });
+    if (typeof isPublished !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Choose whether to publish or unpublish this request.' });
+    }
+    const requestItem = await getRequestByIdPersistentDb(id);
+    if (!requestItem) return res.status(404).json({ success: false, error: 'Request not found.' });
 
     if (isPublished) {
-      if (requestItem.status !== 'staging') {
-        return res.status(409).json({ error: 'Only a request with an uploaded MP3 can be published. Upload an MP3 directly to Google Drive first.' });
+      if (!['staging', 'published'].includes(requestItem.status)) {
+        return res.status(409).json({ success: false, error: 'Approve the request and upload its MP3 and artwork before publishing.' });
       }
       const requestAudioUrl = String(requestItem.audioUrl || '');
       const hasDrivePlaybackUrl = requestAudioUrl.startsWith('/api/drive/stream/')
         || requestAudioUrl.startsWith('https://drive.google.com/uc?export=download&id=');
       if (!requestItem.driveFileId || !hasDrivePlaybackUrl || !String(requestItem.coverUrl || '').startsWith('https://lh3.googleusercontent.com/d/')) {
-        return res.status(400).json({ error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
+        return res.status(400).json({ success: false, error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
       }
 
-      if (!(await checkSqlAvailability())) return res.status(503).json({ error: 'The persistent database is unavailable. The song was not published.' });
-      const songId = `song-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const newSong = await insertSongDb({
-        id: songId,
-        title: requestItem.songTitle,
-        artist: requestItem.artist || 'Unknown Artist',
-        mediaCode: requestItem.mediaCode || undefined,
-        album: 'YouSong Community',
-        genre: requestItem.genre || 'Vibe / Chill',
-        duration: requestItem.duration || 180,
-        audioUrl: requestItem.audioUrl,
-        coverUrl: requestItem.coverUrl,
-        addedAt: new Date().toISOString(),
-        plays: 0,
-        featured: false,
-        description: `Requested by ${requestItem.requestedByUsername} via YouSong Pipeline.`,
-        tags: [requestItem.genre?.toLowerCase() || 'vibe', 'community', 'drive-mp3'],
-      }, true);
-
-      await saveMediaIdDb({ code: String(requestItem.mediaCode), status: 'assigned', songId, title: newSong.title, artist: newSong.artist, audioFileId: requestItem.driveFileId, artworkFileId: extractDriveFileId(String(requestItem.coverUrl || '')) });
-      const updated = await updateRequestFullDb(id, {
-        status: 'published',
-        publishedSongId: songId,
-        publishedAt: new Date().toISOString(),
-        processingProgress: 'Published. Audio streams directly from Google Drive.',
-        processingError: null,
+      const publication = await publishStagedSongRequestDb(id);
+      console.log(`[SongPipeline] ${publication.alreadyPublished ? 'Verified existing publication for' : 'Published'} "${publication.song.title}" (${requestItem.driveFileId}).`);
+      return res.json({
+        success: true,
+        request: publication.request,
+        song: publication.song,
+        alreadyPublished: publication.alreadyPublished,
       });
-      console.log(`[SongPipeline] Published Drive MP3 "${newSong.title}" (${requestItem.driveFileId}).`);
-      return res.json({ success: true, request: updated, song: newSong });
     }
 
-    // Unpublishing removes the library entry, but deliberately leaves the uploaded MP3 in Drive.
-    if (requestItem.publishedSongId) await deleteSongDb(requestItem.publishedSongId);
-    const updated = await updateRequestFullDb(id, {
-      status: 'staging',
-      publishedSongId: null,
-      publishedAt: null,
-      processingProgress: 'Unpublished; MP3 remains in staging.',
-    });
+    const updated = await unpublishSongRequestDb(id);
     return res.json({ success: true, request: updated });
   } catch (error: any) {
-    console.error('Publish request error:', error);
-    return res.status(500).json({ error: error.message || 'Publish failed.' });
+    console.error('[SongPipeline] Atomic publish/unpublish failed:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Publish failed.' });
   }
 });
 

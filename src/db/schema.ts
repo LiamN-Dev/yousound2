@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date, primaryKey, doublePrecision } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -44,6 +44,7 @@ export const songs = pgTable('songs', {
   tags: jsonb('tags').$type<string[]>(),
   typeMood: text('type_mood'),
   duration: integer('duration').notNull().default(0),
+  durationExact: doublePrecision('duration_exact'),
   audioUrl: text('audio_url').notNull(),
   coverUrl: text('cover_url').notNull(),
   addedAt: text('added_at').notNull(),
@@ -206,6 +207,16 @@ export const radioChatMessages = pgTable('radio_chat_messages', {
   username: text('username').notNull(),
   message: text('message').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+/** Persistent, radio-only moderation records. These must never fall back to process-local storage. */
+export const radioChatBans = pgTable('radio_chat_bans', {
+  userId: text('user_id').primaryKey(),
+  username: text('username').notNull(),
+  reason: text('reason'),
+  bannedBy: text('banned_by').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 export const chatPairingBlocks = pgTable('chat_pairing_blocks', {
