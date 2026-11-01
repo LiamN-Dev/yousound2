@@ -270,7 +270,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Radio uses the exact media duration, not rounded display seconds. A half-second
         // rounding error on each track becomes cumulative playlist drift over time.
         const healed = currentSongRef.current;
-        if (healed && measuredExact >= 5 && Math.abs((Number(healed.durationExact) || Number(healed.duration) || 0) - measuredExact) >= 0.05) {
+        if (healed && measuredExact >= 5 && (!Number(healed.durationExact) || Math.abs(Number(healed.durationExact) - measuredExact) >= 0.02)) {
           if (radioModeRef.current) {
             void fetch('/api/radio/duration', {
               method: 'POST', credentials: 'same-origin',
