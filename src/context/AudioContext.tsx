@@ -3,6 +3,19 @@ import { Song, Playlist, RepeatMode, SpotlightConfig, AutoTagRule } from '../typ
 import { storage } from '../services/storage';
 import { useAuth } from './AuthContext';
 
+export interface EqualizerSettings {
+  preset: string;
+  bass: number;
+  lowMid: number;
+  mid: number;
+  highMid: number;
+  treble: number;
+}
+
+const DEFAULT_EQUALIZER: EqualizerSettings = {
+  preset: 'Default', bass: 0, lowMid: 0, mid: 0, highMid: 0, treble: 0,
+};
+
 interface AudioContextType {
   currentSong: Song | null;
   isPlaying: boolean;
@@ -24,6 +37,11 @@ interface AudioContextType {
   clearPlaybackError: () => void;
   playbackSpeed: number;
   setPlaybackSpeed: (speed: number) => void;
+  equalizer: EqualizerSettings;
+  setEqualizer: (updates: Partial<EqualizerSettings>) => void;
+  isRadioMode: boolean;
+  playRadioSong: (song: Song, elapsedSeconds: number) => Promise<void>;
+  leaveRadio: () => void;
   // Controls
   playSong: (song: Song, newQueue?: Song[]) => void;
   togglePlay: () => void;
@@ -91,6 +109,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const { currentUser } = useAuth();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playAttemptRef = useRef(0);
+  const radioModeRef = useRef(false);
+  const audioGraphRef = useRef<AudioContext | null>(null);
+  const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
+  const equalizerOwnerRef = useRef<string | null>(null);
 
   const [allSongs, setAllSongs] = useState<Song[]>(() => storage.getSongs(currentUser));
   const [adminAllSongs, setAdminAllSongs] = useState<Song[]>(() => storage.getAllAdminSongs());
@@ -110,6 +132,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isExpandedVisualizer, setIsExpandedVisualizer] = useState<boolean>(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [playbackSpeed, setPlaybackSpeedState] = useState<number>(1.0);
+  const [equalizer, setEqualizerState] = useState<EqualizerSettings>(DEFAULT_EQUALIZER);
+  const [isRadioMode, setIsRadioMode] = useState(false);
 
   const setPlaybackSpeed = useCallback((speed: number) => {
     const clamped = Math.max(1.0, Math.min(3.0, Number(speed) || 1.0));
@@ -123,6 +147,33 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setPlaybackError(null);
   }, []);
 
+  const setEqualizer = useCallback((updates: Partial<EqualizerSettings>) => {
+    setEqualizerState((current) => ({ ...current, ...updates }));
+  }, []);
+
+  useEffect(() => {
+    const owner = currentUser?.id || 'guest';
+    equalizerOwnerRef.current = null;
+    try {
+      const saved = JSON.parse(localStorage.getItem('yousong_equalizer_' + owner) || 'null');
+      setEqualizerState(saved && typeof saved === 'object'
+        ? { ...DEFAULT_EQUALIZER, ...saved, preset: String(saved.preset || 'Custom') }
+        : DEFAULT_EQUALIZER);
+    } catch {
+      setEqualizerState(DEFAULT_EQUALIZER);
+    }
+    equalizerOwnerRef.current = owner;
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    const owner = currentUser?.id || 'guest';
+    if (equalizerOwnerRef.current !== owner) return;
+    try { localStorage.setItem('yousong_equalizer_' + owner, JSON.stringify(equalizer)); } catch {}
+    const filters = eqFiltersRef.current;
+    const values = [equalizer.bass, equalizer.lowMid, equalizer.mid, equalizer.highMid, equalizer.treble];
+    filters.forEach((filter, index) => { if (filter) filter.gain.setTargetAtTime(values[index], audioGraphRef.current?.currentTime || 0, 0.04); });
+  }, [equalizer, currentUser?.id]);
+
   const handleTrackEndRef = useRef<() => void>(() => {});
   const currentSongRef = useRef<Song | null>(null);
   // The audio listeners below are created once, so they read the latest user role through a ref
@@ -133,11 +184,61 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     currentSongRef.current = currentSong;
   }, [currentSong]);
 
+  // A suspension takes effect in an already-open tab too: stop playback and clear
+  // the media element. The server also protects subsequent Drive range requests.
+  useEffect(() => {
+    if (!currentUser?.isSuspended || currentUser.role === 'admin') return;
+    playAttemptRef.current += 1;
+    radioModeRef.current = false;
+    setIsRadioMode(false);
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    setCurrentSong(null);
+    setIsPlaying(false);
+    setPlaybackError('Your account has been suspended. Audio playback has been stopped.');
+  }, [currentUser?.isSuspended, currentUser?.role]);
+
   // Initialize audio element
   useEffect(() => {
     const audio = new Audio();
     audio.preload = 'metadata';
+    audio.crossOrigin = 'anonymous';
     audioRef.current = audio;
+
+    // One low-cost Web Audio chain gives every song the same user EQ without
+    // creating a new graph on each track change.
+    const WebAudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (WebAudioContext) {
+      try {
+        const graph = new WebAudioContext();
+        const source = graph.createMediaElementSource(audio);
+        const definitions: Array<{ type: BiquadFilterType; frequency: number; q?: number }> = [
+          { type: 'lowshelf', frequency: 60 },
+          { type: 'peaking', frequency: 250, q: 1 },
+          { type: 'peaking', frequency: 1000, q: 1 },
+          { type: 'peaking', frequency: 4000, q: 1 },
+          { type: 'highshelf', frequency: 12000 },
+        ];
+        const filters = definitions.map((definition) => {
+          const filter = graph.createBiquadFilter();
+          filter.type = definition.type;
+          filter.frequency.value = definition.frequency;
+          filter.Q.value = definition.q || 0.8;
+          filter.gain.value = 0;
+          return filter;
+        });
+        source.connect(filters[0]);
+        filters.forEach((filter, index) => filter.connect(filters[index + 1] || graph.destination));
+        audioGraphRef.current = graph;
+        eqFiltersRef.current = filters;
+      } catch (error) {
+        console.warn('Equalizer audio graph could not be initialized:', error);
+      }
+    }
 
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime);
@@ -190,6 +291,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
+      eqFiltersRef.current = [];
+      const graph = audioGraphRef.current;
+      audioGraphRef.current = null;
+      if (graph && graph.state !== 'closed') void graph.close().catch(() => undefined);
     };
   }, []);
 
@@ -231,6 +336,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // The role and user identity come from the server-side session cookie, never the browser.
     void (async () => {
       setPlaybackError(null);
+      radioModeRef.current = false;
+      setIsRadioMode(false);
       if (currentUser) {
         const allowance = await storage.authorizeSongListen(song.id);
         if (attemptId !== playAttemptRef.current) return;
@@ -261,6 +368,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.playbackRate = playbackSpeed;
       setDuration(song.duration || 180);
       try {
+        if (audioGraphRef.current?.state === 'suspended') await audioGraphRef.current.resume();
         await audio.play();
         setIsPlaying(true);
       } catch (err) {
@@ -276,6 +384,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [currentUser, playbackSpeed]);
 
   const handleTrackEnd = useCallback(() => {
+    if (radioModeRef.current) {
+      setIsPlaying(false);
+      return; // The shared radio clock will supply the next track.
+    }
     if (repeatMode === 'one') {
       if (currentSong) playSong(currentSong);
       return;
@@ -308,6 +420,72 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     setIsPlaying(false);
   }, [repeatMode, queue, allSongs, currentSong, isShuffled, playSong]);
+
+  const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number) => {
+    const audio = audioRef.current;
+    if (!audio || !song?.audioUrl) return;
+    const attemptId = ++playAttemptRef.current;
+    radioModeRef.current = true;
+    setIsRadioMode(true);
+    setPlaybackError(null);
+    const sourceUrl = getPlayableAudioUrl(song.audioUrl);
+    let absoluteUrl = sourceUrl;
+    try { absoluteUrl = new URL(sourceUrl, window.location.href).href; } catch {}
+    const needsSource = audio.src !== absoluteUrl || currentSongRef.current?.id !== song.id;
+    if (needsSource) {
+      audio.pause();
+      setCurrentSong(song);
+      audio.src = sourceUrl;
+      audio.load();
+      await new Promise<void>((resolve) => {
+        if (audio.readyState >= 1) return resolve();
+        const done = () => {
+          audio.removeEventListener('loadedmetadata', done);
+          audio.removeEventListener('error', done);
+          resolve();
+        };
+        audio.addEventListener('loadedmetadata', done, { once: true });
+        audio.addEventListener('error', done, { once: true });
+      });
+    } else if (currentSongRef.current?.id !== song.id) {
+      setCurrentSong(song);
+    }
+    if (attemptId !== playAttemptRef.current || !radioModeRef.current) return;
+    const target = Math.max(0, Number(elapsedSeconds) || 0);
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      if (needsSource || Math.abs(audio.currentTime - target) > 5) {
+        try { audio.currentTime = Math.min(target, Math.max(0, audio.duration - 0.25)); } catch {}
+      }
+      setDuration(audio.duration);
+    }
+    try {
+      if (audioGraphRef.current?.state === 'suspended') await audioGraphRef.current.resume();
+      await audio.play();
+      if (attemptId === playAttemptRef.current) setIsPlaying(true);
+    } catch (error) {
+      if (attemptId === playAttemptRef.current) {
+        setIsPlaying(false);
+        setPlaybackError('Radio audio could not start. Check the connection and press Join again.');
+      }
+    }
+  }, []);
+
+  const leaveRadio = useCallback(() => {
+    if (!radioModeRef.current) return;
+    radioModeRef.current = false;
+    setIsRadioMode(false);
+    playAttemptRef.current += 1;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    setCurrentSong(null);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+  }, []);
 
   // Keep ref up to date on every render
   useEffect(() => {
@@ -609,6 +787,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         clearPlaybackError,
         playbackSpeed,
         setPlaybackSpeed,
+        equalizer,
+        setEqualizer,
+        isRadioMode,
+        playRadioSong,
+        leaveRadio,
         playSong,
         togglePlay,
         seek,

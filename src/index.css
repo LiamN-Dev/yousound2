@@ -1212,3 +1212,111 @@ html:not(.dark) .ys-main-content .ys-uploader :not(button).text-white {
 html:not(.dark) .ys-main-content .admin-studio .liquid-glass-surface :not(button).text-white {
   color: #f8fafc !important;
 }
+
+
+/* Compact scale and restrained transitions: animations should feel responsive,
+   not add work to the browser's layout or paint pipeline. */
+.ys-main-content {
+  padding-top: .7rem;
+  padding-bottom: 6.1rem;
+}
+.ys-site-header,
+.dark .ys-site-header {
+  backdrop-filter: blur(12px) saturate(1.12);
+}
+.ys-song-card {
+  border-radius: 16px;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, .035);
+  transition: transform 160ms cubic-bezier(.2,.75,.25,1), border-color 160ms ease, box-shadow 160ms ease;
+}
+.ys-song-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 9px 20px rgba(15, 23, 42, .07);
+}
+.dark .ys-song-card:hover {
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .2);
+}
+.ys-player-shell {
+  border-radius: 18px;
+  backdrop-filter: blur(12px) saturate(1.08);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, .11) !important;
+}
+.dark .ys-player-shell {
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .3) !important;
+}
+.ys-radio-view,
+.ys-eq-panel {
+  animation: ys-panel-enter 160ms ease-out both;
+}
+.ys-radio-hero {
+  background: radial-gradient(ellipse at 0% 0%, rgba(6,182,212,.17), transparent 58%), linear-gradient(145deg,#13263c,#0b1422);
+}
+@keyframes ys-panel-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ys-site-header button,
+  .ys-song-card button,
+  .ys-radio-view button {
+    transition-property: color, background-color, border-color, opacity, transform;
+    transition-duration: 140ms;
+    transition-timing-function: ease-out;
+  }
+}
+@media (max-width: 640px) {
+  .ys-main-content { padding-top: .6rem; padding-bottom: 5.8rem; }
+  .ys-song-card { border-radius: 14px; }
+  .ys-player-shell { border-radius: 16px; }
+}
+
+/* A little more Christmas character, while keeping decorations click-through and light. */
+.ys-christmas-ornament {
+  position: absolute;
+  top: 10px;
+  width: 8px;
+  height: 9px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: #fbbf24;
+  border: 1px solid rgba(255,255,255,.55);
+  box-shadow: 0 0 7px rgba(251,191,36,.55);
+}
+.ys-christmas-corner {
+  position: absolute;
+  bottom: 82px;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  opacity: .82;
+  filter: drop-shadow(0 3px 6px rgba(15,23,42,.22));
+  font-size: 25px;
+}
+.ys-christmas-corner-left { left: 12px; }
+.ys-christmas-corner-right { right: 12px; }
+.ys-christmas-corner i {
+  color: #fbbf24;
+  font-style: normal;
+  font-size: 16px;
+}
+.ys-christmas-corner b {
+  font-size: 18px;
+  font-weight: 400;
+}
+.ys-christmas-bottom-decor {
+  position: absolute;
+  left: 50%;
+  bottom: 77px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: clamp(16px, 5vw, 52px);
+  color: rgba(251,191,36,.5);
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .ys-christmas-corner { bottom: 76px; font-size: 20px; opacity: .68; }
+  .ys-christmas-bottom-decor { bottom: 72px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ys-radio-view, .ys-eq-panel { animation: none !important; }
+}

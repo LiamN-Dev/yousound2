@@ -69,6 +69,8 @@ import {
   createOrGetAppealThreadDb,
   getChatMessagesDb,
   getAllChatMessagesDb,
+  getRadioChatMessagesDb,
+  createRadioChatMessageDb,
   createChatMessageDb,
   deleteChatMessageDb,
   getChatPairingBlocksDb,
@@ -1440,6 +1442,224 @@ app.post('/api/settings/spotlight', async (req: Request, res: Response) => {
   }
 });
 
+
+// ----------------- LIVE RADIO -----------------
+const RADIO_CONFIG_SETTING = 'radio_config_v1';
+const RADIO_CHAT_BANS_SETTING = 'radio_chat_banned_users_v1';
+
+type RadioProgram = {
+  name: string;
+  description: string;
+  songIds: string[];
+  startsAt?: string | null;
+};
+
+type RadioConfig = {
+  enabled: boolean;
+  stationName: string;
+  stationDescription: string;
+  currentProgram: RadioProgram;
+  startedAt: string;
+  nextProgram: RadioProgram | null;
+};
+
+const DEFAULT_RADIO_CONFIG: RadioConfig = {
+  enabled: false,
+  stationName: 'YouSong Radio',
+  stationDescription: 'Live music, shared together.',
+  currentProgram: { name: 'Now Playing', description: '', songIds: [] },
+  startedAt: new Date().toISOString(),
+  nextProgram: null,
+};
+
+function cleanRadioProgram(value: any): RadioProgram {
+  const startsAtDate = value?.startsAt ? new Date(value.startsAt) : null;
+  return {
+    name: String(value?.name || 'Untitled program').trim().slice(0, 80) || 'Untitled program',
+    description: String(value?.description || '').trim().slice(0, 240),
+    songIds: Array.isArray(value?.songIds)
+      ? [...new Set(value.songIds.map((id: any) => String(id)).filter((id: string) => id.length > 0))].slice(0, 100)
+      : [],
+    startsAt: startsAtDate && Number.isFinite(startsAtDate.getTime()) ? startsAtDate.toISOString() : null,
+  };
+}
+
+async function resolveRadioState() {
+  let config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
+  const now = Date.now();
+  const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
+
+  // Promote a scheduled program on the server, so every connected listener sees the same transition.
+  if (config.enabled && config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
+    config = {
+      ...config,
+      currentProgram: { ...config.nextProgram, startsAt: null },
+      startedAt: new Date(nextStartsAt).toISOString(),
+      nextProgram: null,
+    };
+    await setSettingDb(RADIO_CONFIG_SETTING, config);
+  }
+
+  const songs = await getSongsDb();
+  const songMap = new Map(songs.map((song: any) => [String(song.id), song]));
+  const playlist = (config.currentProgram?.songIds || [])
+    .map((id) => songMap.get(String(id)))
+    .filter(Boolean) as any[];
+  let currentSong: any = null;
+  let elapsedSeconds = 0;
+  let currentIndex = 0;
+  let programElapsedSeconds = 0;
+
+  if (config.enabled && playlist.length) {
+    const durations = playlist.map((song) => Math.max(1, Number(song.duration) || 180));
+    const totalDuration = durations.reduce((sum, value) => sum + value, 0);
+    const startedAtMs = new Date(config.startedAt || now).getTime();
+    programElapsedSeconds = Math.max(0, (now - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000);
+    let offset = programElapsedSeconds % totalDuration;
+    for (let index = 0; index < playlist.length; index++) {
+      if (offset < durations[index] || index === playlist.length - 1) {
+        currentSong = playlist[index];
+        currentIndex = index;
+        elapsedSeconds = Math.min(durations[index] - 0.25, offset);
+        break;
+      }
+      offset -= durations[index];
+    }
+  }
+
+  const nextAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
+  return {
+    enabled: Boolean(config.enabled),
+    stationName: config.stationName || 'YouSong Radio',
+    stationDescription: config.stationDescription || '',
+    currentProgram: config.currentProgram || null,
+    startedAt: config.startedAt,
+    currentSong,
+    elapsedSeconds,
+    currentIndex,
+    playlist,
+    nextProgram: config.nextProgram || null,
+    nextStartsInMs: Number.isFinite(nextAt) ? Math.max(0, nextAt - now) : null,
+    serverNow: new Date(now).toISOString(),
+  };
+}
+
+app.get('/api/radio/state', async (_req: Request, res: Response) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, state: await resolveRadioState() });
+  } catch (error: any) {
+    console.error('[Radio] State error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Could not load radio state.' });
+  }
+});
+
+app.get('/api/admin/radio/config', async (_req: Request, res: Response) => {
+  try {
+    const config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    return res.json({ success: true, config });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not load radio settings.' });
+  }
+});
+
+app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const body = req.body || {};
+    const existing = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const currentProgram = cleanRadioProgram(body.currentProgram || existing.currentProgram);
+    const nextProgram = body.nextProgram ? cleanRadioProgram(body.nextProgram) : null;
+    const allSongs = await getSongsDb();
+    const validIds = new Set(allSongs.map((song: any) => String(song.id)));
+    const requestedIds = [...currentProgram.songIds, ...(nextProgram?.songIds || [])];
+    if (requestedIds.some((id) => !validIds.has(id))) {
+      return res.status(400).json({ success: false, error: 'Some selected songs no longer exist. Refresh the admin song list and try again.' });
+    }
+    if (body.enabled !== false && currentProgram.songIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'Choose at least one song before starting the radio.' });
+    }
+    if (nextProgram) {
+      if (!nextProgram.songIds.length) return res.status(400).json({ success: false, error: 'Choose at least one song for the scheduled program.' });
+      if (!nextProgram.startsAt || !Number.isFinite(new Date(nextProgram.startsAt).getTime())) {
+        return res.status(400).json({ success: false, error: 'Set a valid start time for the next program.' });
+      }
+      if (new Date(nextProgram.startsAt).getTime() <= Date.now()) {
+        return res.status(400).json({ success: false, error: 'The next program must be scheduled in the future.' });
+      }
+    }
+    const startNow = body.startNow !== false;
+    const config: RadioConfig = {
+      enabled: Boolean(body.enabled),
+      stationName: String(body.stationName || existing.stationName || 'YouSong Radio').trim().slice(0, 80) || 'YouSong Radio',
+      stationDescription: String(body.stationDescription || '').trim().slice(0, 240),
+      currentProgram,
+      startedAt: startNow ? new Date().toISOString() : existing.startedAt,
+      nextProgram,
+    };
+    await setSettingDb(RADIO_CONFIG_SETTING, config);
+    return res.json({ success: true, config });
+  } catch (error: any) {
+    console.error('[Radio] Config update error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Could not save radio settings.' });
+  }
+});
+
+app.get('/api/radio/chat', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Log in to join radio chat.' });
+    const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
+    const messages = await getRadioChatMessagesDb(60);
+    return res.json({ success: true, messages, canChat: user.role === 'admin' || !banned });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat.' });
+  }
+});
+
+app.post('/api/radio/chat', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Log in to chat.' });
+    const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
+    if (banned && user.role !== 'admin') return res.status(403).json({ success: false, error: 'You are blocked from radio chat by an administrator.' });
+    const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    if (!message) return res.status(400).json({ success: false, error: 'Write a message first.' });
+    const created = await createRadioChatMessageDb({
+      id: 'radio-chat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9),
+      userId: user.uid,
+      username: String(user.username || 'Listener').slice(0, 40),
+      message,
+    });
+    return res.json({ success: true, message: created });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not send radio chat message.' });
+  }
+});
+
+app.get('/api/admin/radio/chat-bans', async (_req: Request, res: Response) => {
+  const bannedUserIds = await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || [];
+  return res.json({ success: true, bannedUserIds });
+});
+
+app.put('/api/admin/radio/chat-ban', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const userId = String(req.body?.userId || '');
+    const banned = Boolean(req.body?.banned);
+    const target = await getUserByUid(userId);
+    if (!target) return res.status(404).json({ success: false, error: 'User not found.' });
+    if (target.role === 'admin') return res.status(400).json({ success: false, error: 'An administrator cannot be blocked from radio chat.' });
+    const current = new Set(await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []);
+    if (banned) current.add(userId); else current.delete(userId);
+    const bannedUserIds = [...current];
+    await setSettingDb(RADIO_CHAT_BANS_SETTING, bannedUserIds);
+    return res.json({ success: true, bannedUserIds });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not update radio chat permissions.' });
+  }
+});
+
 // ----------------- PLAYLISTS -----------------
 app.get('/api/playlists', async (req: Request, res: Response) => {
   try {
@@ -2166,6 +2386,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
   }
 
   const searchTerm = String(req.query.q || '').trim().slice(0, 100).toLowerCase();
+  const showNumbered = String(req.query.showNumbered || '') === '1';
   const requestedPageToken = String(req.query.pageToken || '').trim().slice(0, 2048);
   try {
     const scopeVersion = await getPersistentSettingDb<string>(DRIVE_LIBRARY_SCOPE_VERSION_SETTING);
@@ -2178,6 +2399,10 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     }
 
     const accessToken = await getDriveAccessToken();
+    const registeredIds = showNumbered ? [] : await getMediaIdsDb();
+    const alreadyNumberedFileIds = new Set<string>(registeredIds.flatMap((item: any) =>
+      [item.audioFileId, item.artworkFileId].filter(Boolean).map(String)
+    ));
     const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
     const folderId = await getDriveLibraryFolderId(accessToken, folderName);
     const query = `'${folderId}' in parents and trashed=false`;
@@ -2218,7 +2443,9 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
         const supported = kind === 'audio'
           ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
           : supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
+        const hasThreeDigitId = /\\s-\\s[0-9]{3}(?=\\.[^.]+$)/i.test(name);
         if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
+        if (!showNumbered && (alreadyNumberedFileIds.has(String(file.id)) || hasThreeDigitId)) continue;
         files.push({
           id: String(file.id),
           name: name || 'Untitled file',
@@ -2233,7 +2460,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
       scans += 1;
     } while (files.length < 100 && nextPageToken && scans < maxScansPerRequest);
 
-    return res.json({ success: true, folder: folderName, files, nextPageToken, scannedPages: scans });
+    return res.json({ success: true, folder: folderName, files, nextPageToken, scannedPages: scans, numberedFilesHidden: !showNumbered });
   } catch (error: any) {
     console.error('[DriveLibraryPicker] Could not list Google Drive files:', error?.message || error);
     return res.status(502).json({

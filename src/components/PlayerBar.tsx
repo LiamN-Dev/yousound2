@@ -19,8 +19,10 @@ import {
   ChevronDown,
   ChevronUp,
   Gauge,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { MediaCover } from './MediaCover';
+import { EqualizerPanel } from './EqualizerPanel';
 
 export const PlayerBar: React.FC = () => {
   const {
@@ -51,11 +53,14 @@ export const PlayerBar: React.FC = () => {
     clearPlaybackError,
     playbackSpeed,
     setPlaybackSpeed,
+    equalizer,
+    setEqualizer,
   } = useAudio();
   const { currentUser } = useAuth();
   const [showQueue, setShowQueue] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showEqualizer, setShowEqualizer] = useState(false);
 
   if (!currentSong) return null;
 
@@ -362,6 +367,23 @@ export const PlayerBar: React.FC = () => {
                       ))}
                     </div>
                   </div>
+                )}
+              </div>
+
+              <div className="relative flex items-center">
+                <button
+                  type="button"
+                  onClick={() => { setShowEqualizer((value) => !value); setShowSpeedMenu(false); }}
+                  className={`p-2 rounded-xl border transition-colors ${showEqualizer || equalizer.preset !== 'Default'
+                    ? 'border-blue-400/40 bg-blue-500/10 text-blue-600 dark:text-blue-300'
+                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                  title="Audio equalizer"
+                  aria-label="Open audio equalizer"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                </button>
+                {showEqualizer && (
+                  <EqualizerPanel settings={equalizer} onChange={setEqualizer} onClose={() => setShowEqualizer(false)} />
                 )}
               </div>
 

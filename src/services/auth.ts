@@ -168,7 +168,9 @@ const RULES: Rule[] = [
   ['GET', /^\/api\/admin\/google-drive\/oauth\/callback$/, 'public'],
   ['POST', /^\/api\/auth\/(login|register|logout)$/, 'public'],
   ['POST', /^\/api\/feedback$/, 'public'],
-  ['GET', /^\/api\/(media\/(audio|cover|drive-stream)|drive\/stream)\//, 'public'],
+  // Drive-backed media requires an approved member session. This lets account suspension
+  // revoke fresh range requests instead of leaving the stream endpoint public.
+  ['GET', /^\/api\/(media\/(audio|cover))\//, 'public'],
 
   // Any signed-in account (even pending / suspended)
   ['*', /^\/api\/auth\/(me|change-password)/, 'login'],

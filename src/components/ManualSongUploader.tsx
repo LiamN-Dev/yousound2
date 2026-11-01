@@ -62,6 +62,7 @@ const DriveLibraryPicker: React.FC<{
 }> = ({ kind, disabled = false, onSelect }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [showNumbered, setShowNumbered] = useState(false);
   const [files, setFiles] = useState<DriveLibraryFile[]>([]);
   const [nextPageToken, setNextPageToken] = useState('');
   const [loading, setLoading] = useState(false);
@@ -76,7 +77,7 @@ const DriveLibraryPicker: React.FC<{
       setError('');
       setNextPageToken('');
       try {
-        const params = new URLSearchParams({ kind, q: query });
+        const params = new URLSearchParams({ kind, q: query, showNumbered: showNumbered ? '1' : '0' });
         const response = await fetch('/api/admin/library/drive-files?' + params.toString(), {
           credentials: 'same-origin',
           signal: controller.signal,
@@ -99,14 +100,14 @@ const DriveLibraryPicker: React.FC<{
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [kind, open, query]);
+  }, [kind, open, query, showNumbered]);
 
   const loadMore = async () => {
     if (!nextPageToken || loadingMore) return;
     setLoadingMore(true);
     setError('');
     try {
-      const params = new URLSearchParams({ kind, q: query, pageToken: nextPageToken });
+      const params = new URLSearchParams({ kind, q: query, pageToken: nextPageToken, showNumbered: showNumbered ? '1' : '0' });
       const response = await fetch('/api/admin/library/drive-files?' + params.toString(), { credentials: 'same-origin' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not load more Drive files.');
@@ -148,6 +149,10 @@ const DriveLibraryPicker: React.FC<{
               placeholder={kind === 'audio' ? 'Search MP3 filename…' : 'Search image filename…'}
             />
           </div>
+          <label className="flex items-center gap-2 text-[10px] text-slate-300">
+            <input type="checkbox" checked={showNumbered} onChange={(event) => setShowNumbered(event.target.checked)} className="accent-cyan-500" />
+            Include files that already have a 3-digit Media ID
+          </label>
           <div className="max-h-52 overflow-y-auto space-y-1">
             {loading ? (
               <p className="flex items-center gap-2 py-4 text-[10px] text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Searching Google Drive…</p>

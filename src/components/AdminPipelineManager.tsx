@@ -42,6 +42,9 @@ export const AdminPipelineManager: React.FC = () => {
   const [connectingDrive, setConnectingDrive] = useState(false);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({});
+  const [selectedEstimateIds, setSelectedEstimateIds] = useState<string[]>([]);
+  const [bulkEtaDraft, setBulkEtaDraft] = useState('');
+  const [bulkEtaSaving, setBulkEtaSaving] = useState(false);
   const [requestAudioFiles, setRequestAudioFiles] = useState<Record<string, File | null>>({});
   const [requestCoverFiles, setRequestCoverFiles] = useState<Record<string, File | null>>({});
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -168,6 +171,46 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: error?.message || 'Could not approve request.' });
     } finally {
       setWorkingId(null);
+    }
+  };
+
+  const applyBulkUploadEstimate = async () => {
+    const selected = visibleRequests.filter((request) =>
+      request.status === 'approved' && selectedEstimateIds.includes(request.id)
+    );
+    if (!selected.length || bulkEtaSaving) return;
+
+    let estimatedUploadAt: string | null = null;
+    if (bulkEtaDraft) {
+      const date = new Date(bulkEtaDraft);
+      if (!Number.isFinite(date.getTime())) {
+        setFeedback({ type: 'error', message: 'Enter a valid estimated upload date and time.' });
+        return;
+      }
+      estimatedUploadAt = date.toISOString();
+    }
+
+    setBulkEtaSaving(true);
+    try {
+      const results = await Promise.all(
+        selected.map((request) => adminUpdateRequest(request.id, { estimatedUploadAt }))
+      );
+      const failed = results.filter((result) => !result).length;
+      if (failed) {
+        throw new Error(failed + ' estimate(s) could not be saved. Refresh and check the selected requests.');
+      }
+      setFeedback({
+        type: 'success',
+        message: estimatedUploadAt
+          ? 'Estimated upload time updated for ' + selected.length + ' requests.'
+          : 'Estimated upload time cleared for ' + selected.length + ' requests.',
+      });
+      setSelectedEstimateIds([]);
+      await refreshState();
+    } catch (error: any) {
+      setFeedback({ type: 'error', message: error?.message || 'Bulk estimate update failed.' });
+    } finally {
+      setBulkEtaSaving(false);
     }
   };
 
@@ -320,11 +363,54 @@ export const AdminPipelineManager: React.FC = () => {
 
       <div className="flex flex-wrap gap-2">
         {(['all', 'pending', 'approved', 'staging', 'published', 'declined'] as QueueFilter[]).map((value) => (
-          <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition ${filter === value ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'}`}>
+          <button key={value} type="button" onClick={() => { setFilter(value); setSelectedEstimateIds([]); }} className={`rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition ${filter === value ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-white'}`}>
             {value === 'all' ? 'All songs' : value[0].toUpperCase() + value.slice(1)} <span className="ml-1 opacity-70">{countFor(value)}</span>
           </button>
         ))}
       </div>
+
+      {visibleRequests.some((request) => request.status === 'approved') && (
+        <section className="rounded-xl border border-cyan-400/20 bg-cyan-500/[0.05] p-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-bold text-cyan-100">Bulk estimated upload</div>
+              <p className="text-[10px] text-slate-400">Select approved requests below and set one ETA for all. Leave the date blank to clear estimates.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const ids = visibleRequests.filter((request) => request.status === 'approved').map((request) => request.id);
+                setSelectedEstimateIds((current) =>
+                  ids.every((id) => current.includes(id))
+                    ? current.filter((id) => !ids.includes(id))
+                    : [...new Set([...current, ...ids])]
+                );
+              }}
+              className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] font-semibold text-slate-200 hover:bg-white/5"
+            >
+              {visibleRequests.filter((request) => request.status === 'approved').every((request) => selectedEstimateIds.includes(request.id))
+                ? 'Deselect visible'
+                : 'Select all visible approved'}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="datetime-local"
+              value={bulkEtaDraft}
+              onChange={(event) => setBulkEtaDraft(event.target.value)}
+              className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white"
+            />
+            <button
+              type="button"
+              disabled={bulkEtaSaving || !selectedEstimateIds.some((id) => visibleRequests.some((request) => request.id === id && request.status === 'approved'))}
+              onClick={() => void applyBulkUploadEstimate()}
+              className="rounded-lg bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-40"
+            >
+              {bulkEtaSaving ? 'Applying…' : 'Apply to ' + selectedEstimateIds.filter((id) => visibleRequests.some((request) => request.id === id && request.status === 'approved')).length + ' selected'}
+            </button>
+          </div>
+        </section>
+      )}
 
       {visibleRequests.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-white/10 p-10 text-center text-xs text-slate-500">No song requests in this view.</div>
@@ -339,6 +425,12 @@ export const AdminPipelineManager: React.FC = () => {
                 <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="mb-3 flex flex-wrap items-center gap-2">
+                      {request.status === 'approved' && (
+                        <label className="mr-1 flex items-center gap-1.5 text-[10px] text-cyan-200">
+                          <input type="checkbox" checked={selectedEstimateIds.includes(request.id)} onChange={(event) => setSelectedEstimateIds((current) => event.target.checked ? [...current, request.id] : current.filter((id) => id !== request.id))} className="accent-cyan-500" />
+                          Bulk ETA
+                        </label>
+                      )}
                       <span className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${request.status === 'published' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : request.status === 'staging' ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200' : request.status === 'declined' ? 'border-rose-400/30 bg-rose-500/10 text-rose-200' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>{request.status}</span>
                       <span className="text-[10px] text-slate-500">Requested by {request.requestedByUsername} · {new Date(request.createdAt).toLocaleString()}</span>
                     </div>
