@@ -889,16 +889,19 @@ export async function publishStagedSongRequestDb(requestId: string) {
         processingError: null,
       }).where(eq(songRequests.id, requestId)).returning();
       if (!updated[0]) throw new Error('The song was added, but the request record could not be updated. The transaction was rolled back.');
-      localStore.insertSong(inserted[0]);
+      return { request: updated[0], song: inserted[0], alreadyPublished: false };
+    });
+    if (!publication.alreadyPublished) {
+      localStore.insertSong(publication.song);
       localStore.updateRequestFull(requestId, {
         status: 'published',
-        publishedSongId: songId,
-        publishedAt,
+        publishedSongId: publication.song.id,
+        publishedAt: publication.request.publishedAt,
         processingProgress: 'Published. Audio streams directly from Google Drive.',
         processingError: null,
       });
-      return { request: updated[0], song: inserted[0], alreadyPublished: false };
-    });
+    }
+    return publication;
   } catch (error) {
     noteDbError('publishStagedSongRequestDb', error);
     throw error;
@@ -958,16 +961,17 @@ export async function unpublishSongRequestDb(requestId: string) {
         processingError: null,
       }).where(eq(songRequests.id, requestId)).returning();
       if (!updated[0]) throw new Error('The request could not be restored to staging.');
-      localStore.deleteSong(request.publishedSongId);
-      localStore.updateRequestFull(requestId, {
-        status: 'staging',
-        publishedSongId: null,
-        publishedAt: null,
-        processingProgress: 'Unpublished; MP3 remains in staging.',
-        processingError: null,
-      });
       return updated[0];
     });
+    if (publication.publishedSongId) localStore.deleteSong(publication.publishedSongId);
+    localStore.updateRequestFull(requestId, {
+      status: 'staging',
+      publishedSongId: null,
+      publishedAt: null,
+      processingProgress: 'Unpublished; MP3 remains in staging.',
+      processingError: null,
+    });
+    return publication;
   } catch (error) {
     noteDbError('unpublishSongRequestDb', error);
     throw error;
