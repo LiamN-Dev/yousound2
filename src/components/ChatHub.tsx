@@ -379,9 +379,12 @@ export const ChatHub: React.FC = () => {
   // Admin Toggle Global Chat Block for a user
   const handleToggleUserGlobalChat = async (user: User) => {
     const newBlockedState = !user.chatBlocked;
-    await storage.adminUpdateUser(user.id, {
-      chatBlocked: newBlockedState,
-    });
+    const result = await adminUpdateUser(user.id, { chatBlocked: newBlockedState });
+    if (!result.success) {
+      setBlockFeedback(result.error || 'Could not update this user’s chat access.');
+      return;
+    }
+    setBlockFeedback(`@${user.username} is now ${newBlockedState ? 'blocked from' : 'allowed to use'} chat.`);
     await loadChatData();
   };
 
