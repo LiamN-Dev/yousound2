@@ -973,6 +973,77 @@ export async function createRadioChatMessageDb(data: {
   }
 }
 
+/** Strict persistent radio-moderation reads. A disconnected database is an error, not an empty ban list. */
+export async function listRadioChatBansDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected. No moderation changes were applied.');
+  }
+  try {
+    return await db.select().from(radioChatBans).orderBy(desc(radioChatBans.createdAt));
+  } catch (error) {
+    noteDbError('listRadioChatBansDb', error);
+    throw new Error('Could not read the persistent radio ban list.');
+  }
+}
+
+export async function getRadioChatBanDb(userId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected.');
+  }
+  try {
+    const rows = await db.select().from(radioChatBans).where(eq(radioChatBans.userId, userId)).limit(1);
+    return rows[0] || null;
+  } catch (error) {
+    noteDbError('getRadioChatBanDb', error);
+    throw new Error('Could not verify radio chat permissions.');
+  }
+}
+
+export async function upsertRadioChatBanDb(data: {
+  userId: string; username: string; reason?: string | null; bannedBy: string;
+}) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected. The user was not banned.');
+  }
+  try {
+    const now = new Date();
+    const rows = await db.insert(radioChatBans).values({
+      userId: data.userId,
+      username: data.username,
+      reason: data.reason || null,
+      bannedBy: data.bannedBy,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: radioChatBans.userId,
+      set: {
+        username: data.username,
+        reason: data.reason || null,
+        bannedBy: data.bannedBy,
+        updatedAt: now,
+      },
+    }).returning();
+    if (!rows[0]) throw new Error('The database did not confirm the ban.');
+    return rows[0];
+  } catch (error) {
+    noteDbError('upsertRadioChatBanDb', error);
+    throw new Error(error instanceof Error ? error.message : 'Could not save the radio ban.');
+  }
+}
+
+export async function deleteRadioChatBanDb(userId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Radio moderation is unavailable because the persistent database is disconnected. The ban was not removed.');
+  }
+  try {
+    const rows = await db.delete(radioChatBans).where(eq(radioChatBans.userId, userId)).returning({ userId: radioChatBans.userId });
+    return rows.length > 0;
+  } catch (error) {
+    noteDbError('deleteRadioChatBanDb', error);
+    throw new Error('Could not remove the persistent radio ban.');
+  }
+}
+
 // ----------------- SYSTEM SETTINGS -----------------
 // Older versions wrote plain strings to system_settings but always attempted JSON.parse
 // while reading them. That made encrypted OAuth refresh tokens appear to be missing after
