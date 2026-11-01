@@ -262,32 +262,37 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleLoadedMetadata = () => {
       if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-        const measured = Math.round(audio.duration);
+        const measuredExact = Math.round(audio.duration * 1000) / 1000;
+        const measured = Math.round(measuredExact);
         setDuration(audio.duration);
 
-        // Self-heal: If measured duration differs from song's labeled duration by >= 2 seconds, update it permanently!
-        if (currentSongRef.current && measured > 0 && Math.abs((currentSongRef.current.duration || 0) - measured) >= 2) {
-          console.log(`Self-healing duration for "${currentSongRef.current.title}": ${currentSongRef.current.duration}s -> ${measured}s`);
-          const healed = currentSongRef.current;
+        // Radio uses the exact media duration, not rounded display seconds. A half-second
+        // rounding error on each track becomes cumulative playlist drift over time.
+        const healed = currentSongRef.current;
+        if (healed && measuredExact >= 5 && Math.abs((Number(healed.durationExact) || Number(healed.duration) || 0) - measuredExact) >= 0.05) {
           if (radioModeRef.current) {
             void fetch('/api/radio/duration', {
               method: 'POST', credentials: 'same-origin',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ songId: healed.id, seconds: measured }),
+              body: JSON.stringify({ songId: healed.id, seconds: measuredExact }),
             }).catch(() => undefined);
           }
-          if (healed.id.startsWith('staging-')) {
-            // Admin test play of a not-yet-published song: the test player saves it on the request
-          } else if (userRoleRef.current === 'admin') {
-            storage.updateSong(healed.id, { duration: measured });
-          } else {
-            // Any listener's player can supply the real length when the song only has a placeholder
-            storage.reportSongDuration(healed.id, measured);
+
+          if (Math.abs((Number(healed.duration) || 0) - measured) >= 2) {
+            console.log(`Self-healing duration for "${healed.title}": ${healed.duration}s -> ${measured}s (${measuredExact}s exact)`);
+            if (healed.id.startsWith('staging-')) {
+              // Admin test play of a not-yet-published song: the test player saves it on the request
+            } else if (userRoleRef.current === 'admin') {
+              storage.updateSong(healed.id, { duration: measured, durationExact: measuredExact });
+            } else {
+              storage.reportSongDuration(healed.id, measured);
+            }
+          } else if (!healed.durationExact && !radioModeRef.current && !healed.id.startsWith('staging-')) {
+            storage.updateSong(healed.id, { durationExact: measuredExact });
           }
         }
       }
     };
-
     const handleEnded = () => {
       handleTrackEndRef.current();
     };
