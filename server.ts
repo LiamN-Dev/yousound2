@@ -1898,7 +1898,7 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
         banNote: banned?.reason || null,
       });
     }
-    const message = String(req.body?.message || '').replace(/\\s+/g, ' ').trim().slice(0, 500);
+    const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (!message) return res.status(400).json({ success: false, error: 'Write a message first.' });
     const created = await createRadioChatMessageDb({
       id: 'radio-chat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9),
