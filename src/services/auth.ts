@@ -91,8 +91,8 @@ const sign = (body: string) => b64u(crypto.createHmac('sha256', getSecret()).upd
 const pwStamp = (hash?: string | null) =>
   crypto.createHash('sha256').update(hash || '').digest('hex').slice(0, 12);
 
-export function createSessionToken(user: { uid: string; passwordHash?: string | null }): string {
-  const payload = { u: user.uid, e: Date.now() + SESSION_MS, p: pwStamp(user.passwordHash) };
+export function createSessionToken(user: { uid: string; passwordHash?: string | null; sessionVersion?: number | null }): string {
+  const payload = { u: user.uid, e: Date.now() + SESSION_MS, p: pwStamp(user.passwordHash), s: Math.max(0, Number(user.sessionVersion) || 0) };
   const body = b64u(Buffer.from(JSON.stringify(payload)));
   return `${body}.${sign(body)}`;
 }
@@ -108,7 +108,7 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
-export function setSessionCookie(req: Request, res: Response, user: { uid: string; passwordHash?: string | null }) {
+export function setSessionCookie(req: Request, res: Response, user: { uid: string; passwordHash?: string | null; sessionVersion?: number | null }) {
   const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
   res.cookie(COOKIE_NAME, createSessionToken(user), {
     httpOnly: true,
@@ -133,8 +133,8 @@ async function userFromRequest(req: Request): Promise<any | null> {
     if (!payload?.u || !payload.e || payload.e < Date.now()) return null;
     const user = await getUserByUid(payload.u);
     if (!user) return null;
-    // Changing a password signs everyone else out of that account
     if (payload.p !== pwStamp(user.passwordHash)) return null;
+    if ((Number(payload.s) || 0) !== (Number(user.sessionVersion) || 0)) return null;
     return user;
   } catch {
     return null;
@@ -167,6 +167,7 @@ const RULES: Rule[] = [
   // to the canonical Render domain even when the admin started from an alternate frontend domain.
   ['GET', /^\/api\/admin\/google-drive\/oauth\/callback$/, 'public'],
   ['POST', /^\/api\/auth\/(login|register|logout)$/, 'public'],
+  ['POST', /^\/api\/auth\/unlock$/, 'login'],
   ['POST', /^\/api\/feedback$/, 'public'],
   // Media streams are member-protected. Do not classify audio or cover URLs as public:
   // otherwise suspended users can keep listening through direct media requests.
@@ -223,6 +224,8 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
   if (!user) {
     return res.status(401).json({ success: false, error: 'Please log in again.', code: 'AUTH_REQUIRED' });
   }
+  const safeLockRoute = (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) || (req.method === 'POST' && url === '/api/auth/unlock');
+  if (user.role !== 'admin' && user.isLocked && !safeLockRoute) return res.status(423).json({ success: false, error: 'This account is locked. Enter the current seven-digit code supplied by an administrator.', code: 'ACCOUNT_LOCKED' });
   if (level === 'login') {
     const isSafeSuspendedRoute =
       (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
@@ -241,6 +244,20 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({ success: false, error: 'Your account cannot do this right now.' });
   }
   next();
+}
+
+
+const unlockFailures = new Map<string, { count: number; first: number }>();
+function accountUnlockCodeForSlot(uid: string, slot: number): string {
+ const digest=crypto.createHmac('sha256',getSecret()).update(`yousong-account-unlock:${uid}:${slot}`).digest();
+ const offset=digest[digest.length-1]&15;return String((digest.readUInt32BE(offset)&0x7fffffff)%10000000).padStart(7,'0');
+}
+export function createAccountUnlockCode(uid: string, now=Date.now()) {const slot=Math.floor(now/60000);return {code:accountUnlockCodeForSlot(uid,slot),expiresAt:(slot+1)*60000};}
+export function verifyAccountUnlockCode(uid:string,candidate:unknown,now=Date.now()):boolean {
+ const code=String(candidate||'').trim();if(!/^\d{7}$/.test(code))return false;
+ const f=unlockFailures.get(uid);if(f&&now-f.first<600000&&f.count>=8)return false;if(f&&now-f.first>=600000)unlockFailures.delete(uid);
+ const slot=Math.floor(now/60000);const ok=[slot,slot-1].some(s=>safeEqual(accountUnlockCodeForSlot(uid,s),code));
+ if(ok){unlockFailures.delete(uid);return true;}const cur=unlockFailures.get(uid);if(!cur||now-cur.first>=600000)unlockFailures.set(uid,{count:1,first:now});else cur.count++;return false;
 }
 
 // ---------------------------------------------------------------- login throttling
