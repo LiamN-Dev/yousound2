@@ -2513,8 +2513,9 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
 });
 
 // Admin uploads both request assets on the website. Temporary files are immediately moved to Drive.
-app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) => {
+app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Upload was stopped before any files were transferred.' });
   const upload = uploadAudio.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]);
   upload(req, res, async (uploadError: any) => {
     const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
@@ -2546,7 +2547,7 @@ app.post('/api/admin/requests/:id/upload-media', (req: Request, res: Response) =
       if (!/\.mp3$/i.test(audioFile.originalname || '') || (audioFile.mimetype && !['audio/mpeg', 'audio/mp3', 'application/octet-stream'].includes(audioFile.mimetype.toLowerCase()))) {
         return res.status(400).json({ success: false, error: 'Audio must be an MP3. No conversion is performed.' });
       }
-      const requestItem = await getRequestByIdDb(req.params.id);
+      const requestItem = await getRequestByIdPersistentDb(req.params.id);
       if (!requestItem) return res.status(404).json({ success: false, error: 'Request not found.' });
       if (requestItem.status !== 'approved') return res.status(409).json({ success: false, error: 'Approve this request for upload before selecting its files.' });
 
@@ -3285,68 +3286,47 @@ app.post('/api/admin/library/upload-cover', (req: Request, res: Response) => {
 });
 
 // Publish only a staged MP3 hosted directly on Google Drive. This keeps song bytes out of this app host.
+// Publish/unpublish a request atomically. Retries reuse the existing library row.
 app.post('/api/admin/requests/:id/publish', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Nothing was published or unpublished.' });
+    }
     const { isPublished } = req.body || {};
-    const requestItem = await getRequestByIdDb(id);
-    if (!requestItem) return res.status(404).json({ error: 'Request not found' });
+    if (typeof isPublished !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Choose whether to publish or unpublish this request.' });
+    }
+    const requestItem = await getRequestByIdPersistentDb(id);
+    if (!requestItem) return res.status(404).json({ success: false, error: 'Request not found.' });
 
     if (isPublished) {
-      if (requestItem.status !== 'staging') {
-        return res.status(409).json({ error: 'Only a request with an uploaded MP3 can be published. Upload an MP3 directly to Google Drive first.' });
+      if (!['staging', 'published'].includes(requestItem.status)) {
+        return res.status(409).json({ success: false, error: 'Approve the request and upload its MP3 and artwork before publishing.' });
       }
       const requestAudioUrl = String(requestItem.audioUrl || '');
       const hasDrivePlaybackUrl = requestAudioUrl.startsWith('/api/drive/stream/')
         || requestAudioUrl.startsWith('https://drive.google.com/uc?export=download&id=');
       if (!requestItem.driveFileId || !hasDrivePlaybackUrl || !String(requestItem.coverUrl || '').startsWith('https://lh3.googleusercontent.com/d/')) {
-        return res.status(400).json({ error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
+        return res.status(400).json({ success: false, error: 'This request needs both a Google Drive MP3 and a Google Drive cover image before publishing.' });
       }
 
-      if (!(await checkSqlAvailability())) return res.status(503).json({ error: 'The persistent database is unavailable. The song was not published.' });
-      const songId = `song-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const newSong = await insertSongDb({
-        id: songId,
-        title: requestItem.songTitle,
-        artist: requestItem.artist || 'Unknown Artist',
-        mediaCode: requestItem.mediaCode || undefined,
-        album: 'YouSong Community',
-        genre: requestItem.genre || 'Vibe / Chill',
-        duration: requestItem.duration || 180,
-        audioUrl: requestItem.audioUrl,
-        coverUrl: requestItem.coverUrl,
-        addedAt: new Date().toISOString(),
-        plays: 0,
-        featured: false,
-        description: `Requested by ${requestItem.requestedByUsername} via YouSong Pipeline.`,
-        tags: [requestItem.genre?.toLowerCase() || 'vibe', 'community', 'drive-mp3'],
-      }, true);
-
-      await saveMediaIdDb({ code: String(requestItem.mediaCode), status: 'assigned', songId, title: newSong.title, artist: newSong.artist, audioFileId: requestItem.driveFileId, artworkFileId: extractDriveFileId(String(requestItem.coverUrl || '')) });
-      const updated = await updateRequestFullDb(id, {
-        status: 'published',
-        publishedSongId: songId,
-        publishedAt: new Date().toISOString(),
-        processingProgress: 'Published. Audio streams directly from Google Drive.',
-        processingError: null,
+      const publication = await publishStagedSongRequestDb(id);
+      console.log(`[SongPipeline] ${publication.alreadyPublished ? 'Verified existing publication for' : 'Published'} "${publication.song.title}" (${requestItem.driveFileId}).`);
+      return res.json({
+        success: true,
+        request: publication.request,
+        song: publication.song,
+        alreadyPublished: publication.alreadyPublished,
       });
-      console.log(`[SongPipeline] Published Drive MP3 "${newSong.title}" (${requestItem.driveFileId}).`);
-      return res.json({ success: true, request: updated, song: newSong });
     }
 
-    // Unpublishing removes the library entry, but deliberately leaves the uploaded MP3 in Drive.
-    if (requestItem.publishedSongId) await deleteSongDb(requestItem.publishedSongId);
-    const updated = await updateRequestFullDb(id, {
-      status: 'staging',
-      publishedSongId: null,
-      publishedAt: null,
-      processingProgress: 'Unpublished; MP3 remains in staging.',
-    });
+    const updated = await unpublishSongRequestDb(id);
     return res.json({ success: true, request: updated });
   } catch (error: any) {
-    console.error('Publish request error:', error);
-    return res.status(500).json({ error: error.message || 'Publish failed.' });
+    console.error('[SongPipeline] Atomic publish/unpublish failed:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Publish failed.' });
   }
 });
 
