@@ -112,6 +112,8 @@ export async function updateUserDb(
     chatBlocked?: boolean;
     colorAccent?: string;
     dailyListenLimit?: number | null;
+    isLocked?: boolean;
+    sessionVersion?: number;
     christmasMode?: boolean;
   }
 ) {
