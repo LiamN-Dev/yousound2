@@ -596,7 +596,9 @@ class StorageService {
       this.notify();
 
       // Reload the canonical song library after the server transaction commits.
-      await this.syncWithServer();
+      // A cache-refresh failure must not turn a committed database publish into a false failure.
+      try { await this.syncWithServer(); }
+      catch (syncError) { console.warn('Song library refresh deferred after successful publish:', syncError); }
       const canonicalIndex = this.requests.findIndex((request) => request.id === id);
       if (canonicalIndex === -1) this.requests = [savedRequest, ...this.requests];
       else this.requests[canonicalIndex] = savedRequest;
