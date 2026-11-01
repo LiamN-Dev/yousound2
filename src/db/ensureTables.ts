@@ -63,6 +63,7 @@ export async function ensureTables(): Promise<void> {
 
   // 2. Columns that older databases may be missing
   const columns: Array<[string, string]> = [
+    ['songs', 'duration_exact DOUBLE PRECISION'],
     ['users', 'chat_blocked BOOLEAN DEFAULT false'],
     ['users', 'is_suspended BOOLEAN DEFAULT false'],
     ['users', 'daily_listen_limit INTEGER'],
