@@ -772,6 +772,181 @@ export async function updateRequestFullDb(
   }
 }
 
+/**
+ * Publish a staged song request as one atomic database transaction. Retrying the
+ * endpoint cannot create duplicate library songs or leave the request halfway published.
+ */
+export async function publishStagedSongRequestDb(requestId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The song was not published.');
+  }
+  try {
+    return await db.transaction(async (tx) => {
+      const locked = await tx.select().from(songRequests)
+        .where(eq(songRequests.id, requestId)).for('update').limit(1);
+      const request = locked[0];
+      if (!request) throw new Error('Song request not found.');
+
+      if (request.status === 'published' && request.publishedSongId) {
+        const existing = await tx.select().from(songs)
+          .where(eq(songs.id, request.publishedSongId)).limit(1);
+        if (!existing[0]) throw new Error('This request is marked published, but its library song is missing. Do not retry until the database is reviewed.');
+        return { request, song: existing[0], alreadyPublished: true };
+      }
+      if (request.status !== 'staging') {
+        throw new Error('Only a staged request with an uploaded MP3 can be published.');
+      }
+
+      const audioFileId = String(request.driveFileId || '').trim();
+      const coverUrl = String(request.coverUrl || '').trim();
+      const artworkFileId = coverUrl.match(/\/d\/([A-Za-z0-9_-]+)/i)?.[1] || '';
+      const mediaCode = String(request.mediaCode || '').trim();
+      if (!audioFileId || !artworkFileId || !/^[0-9]{3}$/.test(mediaCode) || !request.audioUrl) {
+        throw new Error('This staged request is missing its Drive audio, Drive artwork, or Media ID. Upload the files again before publishing.');
+      }
+
+      const songId = 'song-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const title = String(request.songTitle || '').trim();
+      const artist = String(request.artist || 'Unknown Artist').trim() || 'Unknown Artist';
+      if (!title) throw new Error('A song title is required before publishing.');
+      const addedAt = new Date().toISOString();
+      const inserted = await tx.insert(songs).values({
+        id: songId,
+        title,
+        artist,
+        mediaCode,
+        album: 'YouSong Community',
+        genre: String(request.genre || 'Vibe / Chill').trim() || 'Vibe / Chill',
+        duration: Math.max(5, Number(request.duration) || 180),
+        audioUrl: String(request.audioUrl),
+        coverUrl,
+        addedAt,
+        plays: 0,
+        featured: false,
+        description: `Requested by ${request.requestedByUsername} via YouSong Pipeline.`,
+        tags: [String(request.genre || 'vibe').toLowerCase(), 'community', 'drive-mp3'],
+      }).returning();
+      if (!inserted[0]) throw new Error('The database did not confirm the new library song.');
+
+      const now = new Date();
+      await tx.insert(mediaIds).values({
+        code: mediaCode,
+        status: 'assigned',
+        songId,
+        requestId: null,
+        title: inserted[0].title,
+        artist: inserted[0].artist,
+        audioFileId,
+        artworkFileId,
+        updatedAt: now,
+      }).onConflictDoUpdate({
+        target: mediaIds.code,
+        set: {
+          status: 'assigned',
+          songId,
+          requestId: null,
+          title: inserted[0].title,
+          artist: inserted[0].artist,
+          audioFileId,
+          artworkFileId,
+          updatedAt: now,
+        },
+      });
+
+      const publishedAt = now.toISOString();
+      const updated = await tx.update(songRequests).set({
+        status: 'published',
+        publishedSongId: songId,
+        publishedAt,
+        processingProgress: 'Published. Audio streams directly from Google Drive.',
+        processingError: null,
+      }).where(eq(songRequests.id, requestId)).returning();
+      if (!updated[0]) throw new Error('The song was added, but the request record could not be updated. The transaction was rolled back.');
+      localStore.insertSong(inserted[0]);
+      localStore.updateRequestFull(requestId, {
+        status: 'published',
+        publishedSongId: songId,
+        publishedAt,
+        processingProgress: 'Published. Audio streams directly from Google Drive.',
+        processingError: null,
+      });
+      return { request: updated[0], song: inserted[0], alreadyPublished: false };
+    });
+  } catch (error) {
+    noteDbError('publishStagedSongRequestDb', error);
+    throw error;
+  }
+}
+
+/** Undo publication without deleting the Drive files; all database rows change together. */
+export async function unpublishSongRequestDb(requestId: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The song was not unpublished.');
+  }
+  try {
+    return await db.transaction(async (tx) => {
+      const locked = await tx.select().from(songRequests)
+        .where(eq(songRequests.id, requestId)).for('update').limit(1);
+      const request = locked[0];
+      if (!request) throw new Error('Song request not found.');
+      if (request.status === 'staging' && !request.publishedSongId) return request;
+      if (request.status !== 'published' || !request.publishedSongId) {
+        throw new Error('Only a published request can be unpublished.');
+      }
+
+      await tx.delete(songs).where(eq(songs.id, request.publishedSongId));
+      const mediaCode = String(request.mediaCode || '').trim();
+      if (/^[0-9]{3}$/.test(mediaCode)) {
+        const now = new Date();
+        await tx.insert(mediaIds).values({
+          code: mediaCode,
+          status: 'reserved',
+          songId: null,
+          requestId,
+          title: request.songTitle,
+          artist: request.artist || 'Unknown Artist',
+          audioFileId: request.driveFileId || null,
+          artworkFileId: String(request.coverUrl || '').match(/\/d\/([A-Za-z0-9_-]+)/i)?.[1] || null,
+          updatedAt: now,
+        }).onConflictDoUpdate({
+          target: mediaIds.code,
+          set: {
+            status: 'reserved',
+            songId: null,
+            requestId,
+            title: request.songTitle,
+            artist: request.artist || 'Unknown Artist',
+            audioFileId: request.driveFileId || null,
+            artworkFileId: String(request.coverUrl || '').match(/\/d\/([A-Za-z0-9_-]+)/i)?.[1] || null,
+            updatedAt: now,
+          },
+        });
+      }
+
+      const updated = await tx.update(songRequests).set({
+        status: 'staging',
+        publishedSongId: null,
+        publishedAt: null,
+        processingProgress: 'Unpublished; MP3 remains in staging.',
+        processingError: null,
+      }).where(eq(songRequests.id, requestId)).returning();
+      if (!updated[0]) throw new Error('The request could not be restored to staging.');
+      localStore.deleteSong(request.publishedSongId);
+      localStore.updateRequestFull(requestId, {
+        status: 'staging',
+        publishedSongId: null,
+        publishedAt: null,
+        processingProgress: 'Unpublished; MP3 remains in staging.',
+        processingError: null,
+      });
+      return updated[0];
+    });
+  } catch (error) {
+    noteDbError('unpublishSongRequestDb', error);
+    throw error;
+  }
+}
+
 export async function updateRequestDb(id: string, status: string, adminNote?: string) {
   if (!(await checkSqlAvailability())) {
     throw new Error('The persistent database is unavailable. The request status was not saved.');
