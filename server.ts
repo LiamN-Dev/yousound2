@@ -1547,6 +1547,7 @@ async function resolveRadioState() {
       }
       offset -= durations[index];
     }
+    if (!config.enabled) { currentSong = null; elapsedSeconds = 0; currentIndex = 0; }
   }
 
   const nextAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
