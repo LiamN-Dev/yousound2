@@ -488,7 +488,8 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
         )}
 
         {activeTab === 'submit' ? (
-          {!requestSettings.enabled && <div className="mb-4 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-100"><span className="mr-2 text-lg">{requestSettings.icon}</span>{requestSettings.notice || 'Song requests are temporarily closed.'}</div>}
+          <>
+            {!requestSettings.enabled && <div className="mb-4 rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-100"><span className="mr-2 text-lg">{requestSettings.icon}</span>{requestSettings.notice || 'Song requests are temporarily closed.'}</div>}
           <form onSubmit={handleSubmit} className={requestSettings.enabled ? 'space-y-4' : 'hidden'}>
             {/* Holding Queue Security Notice */}
             <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-cyan-500/20 text-xs text-slate-300 space-y-1">
@@ -591,6 +592,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
               </div>
             </div>
           </form>
+          </>
         ) : (
           <div className="space-y-3">
             {userRequests.length === 0 ? (
