@@ -1789,7 +1789,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       if (!Number.isFinite(requested)) return res.status(400).json({ success: false, error: 'A valid song position is required.' });
       const positionSeconds = Math.min(duration - 0.25, Math.max(0, requested));
       const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + positionSeconds;
-      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : commandNowMs;
+      const stateNowMs = Date.parse(state.serverNow);
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
       const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
       config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
     } else if (action === 'set-speed') {
@@ -1803,7 +1804,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to change speed.' });
       const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
-      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : commandNowMs;
+      const stateNowMs = Date.parse(state.serverNow);
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
       config.playbackRate = requestedRate;
       config.startedAt = new Date(anchor - (programOffset / requestedRate) * 1000).toISOString();
     } else if (action === 'next') {
@@ -1819,7 +1821,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       } else {
         const targetIndex = nextIndex % playlist.length;
         const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0);
-        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : commandNowMs;
+        const stateNowMs = Date.parse(state.serverNow);
+        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
         const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
         config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
       }
