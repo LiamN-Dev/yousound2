@@ -2417,8 +2417,9 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     ));
     const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
     const folderId = await getDriveLibraryFolderId(accessToken, folderName);
-    const escapedSearchTerm = searchTerm.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const query = `'${folderId}' in parents and trashed=false${searchTerm ? ` and name contains '${escapedSearchTerm}'` : ''}`;
+    // Drive's name-contains operator only matches prefixes. Keep substring matching
+    // in this server-side scan so terms in the middle of a filename still work.
+    const query = `'${folderId}' in parents and trashed=false`;
     const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
     driveUrl.searchParams.set('q', query);
     driveUrl.searchParams.set('pageSize', '100');
