@@ -31,6 +31,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [joined, setJoined] = useState(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
+  const latestStationServerTimeRef = useRef(0);
   const [error, setError] = useState('');
   const [clock, setClock] = useState(Date.now());
   const [messages, setMessages] = useState<Message[]>([]);
@@ -71,6 +72,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio is unavailable.');
       const state = data.state as Station;
+      const serverTime = Date.parse(state.serverNow || '');
+      // An older poll can finish after an admin control request. Never let that
+      // stale response revert a newly confirmed pause/resume state in the UI.
+      if (Number.isFinite(serverTime) && serverTime < latestStationServerTimeRef.current) return;
+      if (Number.isFinite(serverTime)) latestStationServerTimeRef.current = serverTime;
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
@@ -261,8 +267,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio control failed.');
-      if (data.state) setStation(data.state as Station);
-      else setStation((current) => current ? { ...current, paused: Boolean(data.paused), loopPlaylist: Boolean(data.loopPlaylist) } : current);
+      if (data.state) {
+        const confirmedState = data.state as Station;
+        const confirmedServerTime = Date.parse(confirmedState.serverNow || '');
+        if (Number.isFinite(confirmedServerTime)) latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
+        setStation(confirmedState);
+      } else {
+        setStation((current) => current ? { ...current, paused: Boolean(data.paused), loopPlaylist: Boolean(data.loopPlaylist) } : current);
+      }
       setAdminNote(action === 'next' ? 'Skipped to the next song.' : action === 'toggle-loop' ? (data.loopPlaylist ? 'Playlist looping enabled.' : 'Playlist looping disabled.') : (data.paused ? 'Broadcast paused for everyone.' : 'Broadcast resumed for everyone.'));
     } catch (e: any) { setAdminNote(e?.message || 'Could not control the broadcast.'); }
     finally { setSaving(false); }
