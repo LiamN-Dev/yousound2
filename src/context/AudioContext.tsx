@@ -424,50 +424,66 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
-    const attemptId = ++playAttemptRef.current;
     radioModeRef.current = true;
     setIsRadioMode(true);
-    setPlaybackError(null);
     const sourceUrl = getPlayableAudioUrl(song.audioUrl);
     let absoluteUrl = sourceUrl;
     try { absoluteUrl = new URL(sourceUrl, window.location.href).href; } catch {}
     const needsSource = audio.src !== absoluteUrl || currentSongRef.current?.id !== song.id;
+    const attemptId = needsSource ? ++playAttemptRef.current : playAttemptRef.current;
     if (needsSource) {
+      setPlaybackError(null);
       audio.pause();
       setCurrentSong(song);
       audio.src = sourceUrl;
       audio.load();
+      // Start the play request immediately. This is important when the first call
+      // comes from the user's Join click; waiting for metadata can lose autoplay permission.
+      const graphResume = audioGraphRef.current?.state === 'suspended'
+        ? audioGraphRef.current.resume().catch(() => undefined)
+        : Promise.resolve();
+      const playRequest = audio.play();
+      await graphResume;
       await new Promise<void>((resolve) => {
         if (audio.readyState >= 1) return resolve();
-        const done = () => {
-          audio.removeEventListener('loadedmetadata', done);
-          audio.removeEventListener('error', done);
-          resolve();
-        };
+        const done = () => resolve();
         audio.addEventListener('loadedmetadata', done, { once: true });
         audio.addEventListener('error', done, { once: true });
       });
+      if (attemptId !== playAttemptRef.current || !radioModeRef.current) return;
+      try { await playRequest; } catch {
+        if (attemptId === playAttemptRef.current) {
+          setIsPlaying(false);
+          setPlaybackError('Radio audio could not start. Press Join to allow playback.');
+        }
+        return;
+      }
     } else if (currentSongRef.current?.id !== song.id) {
       setCurrentSong(song);
     }
+
     if (attemptId !== playAttemptRef.current || !radioModeRef.current) return;
     const target = Math.max(0, Number(elapsedSeconds) || 0);
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      if (needsSource || Math.abs(audio.currentTime - target) > 5) {
+      // Polls are only clock corrections. Never reload/restart an already playing track.
+      if (Math.abs(audio.currentTime - target) > 2.75) {
         try { audio.currentTime = Math.min(target, Math.max(0, audio.duration - 0.25)); } catch {}
       }
       setDuration(audio.duration);
     }
-    try {
-      if (audioGraphRef.current?.state === 'suspended') await audioGraphRef.current.resume();
-      await audio.play();
-      if (attemptId === playAttemptRef.current) setIsPlaying(true);
-    } catch (error) {
-      if (attemptId === playAttemptRef.current) {
-        setIsPlaying(false);
-        setPlaybackError('Radio audio could not start. Check the connection and press Join again.');
+    if (audio.paused) {
+      try {
+        if (audioGraphRef.current?.state === 'suspended') await audioGraphRef.current.resume();
+        await audio.play();
+      } catch {
+        if (attemptId === playAttemptRef.current) {
+          setIsPlaying(false);
+          setPlaybackError('Radio playback paused by the browser. Press Join to resume.');
+        }
+        return;
       }
     }
+    if (attemptId === playAttemptRef.current) setIsPlaying(true);
   }, []);
 
   const leaveRadio = useCallback(() => {
@@ -541,7 +557,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [refreshSongLibrary]);
 
   const togglePlay = useCallback(() => {
-    if (!audioRef.current) return;
+    if (radioModeRef.current || !audioRef.current) return;
     const audio = audioRef.current;
 
     if (!currentSong && allSongs.length > 0) {
@@ -561,7 +577,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [isPlaying, currentSong, allSongs, playSong]);
 
   const seek = useCallback((seconds: number) => {
-    if (!audioRef.current) return;
+    if (radioModeRef.current || !audioRef.current) return;
     audioRef.current.currentTime = seconds;
     setCurrentTime(seconds);
   }, []);
@@ -585,6 +601,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [isMuted]);
 
   const toggleRepeat = useCallback(() => {
+    if (radioModeRef.current) return;
     setRepeatMode((prev) => {
       if (prev === 'off') return 'all';
       if (prev === 'all') return 'one';
@@ -593,15 +610,17 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const toggleShuffle = useCallback(() => {
+    if (radioModeRef.current) return;
     setIsShuffled((prev) => !prev);
   }, []);
 
   const playNext = useCallback(() => {
+    if (radioModeRef.current) return;
     handleTrackEnd();
   }, [handleTrackEnd]);
 
   const playPrevious = useCallback(() => {
-    if (!audioRef.current || !currentSong) return;
+    if (radioModeRef.current || !audioRef.current || !currentSong) return;
     // If playback > 3s, rewind to start of current song
     if (audioRef.current.currentTime > 3) {
       seek(0);
