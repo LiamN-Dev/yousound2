@@ -149,6 +149,37 @@ class StorageService {
   }
 
   // Fetch persistent state from Cloud SQL backend
+  /** Fast account-status check so bans reach already-open browser sessions promptly. */
+  public async refreshSessionStatus() {
+    const current = this.getCurrentSessionUser();
+    if (!current) return;
+    try {
+      const response = await fetch('/api/auth/me/' + encodeURIComponent(current.id), {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+      if (response.status === 401) {
+        this.setCurrentSessionUser(null);
+        this.notify();
+        return;
+      }
+      if (!response.ok) return;
+      const data = await response.json().catch(() => ({}));
+      if (!data.success || !data.user) return;
+      const updated = data.user;
+      if (
+        updated.isSuspended !== current.isSuspended ||
+        updated.suspendedReason !== current.suspendedReason ||
+        updated.isApproved !== current.isApproved
+      ) {
+        this.setCurrentSessionUser({ ...current, ...updated });
+        this.notify();
+      }
+    } catch {
+      // A transient network failure must not sign a listener out.
+    }
+  }
+
   public async syncWithServer() {
     try {
       const [songsRes, plRes, reqRes, popRes, userRes, bannerRes, maintRes, autoTagsRes, spotlightRes] = await Promise.allSettled([

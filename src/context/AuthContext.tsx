@@ -127,6 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const interval = setInterval(() => {
       storage.syncWithServer();
     }, 15000);
+    const statusInterval = setInterval(() => { void storage.refreshSessionStatus(); }, 3000);
     const expInterval = setInterval(() => {
       const liveUser = storage.getCurrentSessionUser();
       const currentActive = storage.getActivePopupsForUser(liveUser?.id);
@@ -139,6 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       unsubscribe();
       clearInterval(interval);
+      clearInterval(statusInterval);
       clearInterval(expInterval);
     };
   }, [refreshState]);

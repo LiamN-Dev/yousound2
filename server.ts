@@ -2386,6 +2386,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
   }
 
   const searchTerm = String(req.query.q || '').trim().slice(0, 100).toLowerCase();
+  const showNumbered = String(req.query.showNumbered || '') === '1';
   const requestedPageToken = String(req.query.pageToken || '').trim().slice(0, 2048);
   try {
     const scopeVersion = await getPersistentSettingDb<string>(DRIVE_LIBRARY_SCOPE_VERSION_SETTING);
@@ -2398,6 +2399,10 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
     }
 
     const accessToken = await getDriveAccessToken();
+    const registeredIds = showNumbered ? [] : await getMediaIdsDb();
+    const alreadyNumberedFileIds = new Set<string>(registeredIds.flatMap((item: any) =>
+      [item.audioFileId, item.artworkFileId].filter(Boolean).map(String)
+    ));
     const folderName = kind === 'audio' ? 'Audio Tracks' : 'Artwork';
     const folderId = await getDriveLibraryFolderId(accessToken, folderName);
     const query = `'${folderId}' in parents and trashed=false`;
@@ -2438,7 +2443,9 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
         const supported = kind === 'audio'
           ? lowerName.endsWith('.mp3') || mimeType === 'audio/mpeg' || mimeType === 'audio/mp3'
           : supportedImageTypes.has(mimeType) || /\.(jpe?g|png|webp|gif)$/i.test(name);
+        const hasThreeDigitId = /\\s-\\s[0-9]{3}(?=\\.[^.]+$)/i.test(name);
         if (!supported || (searchTerm && !lowerName.includes(searchTerm))) continue;
+        if (!showNumbered && (alreadyNumberedFileIds.has(String(file.id)) || hasThreeDigitId)) continue;
         files.push({
           id: String(file.id),
           name: name || 'Untitled file',
@@ -2453,7 +2460,7 @@ app.get('/api/admin/library/drive-files', async (req: Request, res: Response) =>
       scans += 1;
     } while (files.length < 100 && nextPageToken && scans < maxScansPerRequest);
 
-    return res.json({ success: true, folder: folderName, files, nextPageToken, scannedPages: scans });
+    return res.json({ success: true, folder: folderName, files, nextPageToken, scannedPages: scans, numberedFilesHidden: !showNumbered });
   } catch (error: any) {
     console.error('[DriveLibraryPicker] Could not list Google Drive files:', error?.message || error);
     return res.status(502).json({
