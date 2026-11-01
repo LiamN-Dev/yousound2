@@ -1441,7 +1441,7 @@ export async function stageSongRequestMediaDb(
       if (request.status !== 'approved') throw new Error('This request is no longer approved for upload. Refresh the pipeline before retrying.');
 
       const reservedRows = await tx.select().from(mediaIds)
-        .where(eq(mediaIds.code, media.code)).limit(1);
+        .where(eq(mediaIds.code, media.code)).for('update').limit(1);
       const reservation = reservedRows[0];
       if (!reservation || reservation.status !== 'reserved' || reservation.songId
         || (reservation.requestId && reservation.requestId !== requestId)) {
