@@ -14,6 +14,7 @@ import {
   deleteUserDb,
   getSongsDb,
   getSongsPersistentDb,
+  updateSongDurationExactDb,
   insertSongDb,
   updateSongDb,
   deleteSongDb,
@@ -1677,7 +1678,7 @@ app.post('/api/radio/duration', async (req: Request, res: Response) => {
     }
     const currentExact = Number(state.currentSong?.durationExact) || Number(state.currentSong?.duration) || 0;
     if (Math.abs(currentExact - exact) >= 0.05) {
-      await updateSongDb(songId, { duration: rounded, durationExact: exact });
+      await updateSongDurationExactDb(songId, exact);
     }
     return res.json({ success: true, duration: rounded, durationExact: exact });
   } catch (error: any) {
