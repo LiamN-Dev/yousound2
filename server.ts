@@ -844,9 +844,8 @@ app.get('/api/auth/me/:userId', async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
     const me = getAuthUser(req);
-    if (!me || (me.uid !== userId && me.role !== 'admin')) {
-      return res.status(403).json({ success: false, error: 'Not allowed' });
-    }
+    if (!me) return res.status(401).json({ success: false, error: 'Please log in again.' });
+    if (me.uid !== userId && me.role !== 'admin') return res.status(403).json({ success: false, error: 'Not allowed' });
     const user = await getUserByUid(userId);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -1136,6 +1135,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
             temporaryPasswordAssigned: updated.temporaryPasswordAssigned,
             chatBlocked: updated.chatBlocked || false,
             isSuspended: updated.isSuspended || false,
+            isLocked: updated.isLocked || false,
             suspendedReason: updated.suspendedReason || null,
             adminNote: updated.adminNote || null,
             colorAccent: updated.colorAccent || 'cyan',
