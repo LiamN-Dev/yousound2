@@ -1495,7 +1495,7 @@ function cleanRadioProgram(value: any): RadioProgram {
     name: String(value?.name || 'Untitled program').trim().slice(0, 80) || 'Untitled program',
     description: String(value?.description || '').trim().slice(0, 240),
     songIds: Array.isArray(value?.songIds)
-      ? [...new Set(value.songIds.map((id: any) => String(id)).filter((id: string) => id.length > 0))].slice(0, 100)
+      ? [...new Set<string>((value.songIds as unknown[]).map((id: unknown) => String(id)).filter((id: string) => id.length > 0))].slice(0, 100)
       : [],
     startsAt: startsAtDate && Number.isFinite(startsAtDate.getTime()) ? startsAtDate.toISOString() : null,
   };
