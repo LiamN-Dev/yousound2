@@ -36,7 +36,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
   const latestStationServerTimeRef = useRef(0);
-  const stationReceivedAtRef = useRef(Date.now());
+  // Estimated server-minus-local clock offset, continuously refined from request midpoints.
+  const serverClockOffsetRef = useRef<number | null>(null);
   const [seekDraft, setSeekDraft] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
   const [error, setError] = useState('');
@@ -77,6 +78,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (stationFetchInFlight.current) return;
     stationFetchInFlight.current = true;
     try {
+      const requestStartedAt = Date.now();
       const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       const receivedAt = Date.now();
@@ -85,17 +87,23 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       const serverTime = Date.parse(state.serverNow || '');
       // Reject stale responses, but never compare the server clock to the device clock.
       if (Number.isFinite(serverTime) && serverTime < latestStationServerTimeRef.current) return;
-      if (Number.isFinite(serverTime)) latestStationServerTimeRef.current = serverTime;
-      stationReceivedAtRef.current = receivedAt;
+      if (Number.isFinite(serverTime)) {
+        latestStationServerTimeRef.current = serverTime;
+        const midpoint = (requestStartedAt + receivedAt) / 2;
+        const measuredOffset = serverTime - midpoint;
+        const previousOffset = serverClockOffsetRef.current;
+        // Smooth network jitter while adapting to real clock skew or server restarts.
+        serverClockOffsetRef.current = previousOffset === null ? measuredOffset : previousOffset * 0.75 + measuredOffset * 0.25;
+      }
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
         const rate = Math.min(2, Math.max(0.5, Number(state.playbackRate) || 1));
-        const ageSinceReceipt = state.paused ? 0 : Math.max(0, (Date.now() - receivedAt) / 1000) * rate;
+        const ageSinceSnapshot = state.paused ? 0 : Math.max(0, (Date.now() + (serverClockOffsetRef.current || 0) - serverTime) / 1000) * rate;
         if (state.paused) {
           void joinRadioPlayback(state.currentSong, state.elapsedSeconds, true, rate);
         } else {
-          void playRadioSong(state.currentSong, state.elapsedSeconds + ageSinceReceipt, rate);
+          void playRadioSong(state.currentSong, state.elapsedSeconds + ageSinceSnapshot, rate);
         }
       } else if (joined) {
         setJoined(false);
@@ -218,10 +226,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (!station?.enabled || !station.currentSong || !currentUser?.id) return;
     setJoined(true);
     const rate = Math.min(2, Math.max(0.5, Number(station.playbackRate) || 1));
-    const ageSinceReceipt = station.paused ? 0 : Math.max(0, (Date.now() - stationReceivedAtRef.current) / 1000) * rate;
+    const snapshotServerTime = Date.parse(station.serverNow || '');
+    const ageSinceSnapshot = station.paused || !Number.isFinite(snapshotServerTime) ? 0 : Math.max(0, (Date.now() + (serverClockOffsetRef.current || 0) - snapshotServerTime) / 1000) * rate;
     // This is the only path that grants this browser permission to play radio audio.
     // Use the last server snapshot plus time since it arrived; local wall-clock skew is irrelevant.
-    void joinRadioPlayback(station.currentSong, station.elapsedSeconds + ageSinceReceipt, Boolean(station.paused), rate);
+    void joinRadioPlayback(station.currentSong, station.elapsedSeconds + ageSinceSnapshot, Boolean(station.paused), rate);
   };
   const leave = () => {
     setJoined(false);
@@ -289,6 +298,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     setSaving(true);
     setAdminNote('');
     try {
+      const requestStartedAt = Date.now();
       const response = await fetch('/api/admin/radio/control', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }),
@@ -299,8 +309,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (confirmedState) {
         const receivedAt = Date.now();
         const confirmedServerTime = Date.parse(confirmedState.serverNow || '');
-        if (Number.isFinite(confirmedServerTime)) latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
-        stationReceivedAtRef.current = receivedAt;
+        if (Number.isFinite(confirmedServerTime)) {
+          latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
+          const measuredOffset = confirmedServerTime - (requestStartedAt + receivedAt) / 2;
+          const previousOffset = serverClockOffsetRef.current;
+          serverClockOffsetRef.current = previousOffset === null ? measuredOffset : previousOffset * 0.75 + measuredOffset * 0.25;
+        }
         setStation(confirmedState);
         if (joined && confirmedState.enabled && confirmedState.currentSong) {
           const rate = Math.min(2, Math.max(0.5, Number(confirmedState.playbackRate) || 1));
