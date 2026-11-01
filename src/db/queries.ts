@@ -1127,37 +1127,38 @@ export async function deletePopupDb(id: string) {
 
 
 /** Recent station chat messages, ordered oldest-to-newest for the client. */
+/** Radio chat is shared across Render instances; never return process-local phantom messages. */
 export async function getRadioChatMessagesDb(limit = 60) {
   const safeLimit = Math.max(1, Math.min(100, Math.floor(limit) || 60));
   if (!(await checkSqlAvailability())) {
-    const cached = localStore.getSetting('radio_chat_messages');
-    return Array.isArray(cached) ? cached.slice(-safeLimit) : [];
+    throw new Error('Radio chat is unavailable because the persistent database is disconnected.');
   }
   try {
     const rows = await db.select().from(radioChatMessages)
       .orderBy(desc(radioChatMessages.createdAt)).limit(safeLimit);
     return rows.reverse().map((row) => ({
-      id: row.id, userId: row.userId, username: row.username,
-      message: row.message, createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+      id: row.id,
+      userId: row.userId,
+      username: row.username,
+      message: row.message,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
     }));
   } catch (error) {
     noteDbError('getRadioChatMessagesDb', error);
-    throw new Error('Could not load radio chat messages.');
+    throw new Error('Could not load radio chat messages from the persistent database.');
   }
 }
 
 export async function clearRadioChatMessagesDb() {
   if (!(await checkSqlAvailability())) {
-    localStore.setSetting('radio_chat_messages', []);
-    return true;
+    throw new Error('Radio chat cannot be cleared because the persistent database is disconnected.');
   }
   try {
     await db.delete(radioChatMessages);
-    localStore.setSetting('radio_chat_messages', []);
     return true;
   } catch (error) {
     noteDbError('clearRadioChatMessagesDb', error);
-    throw new Error('Could not clear radio chat messages.');
+    throw new Error('Could not clear persistent radio chat messages.');
   }
 }
 
@@ -1165,20 +1166,22 @@ export async function createRadioChatMessageDb(data: {
   id: string; userId: string; username: string; message: string;
 }) {
   if (!(await checkSqlAvailability())) {
-    const cached = localStore.getSetting('radio_chat_messages');
-    const list = Array.isArray(cached) ? cached : [];
-    const message = { ...data, createdAt: new Date().toISOString() };
-    localStore.setSetting('radio_chat_messages', [...list, message].slice(-100));
-    return message;
+    throw new Error('Radio chat is unavailable because the persistent database is disconnected. Your message was not sent.');
   }
   try {
     const rows = await db.insert(radioChatMessages).values(data).returning();
     const row = rows[0];
-    return { id: row.id, userId: row.userId, username: row.username, message: row.message,
-      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString() };
+    if (!row) throw new Error('The database did not confirm your message.');
+    return {
+      id: row.id,
+      userId: row.userId,
+      username: row.username,
+      message: row.message,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+    };
   } catch (error) {
     noteDbError('createRadioChatMessageDb', error);
-    throw new Error('Could not send your radio chat message.');
+    throw new Error(error instanceof Error ? error.message : 'Could not send your radio chat message.');
   }
 }
 
