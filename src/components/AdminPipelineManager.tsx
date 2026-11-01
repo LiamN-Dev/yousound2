@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
+import { formatCoverMediaUrl } from '../utils/mediaUrl';
 import { SongRequest } from '../types';
 import {
   AlertCircle, CheckCircle, Cloud, Loader2, Music2, RefreshCw, Send, Trash2, Upload, XCircle,
@@ -531,7 +532,7 @@ export const AdminPipelineManager: React.FC = () => {
                   <div className="mt-4 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] p-3">
                     <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-cyan-100"><Music2 className="h-3.5 w-3.5" /> Drive-hosted media preview</div>
                     <div className="flex items-center gap-3 mb-3">
-                      {request.coverUrl && <img src={request.coverUrl} alt="" className="h-16 w-16 rounded-lg border border-white/10 object-cover" />}
+                      {request.coverUrl && <img src={formatCoverMediaUrl(request.coverUrl)} alt="" className="h-16 w-16 rounded-lg border border-white/10 object-cover" />}
                       <audio controls preload="none" src={stagedUrl} className="min-w-0 flex-1" />
                     </div>
                     <span className="text-[10px] text-emerald-200">Audio and artwork are stored in Google Drive; only their references are stored in the database.</span>
