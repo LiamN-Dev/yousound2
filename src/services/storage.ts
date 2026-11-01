@@ -485,6 +485,22 @@ class StorageService {
     return [...this.requests];
   }
 
+  /** Fetch the admin request queue directly and fail visibly instead of keeping a stale local queue. */
+  async refreshSongRequests(): Promise<SongRequest[]> {
+    const response = await fetch('/api/requests', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(data.requests)) {
+      throw new Error(data.error || `Request queue refresh failed (${response.status}).`);
+    }
+    this.requests = data.requests as SongRequest[];
+    this.saveRequests();
+    this.notify();
+    return [...this.requests];
+  }
+
   async createRequest(data: {
     songTitle: string;
     artist?: string;
