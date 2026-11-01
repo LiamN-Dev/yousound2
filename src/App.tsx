@@ -21,6 +21,7 @@ import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { LoginGate } from './components/LoginGate';
 import { PendingApprovalScreen } from './components/PendingApprovalScreen';
 import { SuspendedScreen } from './components/SuspendedScreen';
+import { AccountLockScreen } from './components/AccountLockScreen';
 import { ChatHub } from './components/ChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
@@ -99,6 +100,8 @@ const MainAppContent: React.FC = () => {
   if (currentUser.isSuspended && !isAdmin) {
     return <SuspendedScreen />;
   }
+
+  if (currentUser.isLocked && !isAdmin) return <AccountLockScreen />;
 
   // 2. APPROVAL GATE: Account must be approved before access
   if (!currentUser.isApproved) {
