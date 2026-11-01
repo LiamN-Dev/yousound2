@@ -36,7 +36,8 @@ export interface Song {
   genre: string;
   tags?: string[]; // e.g. ['piano', 'classical', 'study', 'debussy']
   typeMood?: string; // e.g. 'Instrumental', 'Acoustic', 'Chill Beats', 'Focus'
-  duration: number; // in seconds
+  duration: number; // rounded seconds for display compatibility
+  durationExact?: number; // fractional seconds used by the radio master clock
   audioUrl: string;
   coverUrl: string;
   addedAt: string;
