@@ -1778,7 +1778,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to seek.' });
-      const duration = Math.max(1, Number(playlist[index].duration) || 180);
+      const duration = Math.max(1, Number(playlist[index].durationExact) || Number(playlist[index].duration) || 180);
       const requested = Number(req.body?.positionSeconds);
       if (!Number.isFinite(requested)) return res.status(400).json({ success: false, error: 'A valid song position is required.' });
       const positionSeconds = Math.min(duration - 0.25, Math.max(0, requested));
