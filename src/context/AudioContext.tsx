@@ -446,6 +446,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (needsSource) {
       setPlaybackError(null);
       audio.pause();
+      currentSongRef.current = song;
       setCurrentSong(song);
       audio.src = sourceUrl;
       audio.load();
