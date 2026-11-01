@@ -744,6 +744,16 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           : 'This account has no password set. Ask an admin to assign you a temporary password.',
       });
     }
+    if (user.isSuspended && user.role !== 'admin') {
+      clearLoginFailures(throttleKey);
+      return res.status(403).json({
+        success: false,
+        error: user.suspendedReason
+          ? 'This account is suspended: ' + String(user.suspendedReason).slice(0, 240)
+          : 'This account is suspended. Contact an administrator or submit an appeal.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
     clearLoginFailures(throttleKey);
 
     // Quietly upgrade old weak password storage to salted scrypt
