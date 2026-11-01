@@ -669,6 +669,33 @@ export async function getRequestsDb() {
   }
 }
 
+/** Request queue reads used by the admin pipeline must never return a process-local shadow copy. */
+export async function getRequestsPersistentDb() {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Song requests are unavailable because the persistent database is disconnected.');
+  }
+  try {
+    await cleanupExpiredSongRequestsDb();
+    return await db.select().from(songRequests).orderBy(desc(songRequests.createdAt));
+  } catch (error) {
+    noteDbError('getRequestsPersistentDb', error);
+    throw new Error('Could not load song requests from the persistent database.');
+  }
+}
+
+export async function getRequestByIdPersistentDb(id: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Song requests are unavailable because the persistent database is disconnected.');
+  }
+  try {
+    const rows = await db.select().from(songRequests).where(eq(songRequests.id, id)).limit(1);
+    return rows[0] || null;
+  } catch (error) {
+    noteDbError('getRequestByIdPersistentDb', error);
+    throw new Error('Could not read the request from the persistent database.');
+  }
+}
+
 export async function getRequestByIdDb(id: string) {
   if (!(await checkSqlAvailability())) {
     return localStore.getRequestById(id);
