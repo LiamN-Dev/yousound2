@@ -27,6 +27,10 @@ import {
   toggleFavoriteDb,
   getRequestsDb,
   getRequestByIdDb,
+  getRequestsPersistentDb,
+  getRequestByIdPersistentDb,
+  publishStagedSongRequestDb,
+  unpublishSongRequestDb,
   createRequestDb,
   updateRequestDb,
   updateRequestFullDb,
@@ -2075,15 +2079,17 @@ app.post('/api/favorites/:userId/toggle', async (req: Request, res: Response) =>
 // ----------------- SONG REQUESTS & GOOGLE DRIVE UPLOAD PIPELINE -----------------
 app.get('/api/requests', async (req: Request, res: Response) => {
   try {
-    const list = await getRequestsDb();
+    const list = await getRequestsPersistentDb();
     // Regular users only ever see their own submissions. The holding queue stays hidden.
     if (!isAdminReq(req)) {
       const me = getAuthUser(req).uid;
       const userFiltered = list.filter((r) => r.requestedByUserId === me);
+      res.setHeader('Cache-Control', 'no-store, private');
       return res.json({ requests: userFiltered });
     }
 
     // Admin sees all requests in the admin dashboard review queue
+    res.setHeader('Cache-Control', 'no-store, private');
     res.json({ requests: list });
   } catch (error: any) {
     console.error('Get requests error:', error);
@@ -2099,15 +2105,17 @@ const DEFAULT_SONG_REQUEST_SETTINGS: SongRequestSettings = {
 
 app.get('/api/song-requests/settings', async (_req: Request, res: Response) => {
   try {
-    const settings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+    const settings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
     return res.json({ success: true, settings });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load song request settings.' });
   }
 });
 
-app.get('/api/admin/song-requests/settings', async (_req: Request, res: Response) => {
+app.get('/api/admin/song-requests/settings', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   const settings = await getSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
+  res.setHeader('Cache-Control', 'no-store, private');
   return res.json({ success: true, settings });
 });
 
@@ -2122,7 +2130,7 @@ app.put('/api/admin/song-requests/settings', async (req: Request, res: Response)
       showImageLink: body.showImageLink !== false,
       requireImageLink: body.showImageLink !== false && body.requireImageLink !== false,
     };
-    await setSettingDb(SONG_REQUEST_SETTINGS, settings);
+    await setPersistentSettingDb(SONG_REQUEST_SETTINGS, settings);
     return res.json({ success: true, settings });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not save song request settings.' });
@@ -2180,6 +2188,7 @@ app.post('/api/requests', async (req: Request, res: Response) => {
 app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    if (!(await checkSqlAvailability())) return res.status(503).json({ success: false, error: 'The persistent database is unavailable. The request was not changed.' });
     const { id } = req.params;
     const {
       songTitle,
@@ -2193,14 +2202,21 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       estimatedUploadAt,
     } = req.body;
 
-    const existingReq = await getRequestByIdDb(id);
+    const existingReq = await getRequestByIdPersistentDb(id);
     if (!existingReq) {
       return res.status(404).json({ error: 'Request not found' });
     }
 
     const updates: any = {};
-    if (songTitle !== undefined) updates.songTitle = songTitle.trim();
-    if (artist !== undefined) updates.artist = artist.trim();
+    if (existingReq.status === 'published' && (songTitle !== undefined || artist !== undefined || genre !== undefined || coverUrl !== undefined)) {
+      return res.status(409).json({ success: false, error: 'Unpublish this song before changing its request metadata. This keeps the request and published library entry consistent.' });
+    }
+    if (songTitle !== undefined) {
+      const cleanTitle = String(songTitle || '').trim();
+      if (!cleanTitle) return res.status(400).json({ success: false, error: 'Song title cannot be empty.' });
+      updates.songTitle = cleanTitle.slice(0, 160);
+    }
+    if (artist !== undefined) updates.artist = String(artist || '').trim().slice(0, 120);
     if (coverUrl !== undefined) {
       const normalizedCover = String(coverUrl).trim();
       if (normalizedCover && !/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(normalizedCover)) {
@@ -2208,21 +2224,29 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       }
       updates.coverUrl = normalizedCover;
     }
-    if (notes !== undefined) updates.notes = notes.trim();
-    if (genre !== undefined) updates.genre = genre.trim();
-    if (adminNote !== undefined) updates.adminNote = adminNote;
+    if (notes !== undefined) updates.notes = String(notes || '').trim().slice(0, 1000);
+    if (genre !== undefined) updates.genre = String(genre || '').trim().slice(0, 80);
+    if (adminNote !== undefined) updates.adminNote = String(adminNote || '').trim().slice(0, 1000);
     if (estimatedUploadAt !== undefined) {
       const parsedEta = estimatedUploadAt ? new Date(estimatedUploadAt) : null;
       if (parsedEta && Number.isNaN(parsedEta.getTime())) return res.status(400).json({ error: 'Estimated upload time is invalid.' });
       updates.estimatedUploadAt = parsedEta ? parsedEta.toISOString() : null;
     }
     if (status !== undefined) {
+      if (!['approved', 'declined'].includes(String(status))) return res.status(400).json({ success: false, error: 'Use the dedicated upload and publish actions for staging or publishing. Direct status changes are limited to approve or decline.' });
+      const eligible = status === 'approved'
+        ? ['pending', 'processing', 'approved'].includes(existingReq.status)
+        : ['pending', 'processing', 'approved', 'declined'].includes(existingReq.status);
+      if (!eligible) return res.status(409).json({ success: false, error: 'This request has already moved beyond review. Refresh the pipeline before trying again.' });
       updates.status = status;
+      updates.reviewedAt = new Date().toISOString();
       if (status === 'approved') {
         updates.approvedAt = new Date().toISOString();
         updates.reviewedAt = new Date().toISOString();
         updates.processingProgress = 'Approved and waiting for an administrator to upload the audio file.';
         updates.processingError = null;
+      } else {
+        updates.processingProgress = 'Declined by an administrator.';
       }
     }
     if (typeof duration === 'number' && duration >= 5 && duration <= 43200) updates.duration = Math.round(duration);
