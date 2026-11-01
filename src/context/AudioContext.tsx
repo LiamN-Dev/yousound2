@@ -40,6 +40,7 @@ interface AudioContextType {
   equalizer: EqualizerSettings;
   setEqualizer: (updates: Partial<EqualizerSettings>) => void;
   isRadioMode: boolean;
+  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean) => Promise<void>;
   playRadioSong: (song: Song, elapsedSeconds: number) => Promise<void>;
   leaveRadio: () => void;
   pauseRadioPlayback: () => void;
@@ -111,6 +112,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playAttemptRef = useRef(0);
   const radioModeRef = useRef(false);
+  // This remains false until a listener explicitly presses Join radio.
+  // Polling can synchronize playback only after that opt-in has happened.
+  const radioJoinedRef = useRef(false);
   const radioPreviousSpeedRef = useRef<number | null>(null);
   const audioGraphRef = useRef<AudioContext | null>(null);
   const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
@@ -192,6 +196,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (!currentUser?.isSuspended || currentUser.role === 'admin') return;
     playAttemptRef.current += 1;
+    radioJoinedRef.current = false;
     radioModeRef.current = false;
     setIsRadioMode(false);
     const audio = audioRef.current;
@@ -432,6 +437,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [repeatMode, queue, allSongs, currentSong, isShuffled, playSong]);
 
   const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number) => {
+    // Background polling must never start audio for a listener who has not opted in.
+    if (!radioJoinedRef.current) return;
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
     if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
@@ -499,14 +506,39 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (attemptId === playAttemptRef.current) setIsPlaying(true);
   }, []);
 
+  const joinRadioPlayback = useCallback(async (song: Song, elapsedSeconds: number, paused = false) => {
+    const audio = audioRef.current;
+    if (!audio || !song?.audioUrl) return;
+    // Invalidate any ordinary-track play request that was still awaiting authorization.
+    playAttemptRef.current += 1;
+    radioJoinedRef.current = true;
+
+    if (paused) {
+      if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
+      radioModeRef.current = true;
+      audio.playbackRate = 1;
+      audio.pause();
+      currentSongRef.current = song;
+      setCurrentSong(song);
+      setIsRadioMode(true);
+      setIsPlaying(false);
+      setPlaybackError(null);
+      return;
+    }
+
+    await playRadioSong(song, elapsedSeconds);
+  }, [playRadioSong]);
+
   const pauseRadioPlayback = useCallback(() => {
-    if (!radioModeRef.current) return;
+    if (!radioJoinedRef.current || !radioModeRef.current) return;
     audioRef.current?.pause();
     setIsPlaying(false);
   }, []);
 
   const leaveRadio = useCallback(() => {
-    if (!radioModeRef.current) return;
+    const hadRadioSession = radioJoinedRef.current || radioModeRef.current;
+    radioJoinedRef.current = false;
+    if (!hadRadioSession) return;
     radioModeRef.current = false;
     setIsRadioMode(false);
     if (audioRef.current && radioPreviousSpeedRef.current !== null) {
@@ -833,6 +865,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         equalizer,
         setEqualizer,
         isRadioMode,
+        joinRadioPlayback,
         playRadioSong,
         leaveRadio,
         pauseRadioPlayback,

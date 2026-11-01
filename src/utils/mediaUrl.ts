@@ -8,7 +8,7 @@ export function extractDriveFileId(inputUrl?: string | null): string | null {
   if (!inputUrl) return null;
   const trimmed = inputUrl.trim();
   const match = trimmed.match(
-    /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=|thumbnail\?id=)|[?&]id=)([a-zA-Z0-9_-]{20,})/
+    /(?:drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=|thumbnail\?id=)|lh3\.googleusercontent\.com\/d\/|[?&]id=)([a-zA-Z0-9_-]{20,})/
   );
   if (match && match[1]) return match[1];
   // If user pasted raw Drive ID (typically 25-45 chars)
@@ -66,8 +66,9 @@ export function formatCoverMediaUrl(url?: string | null): string {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${driveId}`;
     }
-    // High-speed Google direct CDN for images/GIFs
-    return `https://lh3.googleusercontent.com/d/${driveId}`;
+    // Drive artwork is private to the site's connected Google account. Stream it
+    // through the authenticated same-origin endpoint rather than relying on public CDN links.
+    return `/api/drive/cover/${encodeURIComponent(driveId)}`;
   }
 
   return trimmed;
