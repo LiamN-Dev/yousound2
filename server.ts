@@ -1876,9 +1876,9 @@ app.get('/api/requests', async (req: Request, res: Response) => {
 });
 
 const SONG_REQUEST_SETTINGS = 'song_request_settings_v1';
-type SongRequestSettings = { enabled: boolean; notice: string; icon: string; requireImageLink: boolean };
+type SongRequestSettings = { enabled: boolean; notice: string; icon: string; showImageLink: boolean; requireImageLink: boolean };
 const DEFAULT_SONG_REQUEST_SETTINGS: SongRequestSettings = {
-  enabled: true, notice: '', icon: '🎵', requireImageLink: true,
+  enabled: true, notice: '', icon: '🎵', showImageLink: true, requireImageLink: true,
 };
 
 app.get('/api/song-requests/settings', async (_req: Request, res: Response) => {
@@ -1903,7 +1903,8 @@ app.put('/api/admin/song-requests/settings', async (req: Request, res: Response)
       enabled: body.enabled !== false,
       notice: String(body.notice || '').trim().slice(0, 300),
       icon: String(body.icon || '🎵').trim().slice(0, 12) || '🎵',
-      requireImageLink: body.requireImageLink !== false,
+      showImageLink: body.showImageLink !== false,
+      requireImageLink: body.showImageLink !== false && body.requireImageLink !== false,
     };
     await setSettingDb(SONG_REQUEST_SETTINGS, settings);
     return res.json({ success: true, settings });
@@ -1920,7 +1921,7 @@ app.post('/api/requests', async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: requestSettings.notice || 'Song requests are temporarily closed.', requestClosed: true, icon: requestSettings.icon });
     }
     const submittedImageLink = String(req.body?.webLink || req.body?.imageLink || '').trim();
-    if (requestSettings.requireImageLink && !submittedImageLink) {
+    if (requestSettings.showImageLink && requestSettings.requireImageLink && !submittedImageLink) {
       return res.status(400).json({ success: false, error: 'An image link is required with every song request.' });
     }
     if (submittedImageLink) {
