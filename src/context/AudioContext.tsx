@@ -40,8 +40,8 @@ interface AudioContextType {
   equalizer: EqualizerSettings;
   setEqualizer: (updates: Partial<EqualizerSettings>) => void;
   isRadioMode: boolean;
-  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean) => Promise<void>;
-  playRadioSong: (song: Song, elapsedSeconds: number) => Promise<void>;
+  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean, playbackRate?: number) => Promise<void>;
+  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number) => Promise<void>;
   leaveRadio: () => void;
   pauseRadioPlayback: () => void;
   // Controls
@@ -436,14 +436,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setIsPlaying(false);
   }, [repeatMode, queue, allSongs, currentSong, isShuffled, playSong]);
 
-  const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number) => {
+  const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number, playbackRate = 1) => {
     // Background polling must never start audio for a listener who has not opted in.
     if (!radioJoinedRef.current) return;
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
     if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
     radioModeRef.current = true;
-    audio.playbackRate = 1;
+    const safePlaybackRate = Math.min(2, Math.max(0.5, Number(playbackRate) || 1));
+    audio.playbackRate = safePlaybackRate;
     setIsRadioMode(true);
     const sourceUrl = getPlayableAudioUrl(song.audioUrl);
     let absoluteUrl = sourceUrl;
@@ -506,7 +507,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (attemptId === playAttemptRef.current) setIsPlaying(true);
   }, []);
 
-  const joinRadioPlayback = useCallback(async (song: Song, elapsedSeconds: number, paused = false) => {
+  const joinRadioPlayback = useCallback(async (song: Song, elapsedSeconds: number, paused = false, playbackRate = 1) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
     // Invalidate any ordinary-track play request that was still awaiting authorization.
@@ -516,17 +517,35 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (paused) {
       if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
       radioModeRef.current = true;
-      audio.playbackRate = 1;
+      const safePlaybackRate = Math.min(2, Math.max(0.5, Number(playbackRate) || 1));
+      audio.playbackRate = safePlaybackRate;
       audio.pause();
+      const sourceUrl = getPlayableAudioUrl(song.audioUrl);
+      let absoluteUrl = sourceUrl;
+      try { absoluteUrl = new URL(sourceUrl, window.location.href).href; } catch {}
+      const needsSource = audio.src !== absoluteUrl || currentSongRef.current?.id !== song.id;
+      if (needsSource) {
+        audio.src = sourceUrl;
+        audio.load();
+      }
       currentSongRef.current = song;
       setCurrentSong(song);
+      setDuration(Math.max(0, Number(song.duration) || 0));
+      const target = Math.max(0, Number(elapsedSeconds) || 0);
+      const setPausedPosition = () => {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          try { audio.currentTime = Math.min(target, Math.max(0, audio.duration - 0.25)); } catch {}
+        }
+      };
+      if (audio.readyState >= 1) setPausedPosition();
+      else audio.addEventListener('loadedmetadata', setPausedPosition, { once: true });
       setIsRadioMode(true);
       setIsPlaying(false);
       setPlaybackError(null);
       return;
     }
 
-    await playRadioSong(song, elapsedSeconds);
+    await playRadioSong(song, elapsedSeconds, playbackRate);
   }, [playRadioSong]);
 
   const pauseRadioPlayback = useCallback(() => {

@@ -1154,6 +1154,25 @@ app.get('/api/admin/users/:uid/lock-code', async (req: Request, res: Response) =
  if(!isAdminReq(req))return res.status(403).json({success:false,error:'Administrators only.'});const user=await getUserByUid(String(req.params.uid||''));
  if(!user||user.role==='admin'||!user.isLocked)return res.status(404).json({success:false,error:'Locked member account not found.'});const current=createAccountUnlockCode(user.uid);res.setHeader('Cache-Control','no-store, private');return res.json({success:true,username:user.username,code:current.code,expiresAt:current.expiresAt});
 });
+app.post('/api/admin/users/logout-all-except-admin', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const users = await getUsersDb();
+    const members = users.filter((user: any) => user.role !== 'admin');
+    let revoked = 0;
+    for (const user of members) {
+      const version = Math.max(0, Number(user.sessionVersion) || 0) + 1;
+      const updated = await updateUserDb(user.uid, { sessionVersion: version });
+      if (!updated) throw new Error(`Could not revoke sessions for ${user.username || user.uid}.`);
+      revoked += 1;
+    }
+    return res.json({ success: true, revokedCount: revoked, excludedAdmins: users.length - members.length });
+  } catch (error: any) {
+    console.error('[Sessions] Could not revoke all member sessions:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Could not log out all non-admin accounts.' });
+  }
+});
+
 app.post('/api/admin/users/:uid/logout-all', async (req: Request, res: Response) => {
  if(!isAdminReq(req))return res.status(403).json({success:false,error:'Administrators only.'});const user=await getUserByUid(String(req.params.uid||''));if(!user)return res.status(404).json({success:false,error:'User not found.'});
  await updateUserDb(user.uid,{sessionVersion:(Number(user.sessionVersion)||0)+1});return res.json({success:true,sessionsRevoked:true});
@@ -1502,6 +1521,7 @@ type RadioConfig = {
   autoStartScheduled?: boolean;
   pausedAt?: string | null;
   loopPlaylist?: boolean;
+  playbackRate?: number;
 };
 
 const DEFAULT_RADIO_CONFIG: RadioConfig = {
@@ -1514,6 +1534,7 @@ const DEFAULT_RADIO_CONFIG: RadioConfig = {
   autoStartScheduled: true,
   pausedAt: null,
   loopPlaylist: false,
+  playbackRate: 1,
 };
 
 function cleanRadioProgram(value: any): RadioProgram {
@@ -1531,6 +1552,7 @@ function cleanRadioProgram(value: any): RadioProgram {
 async function resolveRadioState() {
   let config = await getSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
   const now = Date.now();
+  const playbackRate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
 
   // Promote a scheduled program on the server, so every connected listener sees the same transition.
@@ -1563,7 +1585,7 @@ async function resolveRadioState() {
     const totalDuration = durations.reduce((sum, value) => sum + value, 0);
     const startedAtMs = new Date(config.startedAt || now).getTime();
     const radioClockMs = config.pausedAt ? new Date(config.pausedAt).getTime() : now;
-    programElapsedSeconds = Math.max(0, ((Number.isFinite(radioClockMs) ? radioClockMs : now) - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000);
+    programElapsedSeconds = Math.max(0, ((Number.isFinite(radioClockMs) ? radioClockMs : now) - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000) * playbackRate;
     if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
@@ -1598,6 +1620,7 @@ async function resolveRadioState() {
     nextStartsInMs: Number.isFinite(nextAt) ? Math.max(0, nextAt - now) : null,
     paused: Boolean(config.pausedAt),
     loopPlaylist: Boolean(config.loopPlaylist),
+    playbackRate,
     serverNow: new Date(now).toISOString(),
   };
 }
@@ -1685,6 +1708,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       autoStartScheduled: body.autoStartScheduled !== false,
       pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
       loopPlaylist: existing.loopPlaylist === true,
+      playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
     };
     await setSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
@@ -1724,6 +1748,34 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         config.startedAt = new Date(startedAtMs + Math.max(0, Date.now() - pausedAtMs)).toISOString();
         config.pausedAt = null;
       }
+    } else if (action === 'seek') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to seek.' });
+      const state = await resolveRadioState();
+      const playlist = Array.isArray(state.playlist) ? state.playlist : [];
+      const index = Number(state.currentIndex);
+      if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to seek.' });
+      const duration = Math.max(1, Number(playlist[index].duration) || 180);
+      const requested = Number(req.body?.positionSeconds);
+      if (!Number.isFinite(requested)) return res.status(400).json({ success: false, error: 'A valid song position is required.' });
+      const positionSeconds = Math.min(duration - 0.25, Math.max(0, requested));
+      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0) + positionSeconds;
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+      const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
+      config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
+    } else if (action === 'set-speed') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to change speed.' });
+      const requestedRate = Number(req.body?.playbackRate);
+      if (!Number.isFinite(requestedRate) || requestedRate < 0.5 || requestedRate > 2) {
+        return res.status(400).json({ success: false, error: 'Broadcast speed must be between 0.5x and 2x.' });
+      }
+      const state = await resolveRadioState();
+      const playlist = Array.isArray(state.playlist) ? state.playlist : [];
+      const index = Number(state.currentIndex);
+      if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to change speed.' });
+      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
+      const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+      config.playbackRate = requestedRate;
+      config.startedAt = new Date(anchor - (programOffset / requestedRate) * 1000).toISOString();
     } else if (action === 'next') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast.' });
       const state = await resolveRadioState();
@@ -1737,9 +1789,9 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       } else {
         const targetIndex = nextIndex % playlist.length;
         const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0);
-        const now = Date.now();
-        config.startedAt = new Date(now - elapsedBeforeTarget * 1000).toISOString();
-        config.pausedAt = config.pausedAt ? new Date(now).toISOString() : null;
+        const now = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
+        const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
+        config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
       }
     } else if (action === 'toggle-loop') {
       config.loopPlaylist = !config.loopPlaylist;
@@ -1761,7 +1813,8 @@ app.get('/api/radio/chat', async (req: Request, res: Response) => {
     const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
     const station = await resolveRadioState();
     const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
-    return res.json({ success: true, messages, canChat: user.role === 'admin' || !banned });
+    const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
+    return res.json({ success: true, messages, canChat, banReason: user.chatBlocked ? 'account-chat-block' : banned ? 'radio-chat-ban' : null });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat.' });
   }
@@ -1774,7 +1827,9 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
     const station = await resolveRadioState();
     if (!station.enabled) return res.status(409).json({ success: false, error: 'Radio chat is closed because there is no active broadcast.' });
     const banned = (await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []).includes(user.uid);
-    if (banned && user.role !== 'admin') return res.status(403).json({ success: false, error: 'You are blocked from radio chat by an administrator.' });
+    if (user.role !== 'admin' && (banned || user.chatBlocked)) {
+      return res.status(403).json({ success: false, error: user.chatBlocked ? 'Chat access is disabled for this account.' : 'You are banned from radio chat by an administrator.', code: user.chatBlocked ? 'CHAT_ACCOUNT_BLOCKED' : 'RADIO_CHAT_BANNED' });
+    }
     const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (!message) return res.status(400).json({ success: false, error: 'Write a message first.' });
     const created = await createRadioChatMessageDb({
@@ -1790,20 +1845,27 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
 });
 
 app.get('/api/admin/radio/chat-bans', async (_req: Request, res: Response) => {
-  const bannedUserIds = await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || [];
-  return res.json({ success: true, bannedUserIds });
+  try {
+    const stored = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
+    const bannedUserIds = Array.isArray(stored) ? [...new Set(stored.map((id) => String(id).trim()).filter(Boolean))] : [];
+    return res.json({ success: true, bannedUserIds });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not load radio chat bans.' });
+  }
 });
 
 app.put('/api/admin/radio/chat-ban', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-    const userId = String(req.body?.userId || '');
-    const banned = Boolean(req.body?.banned);
+    const userId = String(req.body?.userId || '').trim();
+    if (typeof req.body?.banned !== 'boolean') return res.status(400).json({ success: false, error: 'The ban action must be true or false.' });
     const target = await getUserByUid(userId);
     if (!target) return res.status(404).json({ success: false, error: 'User not found.' });
     if (target.role === 'admin') return res.status(400).json({ success: false, error: 'An administrator cannot be blocked from radio chat.' });
-    const current = new Set(await getSettingDb<string[]>(RADIO_CHAT_BANS_SETTING) || []);
-    if (banned) current.add(userId); else current.delete(userId);
+    const banned = req.body.banned;
+    const stored = await getSettingDb<unknown>(RADIO_CHAT_BANS_SETTING);
+    const current = new Set<string>(Array.isArray(stored) ? stored.map((id) => String(id).trim()).filter(Boolean) : []);
+    if (banned) current.add(target.uid); else current.delete(target.uid);
     const bannedUserIds = [...current];
     await setSettingDb(RADIO_CHAT_BANS_SETTING, bannedUserIds);
     return res.json({ success: true, bannedUserIds });
