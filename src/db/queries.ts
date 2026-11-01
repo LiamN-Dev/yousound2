@@ -1380,6 +1380,93 @@ export async function reserveMediaIdDb(code: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** Release a reservation created by a failed upload; never delete an assigned or another request's ID. */
+export async function releaseUnusedMediaIdReservationDb(code: string, requestId?: string) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Media ID reservation could not be cleaned up.');
+  }
+  try {
+    const rows = await db.select().from(mediaIds).where(eq(mediaIds.code, code)).limit(1);
+    const record = rows[0];
+    if (!record || record.status !== 'reserved' || record.songId) return false;
+    if (record.requestId && record.requestId !== requestId) return false;
+    const deleted = await db.delete(mediaIds)
+      .where(eq(mediaIds.code, code))
+      .returning({ code: mediaIds.code });
+    return deleted.length > 0;
+  } catch (error) {
+    noteDbError('releaseUnusedMediaIdReservationDb', error);
+    throw new Error('Could not safely release the unused Media ID reservation.');
+  }
+}
+
+/**
+ * Complete a Drive upload in one transaction: bind its reserved Media ID and move
+ * the approved request into staging together, or persist neither change.
+ */
+export async function stageSongRequestMediaDb(
+  requestId: string,
+  media: {
+    code: string;
+    title: string;
+    artist: string;
+    audioFileId: string;
+    artworkFileId: string;
+  },
+  requestUpdates: Record<string, unknown>,
+) {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. The uploaded media was not attached to the request.');
+  }
+  if (!/^[0-9]{3}$/.test(media.code)) throw new Error('Media IDs must contain exactly three digits.');
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const locked = await tx.select().from(songRequests)
+        .where(eq(songRequests.id, requestId)).for('update').limit(1);
+      const request = locked[0];
+      if (!request) throw new Error('Song request not found.');
+      if (request.status !== 'approved') throw new Error('This request is no longer approved for upload. Refresh the pipeline before retrying.');
+
+      const reservedRows = await tx.select().from(mediaIds)
+        .where(eq(mediaIds.code, media.code)).limit(1);
+      const reservation = reservedRows[0];
+      if (!reservation || reservation.status !== 'reserved' || reservation.songId
+        || (reservation.requestId && reservation.requestId !== requestId)) {
+        throw new Error('The selected Media ID is no longer reserved for this upload. Try the upload again.');
+      }
+
+      const now = new Date();
+      const mediaRows = await tx.update(mediaIds).set({
+        status: 'reserved',
+        songId: null,
+        requestId,
+        title: media.title,
+        artist: media.artist,
+        audioFileId: media.audioFileId,
+        artworkFileId: media.artworkFileId,
+        updatedAt: now,
+      }).where(eq(mediaIds.code, media.code)).returning();
+      if (!mediaRows[0]) throw new Error('The Media ID reservation could not be attached to this request.');
+
+      const requestRows = await tx.update(songRequests).set({
+        ...requestUpdates,
+        status: 'staging',
+        mediaCode: media.code,
+      }).where(eq(songRequests.id, requestId)).returning();
+      if (!requestRows[0] || requestRows[0].status !== 'staging') {
+        throw new Error('The request could not be moved into staging. The database rolled back the Media ID update.');
+      }
+      return requestRows[0];
+    });
+    localStore.updateRequestFull(requestId, requestUpdates);
+    localStore.updateRequestFull(requestId, { status: 'staging', mediaCode: media.code });
+    return updated;
+  } catch (error) {
+    noteDbError('stageSongRequestMediaDb', error);
+    throw error;
+  }
+}
+
 export async function saveMediaIdDb(record: {
   code: string;
   status: 'reserved' | 'assigned' | 'retired';
