@@ -50,6 +50,8 @@ import {
   getMediaIdByCodeDb,
   reserveMediaIdDb,
   saveMediaIdDb,
+  stageSongRequestMediaDb,
+  releaseUnusedMediaIdReservationDb,
   saveMediaFileDb,
   getMediaFileDb,
   recordUserLoginDb,
@@ -2537,6 +2539,8 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
     let coverSize = Number(coverFile?.size || 0);
     let uploadedAudioId: string | null = null;
     let uploadedCoverId: string | null = null;
+    let claimedMediaCode: string | null = null;
+    let mediaStaged = false;
     let accessToken: string | null = null;
     try {
       if (uploadError) {
@@ -2604,6 +2608,7 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
 
       accessToken = await getDriveAccessToken();
       const mediaCode = await generateSongMediaCode();
+      claimedMediaCode = mediaCode;
       const driveAudio = await uploadMp3ToGoogleDrive(audioTempPath, requestItem.songTitle || 'Track', requestItem.artist || 'Unknown Artist', accessToken, mediaCode);
       audioTempPath = null;
       uploadedAudioId = driveAudio.fileId;
@@ -2612,10 +2617,13 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
       coverTempPath = null;
       uploadedCoverId = driveCover.fileId;
 
-      await saveMediaIdDb({ code: mediaCode, status: 'reserved', requestId: req.params.id, title: requestItem.songTitle || 'Song', artist: requestItem.artist || 'Unknown Artist', audioFileId: driveAudio.fileId, artworkFileId: driveCover.fileId });
-      const updated = await updateRequestFullDb(req.params.id, {
-        status: 'staging',
-        mediaCode,
+      const updated = await stageSongRequestMediaDb(req.params.id, {
+        code: mediaCode,
+        title: requestItem.songTitle || 'Song',
+        artist: requestItem.artist || 'Unknown Artist',
+        audioFileId: driveAudio.fileId,
+        artworkFileId: driveCover.fileId,
+      }, {
         audioUrl: driveAudio.streamingUrl,
         stagingAudioUrl: driveAudio.streamingUrl,
         driveFileId: driveAudio.fileId,
@@ -2625,13 +2633,19 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
         processingProgress: 'MP3 and artwork uploaded to Google Drive. Waiting for the administrator to publish.',
         processingError: null,
       });
-      if (!updated || updated.status !== 'staging') throw new Error('Media uploaded, but the request record could not be updated. Check Drive and database status before retrying.');
+      if (!updated || updated.status !== 'staging') throw new Error('Media uploaded, but the request could not be moved into staging.');
+      mediaStaged = true;
       console.log(`[SongPipeline] Uploaded request media to Drive: ${driveAudio.fileId}, ${driveCover.fileId}`);
       return res.json({ success: true, request: updated, audioFileId: driveAudio.fileId, coverFileId: driveCover.fileId });
     } catch (error: any) {
       console.error('[SongPipeline] Request media upload failed:', error);
-      if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
-      if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+      if (!mediaStaged) {
+        if (accessToken && uploadedAudioId) await deleteGoogleDriveFile(uploadedAudioId, accessToken).catch(() => undefined);
+        if (accessToken && uploadedCoverId) await deleteGoogleDriveFile(uploadedCoverId, accessToken).catch(() => undefined);
+        if (claimedMediaCode) await releaseUnusedMediaIdReservationDb(claimedMediaCode, req.params.id).catch((cleanupError) => {
+          console.error('[SongPipeline] Could not release unused Media ID reservation:', cleanupError);
+        });
+      }
       return res.status(500).json({ success: false, error: error?.message || 'Could not upload request files to Google Drive.' });
     } finally {
       if (audioTempPath && fs.existsSync(audioTempPath)) { try { fs.unlinkSync(audioTempPath); } catch {} }
