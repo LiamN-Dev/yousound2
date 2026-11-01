@@ -281,6 +281,7 @@ export async function insertSongDb(songData: {
   tags?: string[];
   typeMood?: string;
   duration: number;
+  durationExact?: number;
   audioUrl: string;
   coverUrl: string;
   addedAt: string;
@@ -325,6 +326,7 @@ export async function insertSongDb(songData: {
         tags: songData.tags || [],
         typeMood: songData.typeMood || null,
         duration: songData.duration,
+        durationExact: songData.durationExact ?? null,
         audioUrl: songData.audioUrl.trim(),
         coverUrl: songData.coverUrl.trim(),
         addedAt: songData.addedAt,
@@ -845,6 +847,7 @@ export async function publishStagedSongRequestDb(requestId: string) {
         album: 'YouSong Community',
         genre: String(request.genre || 'Vibe / Chill').trim() || 'Vibe / Chill',
         duration: Math.max(5, Number(request.duration) || 180),
+        durationExact: Number(request.duration) > 0 ? Number(request.duration) : null,
         audioUrl: String(request.audioUrl),
         coverUrl,
         addedAt,
