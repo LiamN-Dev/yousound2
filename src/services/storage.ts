@@ -169,6 +169,7 @@ class StorageService {
       const updated = data.user;
       if (
         updated.isSuspended !== current.isSuspended ||
+        updated.isLocked !== current.isLocked ||
         updated.suspendedReason !== current.suspendedReason ||
         updated.isApproved !== current.isApproved
       ) {
@@ -1047,6 +1048,7 @@ class StorageService {
       adminNote?: string;
       colorAccent?: string;
       dailyListenLimit?: number | null;
+      isLocked?: boolean;
       christmasMode?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
