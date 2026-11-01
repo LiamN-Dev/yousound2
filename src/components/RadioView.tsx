@@ -9,7 +9,7 @@ type Station = {
   enabled: boolean; stationName: string; stationDescription: string;
   currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
-  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean;
+  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean;
 };
 type Message = { id: string; userId: string; username: string; message: string; createdAt: string };
 
@@ -26,7 +26,7 @@ const timeLeft = (raw: number) => {
 
 export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
-  const { adminAllSongs, allSongs, playRadioSong, leaveRadio, isRadioMode } = useAudio();
+  const { adminAllSongs, allSongs, playRadioSong, leaveRadio, pauseRadioPlayback, isRadioMode } = useAudio();
   const [joined, setJoined] = useState(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
@@ -72,19 +72,24 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       setStation(state);
       setError('');
       if (joined && state.enabled && state.currentSong) {
-        const serverAgeSeconds = state.serverNow
+        const serverAgeSeconds = state.serverNow && !state.paused
           ? Math.max(0, (Date.now() - new Date(state.serverNow).getTime()) / 1000)
           : 0;
-        void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
-      } else if (joined && isRadioMode) {
+        if (state.paused) pauseRadioPlayback();
+        else void playRadioSong(state.currentSong, state.elapsedSeconds + serverAgeSeconds);
+      } else if (joined) {
+        setJoined(false);
+        setMessages([]);
         leaveRadio();
+      } else if (!state.enabled) {
+        setMessages([]);
       }
     } catch (e: any) {
       setError(e?.message || 'Could not connect to the station.');
     } finally {
       stationFetchInFlight.current = false;
     }
-  }, [joined, playRadioSong, leaveRadio, isRadioMode]);
+  }, [joined, playRadioSong, leaveRadio, pauseRadioPlayback, isRadioMode]);
 
   useEffect(() => {
     if (!active && !joined) return;
@@ -165,7 +170,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       ? Math.max(0, (Date.now() - new Date(station.serverNow).getTime()) / 1000)
       : 0;
     // Invoke the audio play request directly inside the Join click gesture.
-    void playRadioSong(station.currentSong, station.elapsedSeconds + serverAgeSeconds);
+    if (station.paused) pauseRadioPlayback();
+    else void playRadioSong(station.currentSong, station.elapsedSeconds + serverAgeSeconds);
   };
   const leave = () => {
     setJoined(false);
@@ -223,6 +229,22 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       setAdminNote(enabled ? 'Broadcast started. Listeners share the same playback clock.' : 'Broadcast stopped. Radio chat has been cleared.');
       void refreshStation();
     } catch (e: any) { setAdminNote(e?.message || 'Could not save the station.'); }
+    finally { setSaving(false); }
+  };
+
+  const controlRadio = async (action: 'pause' | 'resume' | 'next' | 'toggle-loop') => {
+    setSaving(true);
+    setAdminNote('');
+    try {
+      const response = await fetch('/api/admin/radio/control', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Radio control failed.');
+      setAdminNote(action === 'next' ? 'Skipped to the next song.' : action === 'toggle-loop' ? (data.loopPlaylist ? 'Playlist looping enabled.' : 'Playlist looping disabled.') : (data.paused ? 'Broadcast paused for everyone.' : 'Broadcast resumed for everyone.'));
+      await refreshStation();
+    } catch (e: any) { setAdminNote(e?.message || 'Could not control the broadcast.'); }
     finally { setSaving(false); }
   };
 
@@ -310,6 +332,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-indigo-100"><span>Next playlist · {nextIds.length} chosen</span><button type="button" onClick={() => { setNextIds([]); setNextName(''); setNextAt(''); setNextDescription(''); }} className="font-normal text-slate-400">Clear schedule</button></div>
                 {picker(nextIds, setNextIds)}
               </div>
+              {station?.enabled && <div className="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <button type="button" disabled={saving} onClick={() => void controlRadio(station.paused ? 'resume' : 'pause')} className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold text-amber-100">{station.paused ? 'Resume broadcast' : 'Pause broadcast'}</button>
+                <button type="button" disabled={saving || station.paused} onClick={() => void controlRadio('next')} className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] font-semibold text-cyan-100">Next song</button>
+                <button type="button" disabled={saving} onClick={() => void controlRadio('toggle-loop')} className={`rounded-lg border px-3 py-2 text-[10px] font-semibold ${station.loopPlaylist ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>Loop playlist: {station.loopPlaylist ? 'On' : 'Off'}</button>
+              </div>}
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={saving} onClick={() => void saveConfig(true, true)} className="rounded-lg bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-50">{saving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <Radio className="mr-1 inline h-3 w-3" />} Start / restart broadcast</button>
