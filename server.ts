@@ -93,6 +93,8 @@ import {
   verifyPassword,
   setSessionCookie,
   clearSessionCookie,
+  createAccountUnlockCode,
+  verifyAccountUnlockCode,
   loginBlocked,
   noteLoginFailure,
   clearLoginFailures,
@@ -773,7 +775,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     await recordUserLoginDb(user.uid);
 
     // Start the signed session
-    setSessionCookie(req, res, { uid: user.uid, passwordHash });
+    setSessionCookie(req, res, { uid: user.uid, passwordHash, sessionVersion: user.sessionVersion });
 
     res.json({
       success: true,
@@ -786,6 +788,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         note: user.note,
         temporaryPasswordAssigned: user.temporaryPasswordAssigned,
         isSuspended: user.isSuspended || false,
+        isLocked: user.isLocked || false,
         suspendedReason: user.suspendedReason || null,
         lastLoginAt: new Date().toISOString(),
         lastSongListened: user.lastSongListened,
@@ -805,6 +808,13 @@ app.post('/api/auth/logout', (_req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+app.post('/api/auth/unlock', async (req: Request, res: Response) => {
+ const user=getAuthUser(req);if(!user)return res.status(401).json({success:false,error:'Please log in again.'});
+ if(user.role==='admin'||!user.isLocked)return res.json({success:true,unlocked:true});
+ if(!verifyAccountUnlockCode(user.uid,req.body?.code))return res.status(401).json({success:false,error:'Incorrect or expired seven-digit code.'});
+ await updateUserDb(user.uid,{isLocked:false});return res.json({success:true,unlocked:true});
+});
+
 app.get('/api/auth/me', async (req: Request, res: Response) => {
   const user = getAuthUser(req);
   if (!user) return res.status(401).json({ success: false, error: 'Please log in again.' });
@@ -819,6 +829,7 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
       note: user.note,
       temporaryPasswordAssigned: user.temporaryPasswordAssigned,
       isSuspended: user.isSuspended || false,
+      isLocked: user.isLocked || false,
       suspendedReason: user.suspendedReason || null,
       lastLoginAt: toIsoString(user.lastLoginAt),
       lastSongListened: user.lastSongListened,
@@ -852,6 +863,7 @@ app.get('/api/auth/me/:userId', async (req: Request, res: Response) => {
         note: user.note,
         temporaryPasswordAssigned: user.temporaryPasswordAssigned,
         isSuspended: user.isSuspended || false,
+        isLocked: user.isLocked || false,
         suspendedReason: user.suspendedReason || null,
         lastLoginAt: toIsoString(user.lastLoginAt),
         lastSongListened: user.lastSongListened,
@@ -941,7 +953,7 @@ app.post('/api/auth/change-password', async (req: Request, res: Response) => {
     const passwordHash = await hashPasswordSecure(newPassword.trim());
     await updateUserDb(user.uid, { passwordHash, temporaryPasswordAssigned: false });
     // The old session stops working after a password change, so give this browser a fresh one
-    setSessionCookie(req, res, { uid: user.uid, passwordHash });
+    setSessionCookie(req, res, { uid: user.uid, passwordHash, sessionVersion: user.sessionVersion });
 
     res.json({ success: true });
   } catch (error: any) {
@@ -978,6 +990,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
       createdAt: toIsoString(u.createdAt) || new Date().toISOString(),
       temporaryPasswordAssigned: u.temporaryPasswordAssigned,
       isSuspended: u.isSuspended || false,
+      isLocked: u.isLocked || false,
       suspendedReason: u.suspendedReason || null,
       lastLoginAt: toIsoString(u.lastLoginAt),
       lastSongListened: u.lastSongListened || null,
@@ -1045,6 +1058,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
       adminNote,
       colorAccent,
       dailyListenLimit,
+      isLocked,
       christmasMode,
     } = req.body;
     const updates: any = {};
@@ -1074,6 +1088,10 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
 
     if (typeof isSuspended === 'boolean') {
       updates.isSuspended = isSuspended;
+    }
+    if (typeof isLocked === 'boolean') {
+      const target=await getUserByUid(uid);if(!target)return res.status(404).json({success:false,error:'User not found.'});
+      if(target.role==='admin'&&isLocked)return res.status(400).json({success:false,error:'Admin accounts cannot be locked with member codes.'});updates.isLocked=isLocked;
     }
 
     if (suspendedReason !== undefined) {
@@ -1130,6 +1148,15 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
     console.error('Update user error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+app.get('/api/admin/users/:uid/lock-code', async (req: Request, res: Response) => {
+ if(!isAdminReq(req))return res.status(403).json({success:false,error:'Administrators only.'});const user=await getUserByUid(String(req.params.uid||''));
+ if(!user||user.role==='admin'||!user.isLocked)return res.status(404).json({success:false,error:'Locked member account not found.'});const current=createAccountUnlockCode(user.uid);res.setHeader('Cache-Control','no-store, private');return res.json({success:true,username:user.username,code:current.code,expiresAt:current.expiresAt});
+});
+app.post('/api/admin/users/:uid/logout-all', async (req: Request, res: Response) => {
+ if(!isAdminReq(req))return res.status(403).json({success:false,error:'Administrators only.'});const user=await getUserByUid(String(req.params.uid||''));if(!user)return res.status(404).json({success:false,error:'User not found.'});
+ await updateUserDb(user.uid,{sessionVersion:(Number(user.sessionVersion)||0)+1});return res.json({success:true,sessionsRevoked:true});
 });
 
 app.post('/api/users/activity/listen', async (req: Request, res: Response) => {
