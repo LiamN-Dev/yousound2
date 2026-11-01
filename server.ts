@@ -1595,7 +1595,7 @@ async function resolveRadioState() {
   let programElapsedSeconds = 0;
 
   if (config.enabled && playlist.length) {
-    const durations = playlist.map((song) => Math.max(1, Number(song.duration) || 180));
+    const durations = playlist.map((song) => Math.max(1, Number(song.durationExact) || Number(song.duration) || 180));
     const totalDuration = durations.reduce((sum, value) => sum + value, 0);
     const startedAtMs = new Date(config.startedAt || now).getTime();
     const radioClockMs = config.pausedAt ? new Date(config.pausedAt).getTime() : now;
@@ -1662,24 +1662,29 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
 app.post('/api/radio/duration', async (req: Request, res: Response) => {
   try {
     const songId = String(req.body?.songId || '');
-    const seconds = Math.round(Number(req.body?.seconds));
-    if (!songId || !Number.isFinite(seconds) || seconds < 5 || seconds > 43200) {
+    const exactSeconds = Number(req.body?.seconds);
+    if (!songId || !Number.isFinite(exactSeconds) || exactSeconds < 5 || exactSeconds > 43200) {
       return res.status(400).json({ success: false, error: 'Invalid radio song duration.' });
     }
+    const exact = Math.round(exactSeconds * 1000) / 1000;
+    const rounded = Math.round(exact);
     const state = await resolveRadioState();
     if (!state.enabled || String(state.currentSong?.id || '') !== songId) {
       return res.status(409).json({ success: false, error: 'Duration can only be reported for the current live radio song.' });
     }
-    const current = Number(state.currentSong?.duration) || 0;
-    if (Math.abs(current - seconds) >= 2) await updateSongDb(songId, { duration: seconds });
-    return res.json({ success: true, duration: seconds });
+    const currentExact = Number(state.currentSong?.durationExact) || Number(state.currentSong?.duration) || 0;
+    if (Math.abs(currentExact - exact) >= 0.05) {
+      await updateSongDb(songId, { duration: rounded, durationExact: exact });
+    }
+    return res.json({ success: true, duration: rounded, durationExact: exact });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not update radio duration.' });
   }
 });
 
-app.get('/api/admin/radio/config', async (_req: Request, res: Response) => {
+app.get('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
     return res.json({ success: true, config });
   } catch (error: any) {
@@ -1774,7 +1779,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const requested = Number(req.body?.positionSeconds);
       if (!Number.isFinite(requested)) return res.status(400).json({ success: false, error: 'A valid song position is required.' });
       const positionSeconds = Math.min(duration - 0.25, Math.max(0, requested));
-      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0) + positionSeconds;
+      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + positionSeconds;
       const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
       const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
       config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
@@ -1788,7 +1793,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to change speed.' });
-      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
+      const programOffset = playlist.slice(0, index).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0) + Number(state.elapsedSeconds || 0);
       const anchor = config.pausedAt ? new Date(config.pausedAt).getTime() : Date.now();
       config.playbackRate = requestedRate;
       config.startedAt = new Date(anchor - (programOffset / requestedRate) * 1000).toISOString();
