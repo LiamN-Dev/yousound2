@@ -10,7 +10,7 @@ type Station = {
   enabled: boolean; stationName: string; stationDescription: string;
   currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
-  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean; playbackRate?: number;
+  nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean; playbackRate?: number; syncRevision?: number;
 };
 type Message = { id: string; userId: string; username: string; message: string; createdAt: string };
 
@@ -34,7 +34,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio } = useAudio();
   const [joined, setJoined] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const previousStationClockRef = useRef<{ songId: string | null; paused: boolean | null }>({ songId: null, paused: null });
+  const previousStationClockRef = useRef<{ songId: string | null; paused: boolean | null; syncRevision: number | null }>({ songId: null, paused: null, syncRevision: null });
   const chatFetchInFlight = useRef(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
@@ -76,7 +76,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   useEffect(() => {
     setJoined(false);
     setSyncing(false);
-    previousStationClockRef.current = { songId: null, paused: null };
+    previousStationClockRef.current = { songId: null, paused: null, syncRevision: null };
     leaveRadio();
   }, [currentUser?.id, leaveRadio]);
 
@@ -107,7 +107,9 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       const previousClock = previousStationClockRef.current;
       const trackChanged = Boolean(nextSongId && previousClock.songId !== nextSongId);
       const broadcastResumed = previousClock.paused === true && state.paused === false;
-      previousStationClockRef.current = { songId: nextSongId, paused: Boolean(state.paused) };
+      const currentRevision = Number(state.syncRevision) || 0;
+      const timelineChanged = previousClock.syncRevision !== null && previousClock.syncRevision !== currentRevision;
+      previousStationClockRef.current = { songId: nextSongId, paused: Boolean(state.paused), syncRevision: currentRevision };
 
       if (joined && state.enabled && state.currentSong) {
         const rate = Math.min(2, Math.max(0.5, Number(state.playbackRate) || 1));
@@ -117,10 +119,10 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           : Math.max(0, (Date.now() + offset - serverTime) / 1000) * rate;
 
         if (state.paused) {
-          if (trackChanged || previousClock.paused !== true) {
+          if (trackChanged || previousClock.paused !== true || timelineChanged) {
             void joinRadioPlayback(state.currentSong, state.elapsedSeconds, true, rate);
           }
-        } else if (trackChanged || broadcastResumed) {
+        } else if (trackChanged || broadcastResumed || timelineChanged) {
           // Every listener chooses the same future server-clock boundary. This avoids
           // each browser starting a newly loaded song at a different network-arrival time.
           const estimatedServerNow = Date.now() + offset;
@@ -269,7 +271,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (station.paused) {
       setSyncing(false);
       void joinRadioPlayback(station.currentSong, station.elapsedSeconds, true, rate);
-      previousStationClockRef.current = { songId: station.currentSong.id, paused: true };
+      previousStationClockRef.current = { songId: station.currentSong.id, paused: true, syncRevision: Number(station.syncRevision) || 0 };
       return;
     }
 
@@ -284,7 +286,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     const syncAtLocalEpochMs = syncAtServerMs - offset;
 
     setSyncing(true);
-    previousStationClockRef.current = { songId: station.currentSong.id, paused: false };
+    previousStationClockRef.current = { songId: station.currentSong.id, paused: false, syncRevision: Number(station.syncRevision) || 0 };
     void joinRadioPlayback(station.currentSong, elapsedAtSync, false, rate, syncAtLocalEpochMs)
       .catch((error: any) => setError(error?.message || 'Radio could not synchronize.'))
       .finally(() => setSyncing(false));
@@ -374,10 +376,28 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           serverClockOffsetRef.current = previousOffset === null ? measuredOffset : previousOffset * 0.75 + measuredOffset * 0.25;
         }
         setStation(confirmedState);
+        previousStationClockRef.current = {
+          songId: confirmedState.currentSong?.id || null,
+          paused: Boolean(confirmedState.paused),
+          syncRevision: Number(confirmedState.syncRevision) || 0,
+        };
         if (joined && confirmedState.enabled && confirmedState.currentSong) {
           const rate = Math.min(2, Math.max(0.5, Number(confirmedState.playbackRate) || 1));
-          if (confirmedState.paused) void joinRadioPlayback(confirmedState.currentSong, confirmedState.elapsedSeconds, true, rate);
-          else void playRadioSong(confirmedState.currentSong, confirmedState.elapsedSeconds, rate);
+          if (confirmedState.paused) {
+            void joinRadioPlayback(confirmedState.currentSong, confirmedState.elapsedSeconds, true, rate);
+          } else if (['next', 'seek', 'set-speed'].includes(action) || (action === 'toggle-pause' && !confirmedState.paused)) {
+            const offset = serverClockOffsetRef.current || 0;
+            const serverTime = Date.parse(confirmedState.serverNow || '');
+            const estimatedServerNow = Date.now() + offset;
+            const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+            const snapshotTime = Number.isFinite(serverTime) ? serverTime : estimatedServerNow;
+            const targetAtSync = confirmedState.elapsedSeconds + Math.max(0, (syncAtServerMs - snapshotTime) / 1000) * rate;
+            setSyncing(true);
+            void playRadioSong(confirmedState.currentSong, targetAtSync, rate, syncAtServerMs - offset)
+              .finally(() => setSyncing(false));
+          } else {
+            void playRadioSong(confirmedState.currentSong, confirmedState.elapsedSeconds, rate);
+          }
         }
       }
       if (action === 'next') setAdminNote('Skipped to the next song.');
