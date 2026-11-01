@@ -136,6 +136,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isRadioMode, setIsRadioMode] = useState(false);
 
   const setPlaybackSpeed = useCallback((speed: number) => {
+    if (radioModeRef.current) return;
     const clamped = Math.max(1.0, Math.min(3.0, Number(speed) || 1.0));
     setPlaybackSpeedState(clamped);
     if (audioRef.current) {
@@ -328,7 +329,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [currentUser]);
 
   const playSong = useCallback((song: Song, newQueue?: Song[]) => {
-    if (!audioRef.current) return;
+    if (radioModeRef.current || !audioRef.current) return;
     const audio = audioRef.current;
     const attemptId = ++playAttemptRef.current;
 
