@@ -1413,7 +1413,7 @@ export async function stageSongRequestMediaDb(
     audioFileId: string;
     artworkFileId: string;
   },
-  requestUpdates: Record<string, unknown>,
+  requestUpdates: Partial<typeof songRequests.$inferInsert>,
 ) {
   if (!(await checkSqlAvailability())) {
     throw new Error('The persistent database is unavailable. The uploaded media was not attached to the request.');
