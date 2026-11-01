@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date, primaryKey, real } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -44,6 +44,7 @@ export const songs = pgTable('songs', {
   tags: jsonb('tags').$type<string[]>(),
   typeMood: text('type_mood'),
   duration: integer('duration').notNull().default(0),
+  durationExact: real('duration_exact'),
   audioUrl: text('audio_url').notNull(),
   coverUrl: text('cover_url').notNull(),
   addedAt: text('added_at').notNull(),
