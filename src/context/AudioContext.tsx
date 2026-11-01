@@ -110,6 +110,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playAttemptRef = useRef(0);
   const radioModeRef = useRef(false);
+  const radioPreviousSpeedRef = useRef<number | null>(null);
   const audioGraphRef = useRef<AudioContext | null>(null);
   const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
   const equalizerOwnerRef = useRef<string | null>(null);
@@ -425,7 +426,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const playRadioSong = useCallback(async (song: Song, elapsedSeconds: number) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+    if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
     radioModeRef.current = true;
+    audio.playbackRate = 1;
     setIsRadioMode(true);
     const sourceUrl = getPlayableAudioUrl(song.audioUrl);
     let absoluteUrl = sourceUrl;
@@ -467,7 +470,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const target = Math.max(0, Number(elapsedSeconds) || 0);
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
       // Polls are only clock corrections. Never reload/restart an already playing track.
-      if (Math.abs(audio.currentTime - target) > 2.75) {
+      if (Math.abs(audio.currentTime - target) > 1.75) {
         try { audio.currentTime = Math.min(target, Math.max(0, audio.duration - 0.25)); } catch {}
       }
       setDuration(audio.duration);
@@ -491,6 +494,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!radioModeRef.current) return;
     radioModeRef.current = false;
     setIsRadioMode(false);
+    if (audioRef.current && radioPreviousSpeedRef.current !== null) {
+      audioRef.current.playbackRate = radioPreviousSpeedRef.current;
+      setPlaybackSpeedState(radioPreviousSpeedRef.current);
+    }
+    radioPreviousSpeedRef.current = null;
     playAttemptRef.current += 1;
     const audio = audioRef.current;
     if (audio) {
