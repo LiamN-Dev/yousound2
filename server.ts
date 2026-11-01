@@ -1677,7 +1677,7 @@ app.post('/api/radio/duration', async (req: Request, res: Response) => {
       return res.status(409).json({ success: false, error: 'Duration can only be reported for the current live radio song.' });
     }
     const currentExact = Number(state.currentSong?.durationExact) || Number(state.currentSong?.duration) || 0;
-    if (Math.abs(currentExact - exact) >= 0.05) {
+    if (!Number(state.currentSong?.durationExact) || Math.abs(currentExact - exact) >= 0.02) {
       await updateSongDurationExactDb(songId, exact);
     }
     return res.json({ success: true, duration: rounded, durationExact: exact });
