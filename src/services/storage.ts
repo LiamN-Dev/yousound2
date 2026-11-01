@@ -487,6 +487,7 @@ class StorageService {
   async createRequest(data: {
     songTitle: string;
     artist?: string;
+    webLink?: string;
     notes?: string;
     requestedByUserId?: string;
     requestedByUsername: string;
@@ -499,6 +500,7 @@ class StorageService {
       songTitle: data.songTitle.trim(),
       artist: (data.artist || '').trim(),
       coverUrl: '',
+      webLink: (data.webLink || '').trim(),
       notes: (data.notes || '').trim(),
       requestedByUserId: data.requestedByUserId || 'guest',
       requestedByUsername: data.requestedByUsername.trim() || 'User',
