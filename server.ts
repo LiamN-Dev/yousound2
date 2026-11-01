@@ -1585,6 +1585,7 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
       delete (state as any).nextProgram;
       delete (state as any).nextStartsInMs;
       delete (state as any).currentIndex;
+      if (state.currentProgram) state.currentProgram = { name: state.currentProgram.name, description: state.currentProgram.description, songIds: [] };
     }
     return res.json({ success: true, state });
   } catch (error: any) {
