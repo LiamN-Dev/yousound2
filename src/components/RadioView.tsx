@@ -529,11 +529,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 {station.currentSong && <div className="space-y-2 border-t border-white/10 pt-3">
                   <div className="flex items-center justify-between gap-3 text-[10px] text-slate-300">
                     <span className="font-semibold text-white">Broadcast position</span>
-                    <span className="font-mono tabular-nums">{formatTrackTime(isSeeking ? seekDraft : station.elapsedSeconds)} / {formatTrackTime(station.currentSong.duration || 0)}</span>
+                    <span className="font-mono tabular-nums">{formatTrackTime(isSeeking ? seekDraft : station.elapsedSeconds)} / {formatTrackTime(station.currentSong.durationExact || station.currentSong.duration || 0)}</span>
                   </div>
                   <input
-                    type="range" min={0} max={Math.max(1, station.currentSong.duration || 180)} step={0.25}
-                    value={Math.min(Math.max(0, isSeeking ? seekDraft : station.elapsedSeconds), Math.max(1, station.currentSong.duration || 180))}
+                    type="range" min={0} max={Math.max(1, station.currentSong.durationExact || station.currentSong.duration || 180)} step={0.05}
+                    value={Math.min(Math.max(0, isSeeking ? seekDraft : station.elapsedSeconds), Math.max(1, station.currentSong.durationExact || station.currentSong.duration || 180))}
                     onChange={(event) => { setSeekDraft(Number(event.target.value)); setIsSeeking(true); }}
                     onPointerUp={commitRadioSeek} onKeyUp={commitRadioSeek}
                     disabled={saving}
