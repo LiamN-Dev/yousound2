@@ -451,7 +451,16 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     playbackRate = 1,
     syncAtLocalEpochMs?: number,
   ) => {
-    if (!radioJoinedRef.current || radioSyncPendingRef.current) return;
+    if (!radioJoinedRef.current) return;
+    if (radioSyncPendingRef.current) {
+      // A newer admin command supersedes a start already waiting at the barrier.
+      if (!Number.isFinite(syncAtLocalEpochMs)) return;
+      if (radioSyncTimerRef.current !== null) {
+        window.clearTimeout(radioSyncTimerRef.current);
+        radioSyncTimerRef.current = null;
+      }
+      radioSyncPendingRef.current = false;
+    }
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
 
@@ -477,7 +486,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         gain.gain.cancelScheduledValues(graph.currentTime);
         gain.gain.setValueAtTime(0, graph.currentTime);
       } else {
-        radioFallbackMuteRef.current = { muted: audio.muted, volume: audio.volume };
+        if (!radioFallbackMuteRef.current) {
+          radioFallbackMuteRef.current = { muted: audio.muted, volume: audio.volume };
+        }
         audio.muted = true;
       }
     }
