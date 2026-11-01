@@ -161,10 +161,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       setProgramName(station.currentProgram.name || 'Now Playing');
       setProgramDescription(station.currentProgram.description || '');
       setCurrentIds(Array.isArray(station.currentProgram.songIds) ? station.currentProgram.songIds : []);
-      setNextName('');
-      setNextDescription('');
-      setNextAt('');
-      setNextIds([]);
+      if (!station.nextProgram) {
+        setNextName('');
+        setNextDescription('');
+        setNextAt('');
+        setNextIds([]);
+      }
     }
     loadedProgramKey.current = key;
   }, [isAdmin, station?.currentProgram?.name, station?.currentProgram?.songIds?.join(',')]);
