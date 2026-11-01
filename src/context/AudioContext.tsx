@@ -509,6 +509,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const joinRadioPlayback = useCallback(async (song: Song, elapsedSeconds: number, paused = false) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+    // Invalidate any ordinary-track play request that was still awaiting authorization.
+    playAttemptRef.current += 1;
     radioJoinedRef.current = true;
 
     if (paused) {
