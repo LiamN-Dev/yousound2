@@ -197,6 +197,15 @@ export const chatMessages = pgTable('chat_messages', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+/** Separate live radio chat; independent of private messaging. */
+export const radioChatMessages = pgTable('radio_chat_messages', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  username: text('username').notNull(),
+  message: text('message').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const chatPairingBlocks = pgTable('chat_pairing_blocks', {
   id: serial('id').primaryKey(),
   user1Id: text('user1_id').notNull(),

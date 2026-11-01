@@ -14,6 +14,7 @@ import {
   chatRequests,
   chatThreads,
   chatMessages,
+  radioChatMessages,
   chatPairingBlocks,
 } from './schema.ts';
 
@@ -909,6 +910,48 @@ export async function deletePopupDb(id: string) {
   } catch (error) {
     noteDbError('deletePopupDb', error);
     return true;
+  }
+}
+
+
+/** Recent station chat messages, ordered oldest-to-newest for the client. */
+export async function getRadioChatMessagesDb(limit = 60) {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit) || 60));
+  if (!(await checkSqlAvailability())) {
+    const cached = localStore.getSetting('radio_chat_messages');
+    return Array.isArray(cached) ? cached.slice(-safeLimit) : [];
+  }
+  try {
+    const rows = await db.select().from(radioChatMessages)
+      .orderBy(desc(radioChatMessages.createdAt)).limit(safeLimit);
+    return rows.reverse().map((row) => ({
+      id: row.id, userId: row.userId, username: row.username,
+      message: row.message, createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+    }));
+  } catch (error) {
+    noteDbError('getRadioChatMessagesDb', error);
+    throw new Error('Could not load radio chat messages.');
+  }
+}
+
+export async function createRadioChatMessageDb(data: {
+  id: string; userId: string; username: string; message: string;
+}) {
+  if (!(await checkSqlAvailability())) {
+    const cached = localStore.getSetting('radio_chat_messages');
+    const list = Array.isArray(cached) ? cached : [];
+    const message = { ...data, createdAt: new Date().toISOString() };
+    localStore.setSetting('radio_chat_messages', [...list, message].slice(-100));
+    return message;
+  }
+  try {
+    const rows = await db.insert(radioChatMessages).values(data).returning();
+    const row = rows[0];
+    return { id: row.id, userId: row.userId, username: row.username, message: row.message,
+      createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString() };
+  } catch (error) {
+    noteDbError('createRadioChatMessageDb', error);
+    throw new Error('Could not send your radio chat message.');
   }
 }
 
