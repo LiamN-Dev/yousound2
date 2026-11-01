@@ -308,7 +308,7 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
   const [genre, setGenre] = useState('Vibe / Chill');
   const [notes, setNotes] = useState('');
   const [imageLink, setImageLink] = useState('');
-  const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', requireImageLink: true });
+  const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', showImageLink: true, requireImageLink: true });
 
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
