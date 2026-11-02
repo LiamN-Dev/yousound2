@@ -671,7 +671,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return;
           }
         }
-        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        // During normal one-second state polling the source is already playing.
+        // Never write currentTime on every poll: repeated tiny seeks create audible
+        // stutter. Set the initial playhead only when this call loaded a new source;
+        // subsequent drift is handled by the smoothed, pitch-preserving correction.
+        if (needsSource && Number.isFinite(audio.duration) && audio.duration > 0) {
           const elapsedSinceRequest = (performance.now() - syncRequestedAtPerfMs) / 1000;
           const outputQueueSeconds = getRadioOutputQueueSeconds();
           const targetNow = targetAtSync + (elapsedSinceRequest + outputQueueSeconds) * safePlaybackRate;
