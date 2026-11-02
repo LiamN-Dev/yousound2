@@ -89,6 +89,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   // Plays, Listen reset & Scheduled for deletion state
   const [plays, setPlays] = useState<number>(0);
   const [weeklyPlays, setWeeklyPlays] = useState<number>(0);
+  const [dailyPlays, setDailyPlays] = useState<number>(0);
   const [isScheduledForDeletion, setIsScheduledForDeletion] = useState(false);
   const [isPullingDriveCover, setIsPullingDriveCover] = useState(false);
   const [isDetectingDuration, setIsDetectingDuration] = useState(false);
@@ -124,6 +125,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
 
       setPlays(song.plays || 0);
       setWeeklyPlays(song.weeklyPlays || 0);
+      setDailyPlays(song.dailyPlays || 0);
       setIsScheduledForDeletion(!!song.isScheduledForDeletion);
 
       setIsLimitedEdition(!!song.isLimitedEdition);
@@ -291,39 +293,44 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       computedHiddenFrom = [];
     }
 
-    updateSong(song.id, {
-      title: title.trim(),
-      artist: artist.trim(),
-      mediaCode: nextMediaCode || undefined,
-      genre: genre.trim() || 'General',
-      tags: parsedTags.length > 0 ? parsedTags : [genre.trim().toLowerCase()],
-      duration: Number(duration) || 180,
-      audioUrl: audioUrl.trim(),
-      coverUrl: coverUrl.trim(),
-      plays: Math.max(0, Number(plays) || 0),
-      weeklyPlays: Math.max(0, Number(weeklyPlays) || 0),
-      isScheduledForDeletion,
-      scheduledDeletionAt: isScheduledForDeletion
-        ? song.scheduledDeletionAt || new Date().toISOString()
-        : undefined,
-      featured,
-      description: description.trim() || undefined,
-      isLimitedEdition,
-      limitedUntil: isLimitedEdition && limitedUntil ? new Date(limitedUntil).toISOString() : undefined,
-      autoRemoveOnExpire: isLimitedEdition && autoRemoveOnExpire,
-      badgeType,
-      badgeMessage: badgeMessage.trim() || undefined,
-      badgeCustomText: badgeMessage.trim() || undefined,
-      isPinned,
-      isDroppingSoon,
-      dropDate: isDroppingSoon && dropDate ? new Date(dropDate).toISOString() : undefined,
-      autoReleaseOnDrop: isDroppingSoon && autoReleaseOnDrop,
-      hiddenFrom: isScheduledForDeletion ? ['all'] : computedHiddenFrom,
-      isSpotlight,
-      spotlightOrder: Number(spotlightOrder) || 0,
-      spotlightNote: spotlightNote.trim() || undefined,
-    });
-
+    try {
+      await updateSong(song.id, {
+        title: title.trim(),
+        artist: artist.trim(),
+        mediaCode: nextMediaCode || undefined,
+        genre: genre.trim() || 'General',
+        tags: parsedTags.length > 0 ? parsedTags : [genre.trim().toLowerCase()],
+        duration: Number(duration) || 180,
+        audioUrl: audioUrl.trim(),
+        coverUrl: coverUrl.trim(),
+        plays: Math.max(0, Number(plays) || 0),
+        weeklyPlays: Math.max(0, Number(weeklyPlays) || 0),
+        dailyPlays: Math.max(0, Number(dailyPlays) || 0),
+        isScheduledForDeletion,
+        scheduledDeletionAt: isScheduledForDeletion
+          ? song.scheduledDeletionAt || new Date().toISOString()
+          : null as any,
+        featured,
+        description: description.trim() || null as any,
+        isLimitedEdition,
+        limitedUntil: isLimitedEdition && limitedUntil ? new Date(limitedUntil).toISOString() : null as any,
+        autoRemoveOnExpire: isLimitedEdition && autoRemoveOnExpire,
+        badgeType,
+        badgeMessage: badgeMessage.trim() || null as any,
+        isPinned,
+        isDroppingSoon,
+        dropDate: isDroppingSoon && dropDate ? new Date(dropDate).toISOString() : null as any,
+        autoReleaseOnDrop: isDroppingSoon && autoReleaseOnDrop,
+        hiddenFrom: isScheduledForDeletion ? ['all'] : computedHiddenFrom,
+        isSpotlight,
+        spotlightOrder: Number(spotlightOrder) || 0,
+        spotlightNote: spotlightNote.trim() || null as any,
+      });
+    } catch (error: any) {
+      setFeedback(error?.message || 'The server could not save these song changes.');
+      setSavingChanges(false);
+      return;
+    }
     setFeedback('Song updated successfully. Drive filenames and Media ID are synchronized.');
     setSavingChanges(false);
     setTimeout(() => {
@@ -757,6 +764,18 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                     min="0"
                     value={weeklyPlays}
                     onChange={(e) => setWeeklyPlays(Number(e.target.value))}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Today Plays
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={dailyPlays}
+                    onChange={(e) => setDailyPlays(Number(e.target.value))}
                     className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono"
                   />
                 </div>
