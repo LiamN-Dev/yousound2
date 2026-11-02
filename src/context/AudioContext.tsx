@@ -67,7 +67,7 @@ interface AudioContextType {
   setIsExpandedVisualizer: (val: boolean) => void;
   // Admin song management & Enhancements
   addNewSong: (song: Omit<Song, 'id' | 'addedAt' | 'plays'>) => Promise<Song>;
-  updateSong: (id: string, updates: Partial<Song>) => void;
+  updateSong: (id: string, updates: Partial<Song>) => Promise<boolean>;
   deleteSong: (id: string) => void;
   bulkUpdateSongs: (songIds: string[], updates: Partial<Song>, tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }) => Promise<boolean>;
   bulkDeleteSongs: (songIds: string[]) => Promise<boolean>;
@@ -490,7 +490,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!radioJoinedRef.current) return;
     if (radioSyncPendingRef.current) {
       // A newer admin command supersedes a start already waiting at the barrier.
-      if (!Number.isFinite(syncAtLocalEpochMs)) return;
+      if (!Number.isFinite(syncAtLocalPerfMs)) return;
       if (radioSyncTimerRef.current !== null) {
         window.clearTimeout(radioSyncTimerRef.current);
         radioSyncTimerRef.current = null;
@@ -517,7 +517,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try { absoluteUrl = new URL(sourceUrl, window.location.href).href; } catch {}
     const needsSource = audio.src !== absoluteUrl || currentSongRef.current?.id !== song.id;
     const attemptId = needsSource ? ++playAttemptRef.current : playAttemptRef.current;
-    const useBarrier = Number.isFinite(syncAtLocalEpochMs);
+    const useBarrier = Number.isFinite(syncAtLocalPerfMs);
     const targetAtSync = Math.max(0, Number(elapsedSeconds) || 0);
 
     if (useBarrier) {
@@ -590,15 +590,16 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // same future server-clock boundary used by every other listener.
         if (playRequest) await playRequest;
         audio.pause();
-        const remainingBeforeStart = Math.max(0, (Number(syncAtLocalEpochMs) - Date.now()) / 1000);
-        const positionAtBufferStart = Math.max(0, targetAtSync - remainingBeforeStart * safePlaybackRate);
+        const remainingBeforeStart = Math.max(0, (Number(syncAtLocalPerfMs) - Date.now()) / 1000);
+        const outputQueueSeconds = getRadioOutputQueueSeconds();
+        const positionAtBufferStart = Math.max(0, targetAtSync - remainingBeforeStart * safePlaybackRate + outputQueueSeconds * safePlaybackRate);
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
           audio.currentTime = Math.min(positionAtBufferStart, Math.max(0, audio.duration - 0.25));
         }
         audio.playbackRate = safePlaybackRate;
         await audio.play();
 
-        const remainingMs = Math.max(0, Number(syncAtLocalEpochMs) - Date.now());
+        const remainingMs = Math.max(0, Number(syncAtLocalPerfMs) - Date.now());
         const context = audioGraphRef.current;
         const gain = radioGainRef.current;
         if (context && gain && context.state === 'running') {
@@ -706,7 +707,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     elapsedSeconds: number,
     paused = false,
     playbackRate = 1,
-    syncAtLocalEpochMs?: number,
+    syncAtLocalPerfMs?: number,
   ) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
@@ -768,7 +769,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    await playRadioSong(song, elapsedSeconds, playbackRate, syncAtLocalEpochMs);
+    await playRadioSong(song, elapsedSeconds, playbackRate, syncAtLocalPerfMs);
   }, [playRadioSong]);
 
   const pauseRadioPlayback = useCallback(() => {
