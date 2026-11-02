@@ -257,7 +257,16 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleToggleUserChat = async (u: User) => { await adminUpdateUser(u.id,{chatBlocked:!u.chatBlocked}); };
+  const handleToggleUserChat = async (u: User) => {
+    const blocked = !u.chatBlocked;
+    const result = await adminUpdateUser(u.id, { chatBlocked: blocked });
+    if (!result.success) {
+      setUserEditFeedback(result.error || 'Could not update this account\'s chat access.');
+      return;
+    }
+    refreshState();
+    setUserEditFeedback(blocked ? `Chat access disabled for @${u.username} on all devices.` : `Chat access restored for @${u.username} on all devices.`);
+  };
   const handleToggleAccountLock = async (u:User) => { if(u.role==='admin')return;const result=await adminUpdateUser(u.id,{isLocked:!u.isLocked});if(!result.success){setUserEditFeedback(result.error||'Could not change account lock.');return;}refreshState();setLockCodeModalUser(!u.isLocked?u:null);setUserEditFeedback(!u.isLocked?`Account @${u.username} locked.`:`Account @${u.username} unlocked.`); };
   const handleLogoutAllSessions = async (u:User) => {if(!confirm(`Log out every active session for @${u.username}?`))return;try{const response=await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/logout-all`,{method:'POST',credentials:'same-origin'});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.error||'Could not revoke sessions.');setUserEditFeedback(`All sessions for @${u.username} have been revoked.`);}catch(e:any){setUserEditFeedback(e?.message||'Could not revoke sessions.');}};
 
