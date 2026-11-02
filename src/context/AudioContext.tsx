@@ -675,10 +675,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const target = Math.min(targetAtSync + outputQueueSeconds * safePlaybackRate, Math.max(0, audio.duration - 0.25));
       const drift = target - audio.currentTime;
       const absoluteDrift = Math.abs(drift);
-      if (absoluteDrift > 0.12) {
+      if (absoluteDrift > 0.08) {
         try { audio.currentTime = target; } catch {}
         audio.playbackRate = safePlaybackRate;
-      } else if (absoluteDrift > 0.02) {
+      } else if (absoluteDrift > 0.015) {
         const correction = Math.max(-0.02, Math.min(0.02, drift * 0.16));
         audio.playbackRate = safePlaybackRate * (1 + correction);
       } else {
