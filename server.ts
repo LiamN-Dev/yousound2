@@ -1165,6 +1165,42 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
   }
 });
 
+// Site-wide account ban. This is separate from radio and chat bans.
+app.post('/api/admin/users/:uid/site-ban', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const uid = String(req.params.uid || '').trim();
+    const target = await getUserByUid(uid);
+    if (!target) return res.status(404).json({ success: false, error: 'User not found.' });
+    if (target.role === 'admin') return res.status(400).json({ success: false, error: 'Administrator accounts cannot be site-banned.' });
+
+    if (typeof req.body?.banned !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'A boolean banned value is required.' });
+    }
+    const banned = req.body.banned;
+    const reason = String(req.body?.reason || '').trim().slice(0, 240);
+    const updated = await updateUserDb(target.uid, {
+      isSuspended: banned,
+      suspendedReason: banned ? (reason || 'Banned from YouSong by an administrator.') : '',
+    });
+    if (!updated || Boolean(updated.isSuspended) !== banned) {
+      throw new Error('The database did not confirm the requested site-ban state.');
+    }
+    return res.json({
+      success: true,
+      user: {
+        id: updated.uid,
+        username: updated.username,
+        isSuspended: Boolean(updated.isSuspended),
+        suspendedReason: updated.suspendedReason || null,
+      },
+    });
+  } catch (error: any) {
+    console.error('[SiteBan] Could not update account ban:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Could not update site-ban status.' });
+  }
+});
+
 app.get('/api/admin/users/:uid/lock-code', async (req: Request, res: Response) => {
  if(!isAdminReq(req))return res.status(403).json({success:false,error:'Administrators only.'});const user=await getUserByUid(String(req.params.uid||''));
  if(!user||user.role==='admin'||!user.isLocked)return res.status(404).json({success:false,error:'Locked member account not found.'});const current=createAccountUnlockCode(user.uid);res.setHeader('Cache-Control','no-store, private');return res.json({success:true,username:user.username,code:current.code,expiresAt:current.expiresAt});
@@ -2635,18 +2671,17 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
 
     const imageBody = imageResponse.body;
     if (!imageBody) return res.status(502).send('Google Drive returned an empty artwork response.');
-    const responseLength = Number(imageResponse.headers.get('content-length') || 0);
-    if (responseLength > 25 * 1024 * 1024) {
-      await imageBody.cancel().catch(() => undefined);
-      return res.status(413).send('Artwork exceeds the 25 MB image limit.');
-    }
+    // Do not forward Google's Content-Length. Fetch may transparently decompress
+    // upstream responses, making the upstream byte count differ from the bytes
+    // actually streamed to the browser. A stale length truncates visible artwork.
     res.status(200);
     const returnedContentType = String(imageResponse.headers.get('content-type') || '').toLowerCase();
     res.setHeader('Content-Type', returnedContentType.startsWith('image/') ? returnedContentType : mimeType);
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=3600');
-    if (responseLength > 0) res.setHeader('Content-Length', String(responseLength));
+    // Let Express use chunked transfer for the streamed body; never advertise
+    // an upstream Content-Length for a potentially decoded response.
     const etag = imageResponse.headers.get('etag');
     if (etag) res.setHeader('ETag', etag);
 
