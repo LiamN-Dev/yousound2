@@ -1925,8 +1925,16 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
 
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const currentIndex = Number(state.currentIndex);
-      if (currentIndex < 0 || !playlist[currentIndex] || String(playlist[currentIndex].id) !== String(state.currentSong.id)) {
-        return res.status(409).json({ success: false, error: 'The live queue changed. Refresh the radio control room and try again.' });
+      const currentConfigIds = Array.isArray(config.currentProgram?.songIds) ? config.currentProgram.songIds.map(String) : [];
+      const resolvedQueueIds = playlist.map((song: any) => String(song.id));
+      if (
+        currentIndex < 0 ||
+        !playlist[currentIndex] ||
+        String(playlist[currentIndex].id) !== String(state.currentSong.id) ||
+        currentConfigIds.length !== resolvedQueueIds.length ||
+        currentConfigIds.some((id: string, index: number) => id !== resolvedQueueIds[index])
+      ) {
+        return res.status(409).json({ success: false, error: 'The live queue changed while you were editing it. Refresh the radio control room and try again.' });
       }
       const existingUpcoming = playlist.slice(currentIndex + 1).map((song: any) => String(song.id));
       const requestedUpcoming = Array.isArray(req.body?.songIds)
