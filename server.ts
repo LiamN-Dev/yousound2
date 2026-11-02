@@ -2603,7 +2603,7 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
           return res.status(400).json({ success: false, error: 'The submitted artwork link must be a public HTTPS image URL.' });
         }
         const submittedDriveId = extractGoogleDriveFileId(requestItem.webLink);
-        let imageResponse: Response;
+        let imageResponse: Awaited<ReturnType<typeof fetch>>;
         if (submittedDriveId) {
           // Drive's legacy uc?export=download endpoint often returns an HTML virus-scan
           // confirmation page for larger files. Use the user-content download endpoint
@@ -2613,7 +2613,7 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
             'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(submittedDriveId),
           ];
           let lastStatus = 0;
-          let usable: Response | null = null;
+          let usable: Awaited<ReturnType<typeof fetch>> | null = null;
           for (const downloadUrl of driveDownloads) {
             const candidate = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
             lastStatus = candidate.status;
