@@ -8,7 +8,7 @@ export function extractDriveFileId(inputUrl?: string | null): string | null {
   if (!inputUrl) return null;
   const trimmed = inputUrl.trim();
   const match = trimmed.match(
-    /(?:^\/api\/drive\/(?:cover|stream)\/|drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=|thumbnail\?id=)|lh3\.googleusercontent\.com\/d\/|[?&]id=)([a-zA-Z0-9_-]{10,200})/
+    /(?:^\/api\/drive\/(?:cover|stream)\/|drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=|uc\?export=download&id=|thumbnail\?id=)|lh3\.googleusercontent\.com\/d\/|[?&]id=)([a-zA-Z0-9_-]{10,200})(?:=w\d+(?:-h\d+)?|=s\d+)?/
   );
   if (match && match[1]) return match[1];
   // If user pasted raw Drive ID (typically 25-45 chars)
@@ -65,14 +65,15 @@ export function formatCoverMediaUrl(url?: string | null): string {
     return trimmed;
   }
 
-  // Serve Google Drive artwork through the site's authenticated account. This
-  // avoids relying on public thumbnail CDN behavior and link-sharing propagation.
+  // Album artwork is intentionally link-viewable in Drive. Load from Google's
+  // image CDN first so thumbnails do not consume the Render server's media bandwidth;
+  // MediaCover falls back to the authenticated same-origin route if that URL fails.
   const driveId = extractDriveFileId(trimmed);
   if (driveId) {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${encodeURIComponent(driveId)}`;
     }
-    return `/api/drive/cover/${encodeURIComponent(driveId)}`;
+    return `https://lh3.googleusercontent.com/d/${encodeURIComponent(driveId)}=w1200`;
   }
 
   return trimmed;

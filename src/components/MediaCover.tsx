@@ -57,19 +57,26 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
         alt={alt}
         className={className}
         decoding="async"
+        loading="lazy"
+        referrerPolicy="no-referrer"
         onError={(e) => {
           const target = e.currentTarget;
           const id = extractDriveFileId(src);
-          // If the primary authenticated route fails, try the legacy public CDN
-          // once before falling back to generated local artwork.
-          if (id && !target.dataset.driveProxyFallback && formattedUrl.startsWith('https://lh3.googleusercontent.com/')) {
+          const currentUrl = target.currentSrc || target.src;
+          const isAuthenticatedProxy = currentUrl.includes('/api/drive/cover/');
+          // Try each Drive delivery path at most once. Which one comes first
+          // depends on the URL supplied by the song record.
+          if (id && isAuthenticatedProxy && !target.dataset.drivePublicFallback) {
+            target.dataset.drivePublicFallback = 'true';
+            // Mark the proxy as already attempted too, including when it was the
+            // original URL, so a failed CDN retry cannot loop back to the proxy.
             target.dataset.driveProxyFallback = 'true';
-            target.src = `/api/drive/cover/${encodeURIComponent(id)}`;
+            target.src = `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w1200`;
             return;
           }
-          if (id && !target.dataset.drivePublicFallback && formattedUrl.startsWith('/api/drive/cover/')) {
-            target.dataset.drivePublicFallback = 'true';
-            target.src = `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w800`;
+          if (id && !isAuthenticatedProxy && !target.dataset.driveProxyFallback) {
+            target.dataset.driveProxyFallback = 'true';
+            target.src = `/api/drive/cover/${encodeURIComponent(id)}`;
             return;
           }
           handleImageFallback(e, fallbackTitle, fallbackGenre);

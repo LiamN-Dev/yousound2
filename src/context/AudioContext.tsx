@@ -125,6 +125,8 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const audioGraphRef = useRef<AudioContext | null>(null);
   const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
   const equalizerOwnerRef = useRef<string | null>(null);
+  // Low-pass radio drift measurements so one delayed poll cannot cause a speed jump.
+  const radioDriftEwmaRef = useRef(0);
 
   const getRadioOutputQueueSeconds = () => {
     const graph = audioGraphRef.current;
@@ -248,8 +250,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Initialize audio element
   useEffect(() => {
     const audio = new Audio();
-    audio.preload = 'metadata';
+    audio.preload = 'auto';
     audio.crossOrigin = 'anonymous';
+    // Clock correction uses tiny speed trims. Preserve pitch so those trims do
+    // not sound like the broadcast is warbling or changing musical key.
+    audio.preservesPitch = true;
+    (audio as any).webkitPreservesPitch = true;
     audioRef.current = audio;
 
     // One low-cost Web Audio chain gives every song the same user EQ without
@@ -512,7 +518,6 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
     radioModeRef.current = true;
     const safePlaybackRate = Math.min(2, Math.max(0.5, Number(playbackRate) || 1));
-    audio.playbackRate = safePlaybackRate;
     setIsRadioMode(true);
 
     const sourceUrl = getPlayableAudioUrl(song.audioUrl);
@@ -520,10 +525,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try { absoluteUrl = new URL(sourceUrl, window.location.href).href; } catch {}
     const needsSource = audio.src !== absoluteUrl || currentSongRef.current?.id !== song.id;
     const attemptId = needsSource ? ++playAttemptRef.current : playAttemptRef.current;
+    if (needsSource) {
+      radioDriftEwmaRef.current = 0;
+      audio.playbackRate = safePlaybackRate;
+    }
     const useBarrier = Number.isFinite(syncAtLocalPerfMs);
     const targetAtSync = Math.max(0, Number(elapsedSeconds) || 0);
 
     if (useBarrier) {
+      radioDriftEwmaRef.current = 0;
       radioSyncPendingRef.current = true;
       const graph = audioGraphRef.current;
       const gain = radioGainRef.current;
@@ -661,7 +671,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return;
           }
         }
-        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        // During normal one-second state polling the source is already playing.
+        // Never write currentTime on every poll: repeated tiny seeks create audible
+        // stutter. Set the initial playhead only when this call loaded a new source;
+        // subsequent drift is handled by the smoothed, pitch-preserving correction.
+        if (needsSource && Number.isFinite(audio.duration) && audio.duration > 0) {
           const elapsedSinceRequest = (performance.now() - syncRequestedAtPerfMs) / 1000;
           const outputQueueSeconds = getRadioOutputQueueSeconds();
           const targetNow = targetAtSync + (elapsedSinceRequest + outputQueueSeconds) * safePlaybackRate;
@@ -700,15 +714,26 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const targetNow = targetAtSync + (elapsedFromAnchor + outputQueueSeconds) * safePlaybackRate;
       const target = Math.min(Math.max(0, targetNow), Math.max(0, audio.duration - 0.25));
       const drift = target - audio.currentTime;
-      const absoluteDrift = Math.abs(drift);
-      if (absoluteDrift > 0.08) {
-        try { audio.currentTime = target; } catch {}
-        audio.playbackRate = safePlaybackRate;
-      } else if (absoluteDrift > 0.015) {
-        const correction = Math.max(-0.02, Math.min(0.02, drift * 0.16));
-        audio.playbackRate = safePlaybackRate * (1 + correction);
-      } else {
-        audio.playbackRate = safePlaybackRate;
+      // Ignore tiny, noisy differences from network polling. Repeated 80 ms seeks
+      // and +/-2% rate jumps sound like stutter even when listeners are synchronized.
+      // Smooth the phase error and make only very small pitch-preserving corrections.
+      if (audio.readyState >= 3 && !audio.paused) {
+        const filteredDrift = radioDriftEwmaRef.current * 0.65 + drift * 0.35;
+        radioDriftEwmaRef.current = filteredDrift;
+        const absoluteFilteredDrift = Math.abs(filteredDrift);
+        if (Math.abs(drift) > 1.25 && absoluteFilteredDrift > 0.85) {
+          // Only hard-align after a sustained, clearly audible loss of position.
+          try { audio.currentTime = target; } catch {}
+          audio.playbackRate = safePlaybackRate;
+          radioDriftEwmaRef.current = 0;
+        } else if (absoluteFilteredDrift > 0.06) {
+          const correction = Math.max(-0.003, Math.min(0.003, filteredDrift * 0.012));
+          const desiredRate = safePlaybackRate * (1 + correction);
+          // Glide rate changes instead of stepping the media element every poll.
+          audio.playbackRate += (desiredRate - audio.playbackRate) * 0.35;
+        } else {
+          audio.playbackRate += (safePlaybackRate - audio.playbackRate) * 0.4;
+        }
       }
       setDuration(audio.duration);
     }
@@ -737,6 +762,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+    if (paused) radioDriftEwmaRef.current = 0;
     if (paused && radioSyncPendingRef.current) {
       // A server pause/paused seek cancels a pending future audible start immediately.
       playAttemptRef.current += 1;
@@ -806,6 +832,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const leaveRadio = useCallback(() => {
     const hadRadioSession = radioJoinedRef.current || radioModeRef.current;
+    radioDriftEwmaRef.current = 0;
     radioJoinedRef.current = false;
     playAttemptRef.current += 1;
     radioSyncPendingRef.current = false;

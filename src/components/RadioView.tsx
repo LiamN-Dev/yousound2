@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
@@ -387,8 +387,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   };
 
   const controlRadio = async (
-    action: 'toggle-pause' | 'next' | 'toggle-loop' | 'seek' | 'set-speed',
-    extra: Record<string, number> = {}
+    action: 'toggle-pause' | 'next' | 'toggle-loop' | 'seek' | 'set-speed' | 'reorder-queue',
+    extra: Record<string, unknown> = {}
   ) => {
     setSaving(true);
     setAdminNote('');
@@ -437,7 +437,9 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         };
         if (joined && confirmedState.enabled && confirmedState.currentSong) {
           const rate = Math.min(2, Math.max(0.5, Number(confirmedState.playbackRate) || 1));
-          if (confirmedState.paused) {
+          if (action === 'reorder-queue') {
+            // Queue metadata changed; no audio seek or restart is needed.
+          } else if (confirmedState.paused) {
             void joinRadioPlayback(confirmedState.currentSong, confirmedState.elapsedSeconds, true, rate);
           } else if (['next', 'seek', 'set-speed'].includes(action) || (action === 'toggle-pause' && !confirmedState.paused)) {
             const offset = serverClockOffsetRef.current || 0;
@@ -457,7 +459,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           }
         }
       }
-      if (action === 'next') setAdminNote('Skipped to the next song.');
+      if (action === 'reorder-queue') setAdminNote('Queue order saved. The current song was not interrupted.');
+      else if (action === 'next') setAdminNote('Skipped to the next song.');
       else if (action === 'toggle-loop') setAdminNote(confirmedState?.loopPlaylist ? 'Playlist looping enabled.' : 'Playlist looping disabled.');
       else if (action === 'seek') setAdminNote('Broadcast position updated for every listener.');
       else if (action === 'set-speed') setAdminNote(`Broadcast speed set to ${Number(confirmedState?.playbackRate || 1).toFixed(2)}x for everyone.`);
@@ -474,6 +477,35 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (!station?.enabled || !station.currentSong) return;
     setIsSeeking(false);
     void controlRadio('seek', { positionSeconds: seekDraft });
+  };
+
+  const moveConfiguredQueueSong = (index: number, direction: -1 | 1) => {
+    setCurrentIds((current) => {
+      const next = [...current];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const moveUpcomingQueueSong = (index: number, direction: -1 | 1) => {
+    const upcoming = (station?.playlist || []).slice(Math.max(0, Number(station?.currentIndex || 0) + 1));
+    const target = index + direction;
+    if (target < 0 || target >= upcoming.length || saving) return;
+    const reordered = [...upcoming];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    void controlRadio('reorder-queue', { songIds: reordered.map((song) => song.id) });
+  };
+
+  const moveScheduledQueueSong = (index: number, direction: -1 | 1) => {
+    setNextIds((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const reordered = [...current];
+      [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+      return reordered;
+    });
   };
 
   const updateBan = async (userId: string, banned: boolean) => {
@@ -516,6 +548,13 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     </div>
   );
 
+  const adminQueue = station?.enabled && Array.isArray(station.playlist)
+    ? station.playlist
+    : currentIds.map((id) => pool.find((song) => song.id === id)).filter(Boolean) as Song[];
+  const liveQueueIndex = station?.enabled && station.currentSong
+    ? Math.max(0, Number(station.currentIndex) || 0)
+    : -1;
+
   return (
     <section className="ys-radio-view space-y-4 pb-28">
       <div className="ys-radio-hero rounded-2xl border border-cyan-400/20 p-4 sm:p-5">
@@ -557,6 +596,40 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <label className="text-[10px] text-slate-300">Program description<input value={programDescription} onChange={(e) => setProgramDescription(e.target.value)} maxLength={240} className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" /></label>
               </div>
               <div><div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase text-slate-300"><span>Current playlist · {currentIds.length} chosen</span><button type="button" onClick={() => setCurrentIds([])} className="font-normal normal-case text-slate-400">Clear</button></div><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search all songs, including unpublished…" className="mb-2 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" />{picker(currentIds, setCurrentIds)}</div>
+              <div className="rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] p-3">
+                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase text-cyan-100">
+                  <span>{station?.enabled ? 'Live queue · current song stays put' : 'Queue order · before starting'}</span>
+                  <span className="font-normal normal-case text-slate-400">{adminQueue.length} tracks</span>
+                </div>
+                {adminQueue.length ? <div className="space-y-1">
+                  {adminQueue.map((song, index) => {
+                    const isLive = liveQueueIndex >= 0;
+                    const isPlayed = isLive && index < liveQueueIndex;
+                    const isCurrent = isLive && index === liveQueueIndex;
+                    const upcomingIndex = isLive ? index - liveQueueIndex - 1 : index;
+                    const canMove = isLive ? upcomingIndex >= 0 : true;
+                    const moveTrack = (direction: -1 | 1) => {
+                      if (isLive) moveUpcomingQueueSong(upcomingIndex, direction);
+                      else moveConfiguredQueueSong(index, direction);
+                    };
+                    const statusClass = isCurrent
+                      ? 'bg-emerald-400/15 text-emerald-200'
+                      : isPlayed ? 'bg-white/[0.05] text-slate-500' : 'bg-cyan-400/10 text-cyan-200';
+                    return <div key={song.id} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 px-2 py-1.5">
+                      <div className="h-8 w-8 shrink-0 overflow-hidden rounded-md"><MediaCover src={song.coverUrl} alt={song.title} fallbackTitle={song.title} fallbackGenre={song.genre} /></div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[10px] font-semibold text-white">{index + 1}. {song.title}</div>
+                        <div className="truncate text-[9px] text-slate-400">{song.artist}</div>
+                      </div>
+                      <span className={'shrink-0 rounded px-1.5 py-0.5 text-[8px] font-bold uppercase ' + statusClass}>{isCurrent ? 'Now playing' : isPlayed ? 'Played' : 'Up next'}</span>
+                      {canMove && !isCurrent && !isPlayed && <div className="flex shrink-0 gap-1">
+                        <button type="button" aria-label={'Move ' + song.title + ' up'} title="Move up" disabled={saving || upcomingIndex === 0} onClick={() => moveTrack(-1)} className="rounded border border-white/10 p-1 text-slate-300 hover:bg-white/10 disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
+                        <button type="button" aria-label={'Move ' + song.title + ' down'} title="Move down" disabled={saving || (isLive ? upcomingIndex >= adminQueue.length - liveQueueIndex - 2 : index >= adminQueue.length - 1)} onClick={() => moveTrack(1)} className="rounded border border-white/10 p-1 text-slate-300 hover:bg-white/10 disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
+                      </div>}
+                    </div>;
+                  })}
+                </div> : <p className="text-[10px] text-slate-500">Choose songs above to build the queue. Its order here is the playback order.</p>}
+              </div>
               <div className="space-y-2 rounded-xl border border-indigo-400/20 bg-indigo-500/[0.06] p-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-indigo-100"><CalendarClock className="h-4 w-4" /> Schedule next list</div>
                 <label className="flex items-center gap-2 text-[10px] text-indigo-100"><input type="checkbox" checked={autoStartScheduled} onChange={(e) => setAutoStartScheduled(e.target.checked)} className="accent-cyan-500" /> Automatically start the broadcast when the scheduled time arrives</label>
@@ -567,6 +640,18 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <label className="block text-[10px] text-slate-300">Description<input value={nextDescription} onChange={(e) => setNextDescription(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
                 <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-indigo-100"><span>Next playlist · {nextIds.length} chosen</span><button type="button" onClick={() => { setNextIds([]); setNextName(''); setNextAt(''); setNextDescription(''); }} className="font-normal text-slate-400">Clear schedule</button></div>
                 {picker(nextIds, setNextIds)}
+                {nextIds.length > 0 && <div className="space-y-1 rounded-lg border border-white/[0.06] bg-black/20 p-2">
+                  <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-indigo-100">Scheduled play order</div>
+                  {nextIds.map((id, index) => {
+                    const song = pool.find((item) => item.id === id);
+                    return <div key={id} className="flex items-center gap-2 rounded-md px-1.5 py-1">
+                      <span className="w-4 shrink-0 text-[9px] text-slate-500">{index + 1}.</span>
+                      <span className="min-w-0 flex-1 truncate text-[10px] text-white">{song?.title || 'Unavailable song'}</span>
+                      <button type="button" aria-label={'Move scheduled song ' + (song?.title || id) + ' up'} title="Move up" disabled={index === 0} onClick={() => moveScheduledQueueSong(index, -1)} className="rounded border border-white/10 p-1 text-indigo-100 disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
+                      <button type="button" aria-label={'Move scheduled song ' + (song?.title || id) + ' down'} title="Move down" disabled={index === nextIds.length - 1} onClick={() => moveScheduledQueueSong(index, 1)} className="rounded border border-white/10 p-1 text-indigo-100 disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
+                    </div>;
+                  })}
+                </div>}
               </div>
               {station?.enabled && <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex flex-wrap gap-2">

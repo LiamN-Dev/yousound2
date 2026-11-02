@@ -389,7 +389,7 @@ function extractDriveFileId(inputUrl: string): string | null {
 
   // Accept an ID directly, standard Drive/Docs share URLs, and this app's own stream URLs.
   if (/^[a-zA-Z0-9_-]{10,200}$/.test(trimmed)) return trimmed;
-  const localRouteMatch = trimmed.match(/^\/api\/(?:drive\/stream|media\/drive-stream)\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
+  const localRouteMatch = trimmed.match(/^(?:https?:\/\/[^/]+)?\/api\/(?:drive\/(?:stream|cover)|media\/drive-stream)\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
   if (localRouteMatch) return localRouteMatch[1];
 
   try {
@@ -397,7 +397,8 @@ function extractDriveFileId(inputUrl: string): string | null {
     if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com', 'lh3.googleusercontent.com'].includes(url.hostname.toLowerCase())) return null;
     const segments = url.pathname.split('/').filter(Boolean);
     const dIndex = segments.indexOf('d');
-    const id = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    const rawId = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    const id = rawId.replace(/(?:=w\d+(?:-h\d+)?|=s\d+)$/i, '');
     return /^[a-zA-Z0-9_-]{10,200}$/.test(id) ? id : null;
   } catch {
     return null;
@@ -1325,23 +1326,46 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
       return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Song changes were not saved.' });
     }
     const { id } = req.params;
+    const existingSong = await getSongByIdDb(id);
+    if (!existingSong) return res.status(404).json({ success: false, error: 'Song not found. Refresh the library and try again.' });
     const updates = { ...(req.body || {}) };
 
     if (Object.prototype.hasOwnProperty.call(updates, 'audioUrl')) {
       const value = String(updates.audioUrl || '').trim();
-      if (!/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+$/i.test(value)) {
-        return res.status(400).json({ success: false, error: 'Song audio must be a direct file in the site Google Drive.' });
+      const driveId = extractDriveFileId(value);
+      if (driveId) {
+        // Library uploads now store the same-origin stream path, not Drive's old
+        // download URL. Normalize every accepted Drive link to that canonical route.
+        updates.audioUrl = '/api/drive/stream/' + encodeURIComponent(driveId);
+      } else if (value === String(existingSong.audioUrl || '')) {
+        // Preserve legacy non-Drive URLs when the editor has not changed them.
+        delete updates.audioUrl;
+      } else {
+        return res.status(400).json({ success: false, error: 'Choose a valid Google Drive MP3. Existing unchanged legacy audio links are preserved.' });
       }
-      updates.audioUrl = value;
     }
     if (Object.prototype.hasOwnProperty.call(updates, 'coverUrl')) {
       const value = String(updates.coverUrl || '').trim();
-      const match = value.match(/^https:\/\/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)(?:=w\d+(?:-h\d+)?)?$/i);
-      if (!match) {
-        return res.status(400).json({ success: false, error: 'Song artwork must remain a valid Google Drive image. Choose a cover image rather than leaving this field empty.' });
+      const driveId = extractDriveFileId(value);
+      const isLocalArtwork = /^\/(?:src\/assets\/images|assets)\/[A-Za-z0-9 _-]+\.(?:jpe?g|png|webp|gif|svg)$/i.test(value);
+      if (driveId) {
+        // Keep Drive IDs canonical in the database; the UI chooses a fast CDN or
+        // authenticated same-origin route depending on which image request works.
+        updates.coverUrl = 'https://lh3.googleusercontent.com/d/' + driveId;
+      } else if (isLocalArtwork) {
+        updates.coverUrl = value;
+      } else if (value === String(existingSong.coverUrl || '')) {
+        // Do not block metadata-only edits on older songs with legacy artwork URLs.
+        delete updates.coverUrl;
+      } else {
+        let externalImageIsValid = false;
+        try {
+          const parsed = new URL(value);
+          externalImageIsValid = parsed.protocol === 'https:' && !parsed.username && !parsed.password;
+        } catch {}
+        if (externalImageIsValid) updates.coverUrl = value;
+        else return res.status(400).json({ success: false, error: 'Choose a Google Drive image, an HTTPS image URL, or one of the built-in YouSong covers.' });
       }
-      // Store a stable canonical Drive image URL. Display sizing is added by MediaCover.
-      updates.coverUrl = 'https://lh3.googleusercontent.com/d/' + match[1];
     }
 
     const updated = await updateSongDb(id, updates);
@@ -1791,7 +1815,9 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       enabled: Boolean(body.enabled),
       stationName: String(body.stationName || existing.stationName || 'YouSong Radio').trim().slice(0, 80) || 'YouSong Radio',
       stationDescription: String(body.stationDescription || '').trim().slice(0, 240),
-      currentProgram,
+      // A schedule-only save must not silently replace the live queue with
+      // the possibly stale playlist currently shown in the admin form.
+      currentProgram: startNow ? currentProgram : existing.currentProgram,
       startedAt: startNow ? new Date(sharedNowMs).toISOString() : existing.startedAt,
       nextProgram,
       autoStartScheduled: body.autoStartScheduled !== false,
@@ -1890,6 +1916,61 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
         config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
       }
+    } else if (action === 'reorder-queue') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'Start the broadcast before rearranging its live queue.' });
+      const state = await resolveRadioState();
+      if (!state.currentSong) return res.status(409).json({ success: false, error: 'There is no current song to anchor the queue reorder.' });
+
+      // Re-read after resolveRadioState because it may have promoted a schedule or
+      // recorded a natural track transition while this request was in flight.
+      const latestConfig = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || config;
+      Object.assign(config, latestConfig);
+
+      const playlist = Array.isArray(state.playlist) ? state.playlist : [];
+      const currentIndex = Number(state.currentIndex);
+      const currentConfigIds = Array.isArray(config.currentProgram?.songIds) ? config.currentProgram.songIds.map(String) : [];
+      const resolvedQueueIds = playlist.map((song: any) => String(song.id));
+      if (
+        currentIndex < 0 ||
+        !playlist[currentIndex] ||
+        String(playlist[currentIndex].id) !== String(state.currentSong.id) ||
+        currentConfigIds.length !== resolvedQueueIds.length ||
+        currentConfigIds.some((id: string, index: number) => id !== resolvedQueueIds[index])
+      ) {
+        return res.status(409).json({ success: false, error: 'The live queue changed while you were editing it. Refresh the radio control room and try again.' });
+      }
+      const existingUpcoming = playlist.slice(currentIndex + 1).map((song: any) => String(song.id));
+      const requestedUpcoming = Array.isArray(req.body?.songIds)
+        ? req.body.songIds.map((id: unknown) => String(id))
+        : [];
+      const uniqueRequested = new Set(requestedUpcoming);
+      if (
+        requestedUpcoming.length !== existingUpcoming.length ||
+        uniqueRequested.size !== requestedUpcoming.length ||
+        requestedUpcoming.some((id: string) => !existingUpcoming.includes(id))
+      ) {
+        return res.status(400).json({ success: false, error: 'Queue order must contain each upcoming song exactly once. Refresh the queue and retry.' });
+      }
+
+      const playedAndCurrent = playlist.slice(0, currentIndex + 1).map((song: any) => String(song.id));
+      config.currentProgram = {
+        ...config.currentProgram,
+        songIds: [...playedAndCurrent, ...requestedUpcoming],
+      };
+
+      // Keep the current track and its exact playhead untouched. Only the songs
+      // after it move; the re-anchored start time preserves the same server clock.
+      const elapsedBeforeCurrent = playlist.slice(0, currentIndex).reduce(
+        (sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180),
+        0,
+      );
+      const programOffset = elapsedBeforeCurrent + Number(state.elapsedSeconds || 0);
+      const stateNowMs = Date.parse(state.serverNow || '');
+      const anchor = config.pausedAt
+        ? new Date(config.pausedAt).getTime()
+        : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
+      const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
+      config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
     } else if (action === 'toggle-loop') {
       config.loopPlaylist = !config.loopPlaylist;
     } else {
@@ -2429,6 +2510,63 @@ async function getDriveAccessToken(): Promise<string> {
   return accessToken;
 }
 
+// Only artwork already registered on a song may be made link-readable by
+// this public thumbnail route. This prevents a member from turning an arbitrary
+// Drive file ID into a public file just by requesting the image endpoint.
+const songArtworkPermissionChecks = new Map<string, { isSongCover: boolean; expiresAt: number }>();
+async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
+  const cached = songArtworkPermissionChecks.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) return cached.isSongCover;
+  const songs = await getSongsPersistentDb();
+  const isSongCover = songs.some((song: any) => extractDriveFileId(String(song.coverUrl || '')) === fileId);
+  songArtworkPermissionChecks.set(fileId, { isSongCover, expiresAt: Date.now() + 60_000 });
+  if (songArtworkPermissionChecks.size > 1000) {
+    for (const [id, item] of songArtworkPermissionChecks) {
+      if (item.expiresAt <= Date.now()) songArtworkPermissionChecks.delete(id);
+    }
+  }
+  return isSongCover;
+}
+
+// Album artwork is shown to every listener who can see its song, so make
+// the linked Drive image readable by link as part of serving its thumbnail.
+// This also repairs older library covers that were selected from Drive folders
+// before the uploader consistently granted reader access.
+async function ensureDriveArtworkLinkReadable(fileId: string, accessToken: string): Promise<boolean> {
+  const permissionsUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions');
+  permissionsUrl.searchParams.set('fields', 'permissions(id,type,role)');
+  permissionsUrl.searchParams.set('supportsAllDrives', 'true');
+  const listResponse = await fetch(permissionsUrl, {
+    headers: { Authorization: 'Bearer ' + accessToken },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (listResponse.ok) {
+    const data: any = await listResponse.json().catch(() => ({}));
+    const alreadyReadable = (Array.isArray(data.permissions) ? data.permissions : []).some((permission: any) =>
+      permission?.type === 'anyone' && ['reader', 'writer', 'owner'].includes(String(permission.role || '').toLowerCase())
+    );
+    if (alreadyReadable) return true;
+  } else {
+    const detail = (await listResponse.text().catch(() => '')).slice(0, 220);
+    console.warn('[DriveArtwork] Could not inspect existing image permissions:', listResponse.status, detail);
+  }
+
+  const createUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions');
+  createUrl.searchParams.set('supportsAllDrives', 'true');
+  const createResponse = await fetch(createUrl, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!createResponse.ok) {
+    const detail = (await createResponse.text().catch(() => '')).slice(0, 300);
+    console.warn('[DriveArtwork] Could not enable link viewing for a saved song cover:', createResponse.status, detail);
+    return false;
+  }
+  return true;
+}
+
 // Stream private Google Drive artwork through the site's connected account.
 // The browser never depends on Drive's public thumbnail CDN or link-sharing settings.
 app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
@@ -2438,7 +2576,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
   try {
     const accessToken = await getDriveAccessToken();
     const metadataResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed&supportsAllDrives=true',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed,thumbnailLink&supportsAllDrives=true',
       { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) },
     );
     if (!metadataResponse.ok) {
@@ -2452,33 +2590,67 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
     const mimeType = String(metadata.mimeType || '').toLowerCase();
     const size = Number(metadata.size || 0);
+    if (metadata.trashed) return res.status(404).send('This artwork file has been deleted from Google Drive.');
     if (!allowedImageTypes.has(mimeType)) return res.status(415).send('The selected Google Drive file is not a supported image.');
     if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
 
-    const imageResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
-      { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
-    );
-    if (!imageResponse.ok || !imageResponse.body) {
-      console.warn('[DriveArtwork] Download failed:', imageResponse.status);
-      return res.status(502).send('Google Drive could not stream this artwork.');
+    // The public CDN is the cheapest and most reliable browser path. Repair
+    // legacy permissions only for artwork already attached to a library song.
+    if (await isRegisteredSongArtwork(fileId)) {
+      await ensureDriveArtworkLinkReadable(fileId, accessToken);
     }
 
-    const responseLength = Number(imageResponse.headers.get('content-length') || size || 0);
+    // Drive thumbnailLink values are short-lived. Fetch them server-side instead
+    // of exposing an expiring URL to browsers, then fall back to the original bytes.
+    let imageResponse: Awaited<ReturnType<typeof fetch>> | null = null;
+    const thumbnailLink = String(metadata.thumbnailLink || '');
+    if (thumbnailLink) {
+      try {
+        const candidate = await fetch(thumbnailLink, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (candidate.ok && candidate.body && String(candidate.headers.get('content-type') || '').toLowerCase().startsWith('image/')) {
+          imageResponse = candidate;
+        } else {
+          await candidate.body?.cancel().catch(() => undefined);
+        }
+      } catch (thumbnailError: any) {
+        console.warn('[DriveArtwork] Generated thumbnail unavailable; trying original file:', thumbnailError?.message || thumbnailError);
+      }
+    }
+    if (!imageResponse) {
+      const originalResponse = await fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
+        { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
+      );
+      if (!originalResponse.ok || !originalResponse.body) {
+        const detail = (await originalResponse.text().catch(() => '')).slice(0, 250);
+        console.warn('[DriveArtwork] Original download failed:', originalResponse.status, detail);
+        return res.status(502).send('Google Drive could not stream this artwork. Check the site\'s access to this image file.');
+      }
+      imageResponse = originalResponse;
+    }
+
+    const imageBody = imageResponse.body;
+    if (!imageBody) return res.status(502).send('Google Drive returned an empty artwork response.');
+    const responseLength = Number(imageResponse.headers.get('content-length') || 0);
     if (responseLength > 25 * 1024 * 1024) {
-      await imageResponse.body.cancel().catch(() => undefined);
+      await imageBody.cancel().catch(() => undefined);
       return res.status(413).send('Artwork exceeds the 25 MB image limit.');
     }
     res.status(200);
-    res.setHeader('Content-Type', mimeType);
+    const returnedContentType = String(imageResponse.headers.get('content-type') || '').toLowerCase();
+    res.setHeader('Content-Type', returnedContentType.startsWith('image/') ? returnedContentType : mimeType);
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
     if (responseLength > 0) res.setHeader('Content-Length', String(responseLength));
     const etag = imageResponse.headers.get('etag');
     if (etag) res.setHeader('ETag', etag);
 
-    const imageStream = (await import('stream')).Readable.fromWeb(imageResponse.body as any);
+    const imageStream = (await import('stream')).Readable.fromWeb(imageBody as any);
     imageStream.on('error', (error) => {
       console.error('[DriveArtwork] Stream error:', error);
       if (!res.headersSent) res.status(502).end(); else res.destroy(error);
