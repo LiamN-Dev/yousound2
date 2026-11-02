@@ -397,7 +397,8 @@ function extractDriveFileId(inputUrl: string): string | null {
     if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com', 'lh3.googleusercontent.com'].includes(url.hostname.toLowerCase())) return null;
     const segments = url.pathname.split('/').filter(Boolean);
     const dIndex = segments.indexOf('d');
-    const id = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    const rawId = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    const id = rawId.replace(/(?:=w\d+(?:-h\d+)?|=s\d+)$/i, '');
     return /^[a-zA-Z0-9_-]{10,200}$/.test(id) ? id : null;
   } catch {
     return null;
