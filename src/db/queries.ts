@@ -416,21 +416,71 @@ export async function insertSongDb(songData: {
     throw error;
   }
 }
-export async function updateSongDb(id: string, updates: any) {
-  localStore.updateSong(id, updates);
+const SONG_EDITABLE_COLUMNS = new Set([
+  'title', 'artist', 'mediaCode', 'album', 'genre', 'tags', 'typeMood',
+  'duration', 'durationExact', 'plays', 'featured', 'description',
+  'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
+  'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate',
+  'autoReleaseOnDrop', 'hiddenFrom', 'isSpotlight', 'spotlightOrder',
+  'spotlightNote', 'dailyPlays', 'dailyPlaysResetDate', 'weeklyPlays',
+  'weeklyPlaysResetDate', 'isScheduledForDeletion', 'scheduledDeletionAt',
+  'lastPlayedAt',
+]);
+
+function normalizeSongUpdate(input: Record<string, any>) {
+  const updates: Record<string, any> = {};
+  for (const [rawKey, value] of Object.entries(input || {})) {
+    if (value === undefined) continue;
+    const key = rawKey === 'badgeCustomText' ? 'badgeMessage' : rawKey;
+    if (!SONG_EDITABLE_COLUMNS.has(key)) continue;
+    if (['tags', 'hiddenFrom'].includes(key)) {
+      if (value === null && key === 'hiddenFrom') updates[key] = [];
+      else if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        throw new Error(key + ' must be a list of text values.');
+      } else updates[key] = value.map((item: string) => item.trim()).filter(Boolean);
+    } else if (['duration', 'plays', 'dailyPlays', 'weeklyPlays', 'spotlightOrder'].includes(key)) {
+      if (!Number.isFinite(Number(value)) || Number(value) < 0) throw new Error(key + ' must be a non-negative number.');
+      updates[key] = Math.floor(Number(value));
+    } else if (key === 'durationExact') {
+      if (value === null) updates[key] = null;
+      else if (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 43200) throw new Error('durationExact must be between 0 and 43,200 seconds.');
+      else updates[key] = Number(value);
+    } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
+      if (typeof value !== 'boolean') throw new Error(key + ' must be true or false.');
+      updates[key] = value;
+    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode'].includes(key)) {
+      if (value === null || value === '') updates[key] = null;
+      else if (typeof value !== 'string') throw new Error(key + ' must be text.');
+      else updates[key] = value.trim();
+    } else if (key === 'title' || key === 'artist' || key === 'genre' || key === 'badgeType') {
+      if (typeof value !== 'string' || (['title', 'artist', 'genre'].includes(key) && !value.trim())) {
+        throw new Error(key + ' must be non-empty text.');
+      }
+      updates[key] = value.trim();
+    }
+  }
+  return updates;
+}
+
+export async function updateSongDb(id: string, updates: Record<string, any>) {
   if (!(await checkSqlAvailability())) {
-    return localStore.updateSong(id, updates);
+    throw new Error('The persistent database is unavailable. The song was not changed.');
+  }
+  const cleanUpdates = normalizeSongUpdate(updates);
+  if (Object.keys(cleanUpdates).length === 0) {
+    throw new Error('No valid song fields were supplied to update.');
   }
   try {
-    const updated = await db
-      .update(songs)
-      .set(updates)
+    const rows = await db.update(songs)
+      .set(cleanUpdates)
       .where(eq(songs.id, id))
       .returning();
-    return updated[0] || localStore.updateSong(id, updates);
+    if (!rows[0]) throw new Error('Song not found. Refresh the library and try again.');
+    localStore.updateSong(id, rows[0]);
+    return rows[0];
   } catch (error) {
     noteDbError('updateSongDb', error);
-    return localStore.updateSong(id, updates);
+    throw error instanceof Error ? error : new Error('The database rejected the song update.');
   }
 }
 
@@ -440,11 +490,11 @@ export async function bulkUpdateSongsDb(
   tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
 ) {
   const allowedColumns = new Set([
-    'title', 'artist', 'album', 'genre', 'typeMood', 'duration',
-    'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
+    'title', 'artist', 'mediaCode', 'album', 'genre', 'typeMood', 'duration', 'durationExact', 'plays',
+    'dailyPlays', 'weeklyPlays', 'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
     'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'autoReleaseOnDrop',
     'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
-    'isScheduledForDeletion', 'scheduledDeletionAt',
+    'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);
   const cleanUpdates: Record<string, any> = {};
   for (const [key, value] of Object.entries(updates || {})) {
