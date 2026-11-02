@@ -65,15 +65,16 @@ export function formatCoverMediaUrl(url?: string | null): string {
     return trimmed;
   }
 
-  // Album artwork is intentionally link-viewable in Drive. Load from Google's
-  // image CDN first so thumbnails do not consume the Render server's media bandwidth;
-  // MediaCover falls back to the authenticated same-origin route if that URL fails.
+  // Drive thumbnails should use the site's authenticated Drive proxy first.
+  // This works for older/private library artwork too and does not depend on
+  // Google's public image CDN or "Anyone with the link" sharing being enabled.
+  // MediaCover keeps the public CDN as a fallback if the proxy is unavailable.
   const driveId = extractDriveFileId(trimmed);
   if (driveId) {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${encodeURIComponent(driveId)}`;
     }
-    return `https://lh3.googleusercontent.com/d/${encodeURIComponent(driveId)}=w1200`;
+    return `/api/drive/cover/${encodeURIComponent(driveId)}`;
   }
 
   return trimmed;
