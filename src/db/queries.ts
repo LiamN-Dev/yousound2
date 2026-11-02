@@ -418,7 +418,7 @@ export async function insertSongDb(songData: {
   }
 }
 const SONG_EDITABLE_COLUMNS = new Set([
-  'title', 'artist', 'mediaCode', 'album', 'genre', 'tags', 'typeMood',
+  'title', 'artist', 'mediaCode', 'album', 'genre', 'tags', 'typeMood', 'audioUrl', 'coverUrl',
   'duration', 'durationExact', 'plays', 'featured', 'description',
   'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
   'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate',
@@ -449,7 +449,7 @@ function normalizeSongUpdate(input: Record<string, any>) {
     } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
       if (typeof value !== 'boolean') throw new Error(key + ' must be true or false.');
       updates[key] = value;
-    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode'].includes(key)) {
+    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode', 'audioUrl', 'coverUrl'].includes(key)) {
       if (value === null || value === '') updates[key] = null;
       else if (typeof value !== 'string') throw new Error(key + ' must be text.');
       else updates[key] = value.trim();
