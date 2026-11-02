@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { isVideoMedia, formatCoverMediaUrl, extractDriveFileId } from '../utils/mediaUrl';
 import { handleImageFallback } from '../utils/artworkHelper';
 import { Music2 } from 'lucide-react';
@@ -22,6 +22,10 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
 }) => {
   const [videoError, setVideoError] = useState(false);
   const formattedUrl = formatCoverMediaUrl(src);
+
+  useEffect(() => {
+    setVideoError(false);
+  }, [formattedUrl]);
   const isVideo = isVideoMedia(formattedUrl) && !videoError;
 
   if (isVideo && formattedUrl) {
@@ -48,6 +52,7 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
   return (
     <div className="relative w-full h-full overflow-hidden">
       <img
+        key={formattedUrl}
         src={formattedUrl || '/src/assets/images/lofi_study_glass_1791054585559.jpg'}
         alt={alt}
         className={className}
