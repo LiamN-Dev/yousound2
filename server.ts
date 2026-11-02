@@ -2508,7 +2508,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
   try {
     const accessToken = await getDriveAccessToken();
     const metadataResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed&supportsAllDrives=true',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed,thumbnailLink&supportsAllDrives=true',
       { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) },
     );
     if (!metadataResponse.ok) {
@@ -2522,16 +2522,41 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
     const mimeType = String(metadata.mimeType || '').toLowerCase();
     const size = Number(metadata.size || 0);
+    if (metadata.trashed) return res.status(404).send('This artwork file has been deleted from Google Drive.');
     if (!allowedImageTypes.has(mimeType)) return res.status(415).send('The selected Google Drive file is not a supported image.');
     if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
 
-    const imageResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
-      { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
-    );
-    if (!imageResponse.ok || !imageResponse.body) {
-      console.warn('[DriveArtwork] Download failed:', imageResponse.status);
-      return res.status(502).send('Google Drive could not stream this artwork.');
+    // Drive thumbnailLink values are short-lived. Fetch them server-side instead
+    // of exposing an expiring URL to browsers, then fall back to the original bytes.
+    let imageResponse: Response | null = null;
+    const thumbnailLink = String(metadata.thumbnailLink || '');
+    if (thumbnailLink) {
+      try {
+        const candidate = await fetch(thumbnailLink, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (candidate.ok && candidate.body && String(candidate.headers.get('content-type') || '').toLowerCase().startsWith('image/')) {
+          imageResponse = candidate;
+        } else {
+          await candidate.body?.cancel().catch(() => undefined);
+        }
+      } catch (thumbnailError: any) {
+        console.warn('[DriveArtwork] Generated thumbnail unavailable; trying original file:', thumbnailError?.message || thumbnailError);
+      }
+    }
+    if (!imageResponse) {
+      const originalResponse = await fetch(
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
+        { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
+      );
+      if (!originalResponse.ok || !originalResponse.body) {
+        const detail = (await originalResponse.text().catch(() => '')).slice(0, 250);
+        console.warn('[DriveArtwork] Original download failed:', originalResponse.status, detail);
+        return res.status(502).send('Google Drive could not stream this artwork. Check the site\'s access to this image file.');
+      }
+      imageResponse = originalResponse;
     }
 
     const responseLength = Number(imageResponse.headers.get('content-length') || size || 0);
@@ -2540,10 +2565,11 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
       return res.status(413).send('Artwork exceeds the 25 MB image limit.');
     }
     res.status(200);
-    res.setHeader('Content-Type', mimeType);
+    const returnedContentType = String(imageResponse.headers.get('content-type') || '').toLowerCase();
+    res.setHeader('Content-Type', returnedContentType.startsWith('image/') ? returnedContentType : mimeType);
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
     if (responseLength > 0) res.setHeader('Content-Length', String(responseLength));
     const etag = imageResponse.headers.get('etag');
     if (etag) res.setHeader('ETag', etag);
