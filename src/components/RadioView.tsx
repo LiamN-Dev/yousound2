@@ -108,11 +108,9 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         const rtt = Math.max(0, receivedAt - requestStartedAt);
         const midpoint = (requestStartedAt + receivedAt) / 2;
         const measuredOffset = serverTime - midpoint;
-        clockSamplesRef.current = [...clockSamplesRef.current, { rtt, offset: measuredOffset }]
-          .sort((a, b) => a.rtt - b.rtt)
-          .slice(0, 8);
-        // Keep the lowest-latency samples; their midpoint error bound is the smallest.
-        const best = clockSamplesRef.current[0];
+        clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+        // Keep a rolling window, then choose the lowest-latency sample within it.
+        const best = [...clockSamplesRef.current].sort((a, b) => a.rtt - b.rtt)[0];
         const previousOffset = serverClockOffsetRef.current;
         const nextOffset = previousOffset === null
           ? best.offset
@@ -182,7 +180,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
   useEffect(() => {
     if (!active) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    const timer = window.setInterval(() => setClock(serverClockOffsetRef.current === null ? Date.now() : performance.now() + serverClockOffsetRef.current), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
 
@@ -307,11 +305,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     const snapshotTime = Number.isFinite(snapshotServerTime) ? snapshotServerTime : estimatedServerNow;
     const currentAge = Math.max(0, (estimatedServerNow - snapshotTime) / 1000) * rate;
     const elapsedAtSync = station.elapsedSeconds + currentAge + Math.max(0, (syncAtServerMs - estimatedServerNow) / 1000) * rate;
-    const syncAtLocalEpochMs = syncAtServerMs - offset;
+    const syncAtLocalPerfMs = syncAtServerMs - offset;
 
     setSyncing(true);
     previousStationClockRef.current = { songId: station.currentSong.id, paused: false, syncRevision: Number(station.syncRevision) || 0 };
-    void joinRadioPlayback(station.currentSong, elapsedAtSync, false, rate, syncAtLocalEpochMs)
+    void joinRadioPlayback(station.currentSong, elapsedAtSync, false, rate, syncAtLocalPerfMs)
       .catch((error: any) => setError(error?.message || 'Radio could not synchronize.'))
       .finally(() => setSyncing(false));
   };
@@ -351,7 +349,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (!nextName.trim() || !nextIds.length || !date || !Number.isFinite(date.getTime())) {
         setAdminNote('To schedule the next program, enter its name, choose its songs, and set a start time.'); return;
       }
-      if (date.getTime() <= Date.now()) { setAdminNote('The next program must start in the future.'); return; }
+      const estimatedServerNow = serverClockOffsetRef.current === null ? Date.now() : performance.now() + serverClockOffsetRef.current;
+      if (date.getTime() <= estimatedServerNow) { setAdminNote('The next program must start in the future.'); return; }
       scheduled = { name: nextName.trim(), description: nextDescription.trim(), songIds: nextIds, startsAt: date.toISOString() };
     }
     setSaving(true);
@@ -397,10 +396,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
           const rtt = Math.max(0, receivedAt - requestStartedAt);
           const measuredOffset = confirmedServerTime - (requestStartedAt + receivedAt) / 2;
-          clockSamplesRef.current = [...clockSamplesRef.current, { rtt, offset: measuredOffset }]
-            .sort((a, b) => a.rtt - b.rtt)
-            .slice(0, 8);
-          const best = clockSamplesRef.current[0];
+          clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+          const best = [...clockSamplesRef.current].sort((a, b) => a.rtt - b.rtt)[0];
           const previousOffset = serverClockOffsetRef.current;
           const nextOffset = previousOffset === null
             ? best.offset
