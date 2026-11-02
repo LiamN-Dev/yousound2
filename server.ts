@@ -2694,6 +2694,50 @@ async function readDriveArtworkBody(response: DriveArtworkFetchResponse): Promis
   return Buffer.concat(chunks, totalBytes);
 }
 
+const DRIVE_ARTWORK_DB_CACHE_PREFIX = 'yousong-drive-artwork-v1:';
+
+async function readPersistentDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry | null> {
+  try {
+    // This media_files record is shared by every Render instance through PostgreSQL.
+    const stored = await getMediaFileDb(DRIVE_ARTWORK_DB_CACHE_PREFIX + fileId);
+    if (!stored?.data) return null;
+    const mimeType = String(stored.mimeType || '').split(';')[0].trim().toLowerCase();
+    if (!DRIVE_ARTWORK_ALLOWED_TYPES.has(mimeType)) return null;
+    if (Number(stored.size || 0) > DRIVE_ARTWORK_MAX_FILE_BYTES) return null;
+
+    const buffer = Buffer.from(String(stored.data), 'base64');
+    if (!buffer.length || buffer.length > DRIVE_ARTWORK_MAX_FILE_BYTES) return null;
+    const etag = '"' + createHash('sha256').update(buffer).digest('base64url') + '"';
+    return {
+      buffer,
+      mimeType,
+      etag,
+      expiresAt: Date.now() + DRIVE_ARTWORK_CACHE_TTL_MS,
+    };
+  } catch (error) {
+    // The shared cache is an optimization. A temporary DB read issue should not
+    // prevent a legitimate song cover from loading directly from Drive.
+    console.warn('[DriveArtwork] Shared artwork cache read failed:', error);
+    return null;
+  }
+}
+
+async function writePersistentDriveArtwork(fileId: string, entry: DriveArtworkCacheEntry): Promise<void> {
+  try {
+    // saveMediaFileDb performs an upsert, so multiple Render instances warming
+    // the same image converge on one shared cache record.
+    await saveMediaFileDb(
+      DRIVE_ARTWORK_DB_CACHE_PREFIX + fileId,
+      entry.buffer.toString('base64'),
+      entry.mimeType,
+      entry.buffer.length,
+    );
+  } catch (error) {
+    // Keep the in-process cache usable even when the shared DB is temporarily down.
+    console.warn('[DriveArtwork] Shared artwork cache write failed:', error);
+  }
+}
+
 async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry> {
   const cached = driveArtworkCache.get(fileId);
   if (cached && cached.expiresAt > Date.now()) {
@@ -2711,9 +2755,15 @@ async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry>
   if (existingLoad) return existingLoad;
 
   const loadPromise = withDriveArtworkSlot(async () => {
+    // First use the shared PostgreSQL cache. This is essential when Render sends
+    // the admin and listeners to different instances with separate RAM caches.
+    const sharedEntry = await readPersistentDriveArtwork(fileId);
+    if (sharedEntry) {
+      cacheDriveArtwork(fileId, sharedEntry);
+      return sharedEntry;
+    }
+
     const accessToken = await getDriveAccessToken();
-    // Fetch the original image once. Do not call Drive metadata/permissions APIs
-    // or use short-lived thumbnailLink URLs for every browser image request.
     const mediaUrl = 'https://www.googleapis.com/drive/v3/files/'
       + encodeURIComponent(fileId)
       + '?alt=media&supportsAllDrives=true';
@@ -2738,6 +2788,9 @@ async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry>
       etag,
       expiresAt: Date.now() + DRIVE_ARTWORK_CACHE_TTL_MS,
     };
+
+    // Persist before replying, so the next request can be served by any instance.
+    await writePersistentDriveArtwork(fileId, entry);
     cacheDriveArtwork(fileId, entry);
     return entry;
   });
