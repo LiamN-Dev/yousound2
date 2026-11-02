@@ -2637,10 +2637,12 @@ function cacheDriveArtwork(fileId: string, entry: DriveArtworkCacheEntry): void 
   }
 }
 
-async function fetchDriveArtworkWithRetry(url: string, accessToken: string): Promise<Response> {
+type DriveArtworkFetchResponse = Awaited<ReturnType<typeof fetch>>;
+
+async function fetchDriveArtworkWithRetry(url: string, accessToken: string): Promise<DriveArtworkFetchResponse> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    let response: Response;
+    let response: DriveArtworkFetchResponse;
     try {
       response = await fetch(url, {
         headers: { Authorization: 'Bearer ' + accessToken },
@@ -2668,7 +2670,7 @@ async function fetchDriveArtworkWithRetry(url: string, accessToken: string): Pro
   throw lastError instanceof Error ? lastError : new Error('Google Drive artwork download failed.');
 }
 
-async function readDriveArtworkBody(response: Response): Promise<Buffer> {
+async function readDriveArtworkBody(response: DriveArtworkFetchResponse): Promise<Buffer> {
   if (!response.body) throw new Error('Google Drive returned an empty artwork response.');
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
