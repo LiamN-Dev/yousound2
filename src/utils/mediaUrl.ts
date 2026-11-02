@@ -65,14 +65,15 @@ export function formatCoverMediaUrl(url?: string | null): string {
     return trimmed;
   }
 
-  // Serve Google Drive artwork through the site's authenticated account. This
-  // avoids relying on public thumbnail CDN behavior and link-sharing propagation.
+  // Album artwork is intentionally link-viewable in Drive. Load from Google's
+  // image CDN first so thumbnails do not consume the Render server's media bandwidth;
+  // MediaCover falls back to the authenticated same-origin route if that URL fails.
   const driveId = extractDriveFileId(trimmed);
   if (driveId) {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${encodeURIComponent(driveId)}`;
     }
-    return `/api/drive/cover/${encodeURIComponent(driveId)}`;
+    return `https://lh3.googleusercontent.com/d/${encodeURIComponent(driveId)}=w1200`;
   }
 
   return trimmed;
