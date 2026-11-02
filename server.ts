@@ -2516,34 +2516,49 @@ function signDriveState(payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }
 let cachedDriveAccessToken: { token: string; expiresAt: number } | null = null;
+let driveAccessTokenRefresh: Promise<string> | null = null;
 
 async function getDriveAccessToken(): Promise<string> {
   if (!driveClientId() || !driveClientSecret()) throw new Error('Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Render.');
   if (cachedDriveAccessToken && cachedDriveAccessToken.expiresAt > Date.now() + 60_000) {
     return cachedDriveAccessToken.token;
   }
-  const encrypted = await getPersistentSettingDb<string>(DRIVE_TOKEN_SETTING);
-  if (!encrypted) throw new Error('The site Google Drive account is not connected yet. Connect it once in Admin → Requests.');
+  // Several artwork downloads can start together after a deploy or token expiry.
+  // Refresh once per process rather than racing multiple OAuth refresh requests.
+  if (driveAccessTokenRefresh) return driveAccessTokenRefresh;
 
-  let refreshToken: string;
-  try { refreshToken = decryptDriveToken(encrypted); }
-  catch { throw new Error('The saved Google Drive credential cannot be decrypted. Restore the original, unchanged DRIVE_TOKEN_ENCRYPTION_KEY in Render; reconnect only if that key was lost.'); }
+  const refreshPromise = (async () => {
+    const encrypted = await getPersistentSettingDb<string>(DRIVE_TOKEN_SETTING);
+    if (!encrypted) throw new Error('The site Google Drive account is not connected yet. Connect it once in Admin → Requests.');
 
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: driveClientId(), client_secret: driveClientSecret(), refresh_token: refreshToken, grant_type: 'refresh_token' }),
-  });
-  const tokenData: any = await tokenRes.json().catch(() => ({}));
-  if (!tokenRes.ok || !tokenData.access_token) {
-    if (tokenData.error === 'invalid_grant') {
-      throw new Error('Google rejected the saved Drive refresh token (invalid_grant). If Google Auth Platform → Audience is still set to Testing, switch Publishing status to In production, then reconnect the site Drive account once. Also confirm the token was not revoked and DRIVE_TOKEN_ENCRYPTION_KEY has not changed.');
+    let refreshToken: string;
+    try { refreshToken = decryptDriveToken(encrypted); }
+    catch { throw new Error('The saved Google Drive credential cannot be decrypted. Restore the original, unchanged DRIVE_TOKEN_ENCRYPTION_KEY in Render; reconnect only if that key was lost.'); }
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: driveClientId(), client_secret: driveClientSecret(), refresh_token: refreshToken, grant_type: 'refresh_token' }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const tokenData: any = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokenData.access_token) {
+      if (tokenData.error === 'invalid_grant') {
+        throw new Error('Google rejected the saved Drive refresh token (invalid_grant). If Google Auth Platform → Audience is still set to Testing, switch Publishing status to In production, then reconnect the site Drive account once. Also confirm the token was not revoked and DRIVE_TOKEN_ENCRYPTION_KEY has not changed.');
+      }
+      throw new Error('Google Drive could not refresh its access token (' + tokenRes.status + (tokenData.error ? ': ' + tokenData.error : '') + '). Check Render logs; reconnect only if Google has actually revoked or expired the refresh token.');
     }
-    throw new Error(`Google Drive could not refresh its access token (${tokenRes.status}${tokenData.error ? `: ${tokenData.error}` : ''}). Check Render logs; reconnect only if Google has actually revoked or expired the refresh token.`);
+    const accessToken = String(tokenData.access_token);
+    const expiresInSeconds = Math.max(60, Number(tokenData.expires_in) || 3600);
+    cachedDriveAccessToken = { token: accessToken, expiresAt: Date.now() + expiresInSeconds * 1000 };
+    return accessToken;
+  })();
+
+  driveAccessTokenRefresh = refreshPromise;
+  try {
+    return await refreshPromise;
+  } finally {
+    if (driveAccessTokenRefresh === refreshPromise) driveAccessTokenRefresh = null;
   }
-  const accessToken = String(tokenData.access_token);
-  const expiresInSeconds = Math.max(60, Number(tokenData.expires_in) || 3600);
-  cachedDriveAccessToken = { token: accessToken, expiresAt: Date.now() + expiresInSeconds * 1000 };
-  return accessToken;
 }
 
 // Only artwork already registered on a library song can be requested through this route.
@@ -2556,7 +2571,8 @@ async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
     return registeredSongArtworkIds.has(fileId);
   }
   if (!registeredSongArtworkIdsLoad) {
-    registeredSongArtworkIdsLoad = getSongsPersistentDb().then((songs) => {
+    // Match the same catalogue source used by GET /api/songs, including its local fallback during a DB outage.
+    registeredSongArtworkIdsLoad = getSongsDb().then((songs) => {
       const ids = new Set<string>();
       for (const song of songs as any[]) {
         const id = extractDriveFileId(String(song.coverUrl || ''));
@@ -2694,6 +2710,50 @@ async function readDriveArtworkBody(response: DriveArtworkFetchResponse): Promis
   return Buffer.concat(chunks, totalBytes);
 }
 
+const DRIVE_ARTWORK_DB_CACHE_PREFIX = 'yousong-drive-artwork-v1:';
+
+async function readPersistentDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry | null> {
+  try {
+    // This media_files record is shared by every Render instance through PostgreSQL.
+    const stored = await getMediaFileDb(DRIVE_ARTWORK_DB_CACHE_PREFIX + fileId);
+    if (!stored?.data) return null;
+    const mimeType = String(stored.mimeType || '').split(';')[0].trim().toLowerCase();
+    if (!DRIVE_ARTWORK_ALLOWED_TYPES.has(mimeType)) return null;
+    if (Number(stored.size || 0) > DRIVE_ARTWORK_MAX_FILE_BYTES) return null;
+
+    const buffer = Buffer.from(String(stored.data), 'base64');
+    if (!buffer.length || buffer.length > DRIVE_ARTWORK_MAX_FILE_BYTES) return null;
+    const etag = '"' + createHash('sha256').update(buffer).digest('base64url') + '"';
+    return {
+      buffer,
+      mimeType,
+      etag,
+      expiresAt: Date.now() + DRIVE_ARTWORK_CACHE_TTL_MS,
+    };
+  } catch (error) {
+    // The shared cache is an optimization. A temporary DB read issue should not
+    // prevent a legitimate song cover from loading directly from Drive.
+    console.warn('[DriveArtwork] Shared artwork cache read failed:', error);
+    return null;
+  }
+}
+
+async function writePersistentDriveArtwork(fileId: string, entry: DriveArtworkCacheEntry): Promise<void> {
+  try {
+    // saveMediaFileDb performs an upsert, so multiple Render instances warming
+    // the same image converge on one shared cache record.
+    await saveMediaFileDb(
+      DRIVE_ARTWORK_DB_CACHE_PREFIX + fileId,
+      entry.buffer.toString('base64'),
+      entry.mimeType,
+      entry.buffer.length,
+    );
+  } catch (error) {
+    // Keep the in-process cache usable even when the shared DB is temporarily down.
+    console.warn('[DriveArtwork] Shared artwork cache write failed:', error);
+  }
+}
+
 async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry> {
   const cached = driveArtworkCache.get(fileId);
   if (cached && cached.expiresAt > Date.now()) {
@@ -2711,9 +2771,15 @@ async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry>
   if (existingLoad) return existingLoad;
 
   const loadPromise = withDriveArtworkSlot(async () => {
+    // First use the shared PostgreSQL cache. This is essential when Render sends
+    // the admin and listeners to different instances with separate RAM caches.
+    const sharedEntry = await readPersistentDriveArtwork(fileId);
+    if (sharedEntry) {
+      cacheDriveArtwork(fileId, sharedEntry);
+      return sharedEntry;
+    }
+
     const accessToken = await getDriveAccessToken();
-    // Fetch the original image once. Do not call Drive metadata/permissions APIs
-    // or use short-lived thumbnailLink URLs for every browser image request.
     const mediaUrl = 'https://www.googleapis.com/drive/v3/files/'
       + encodeURIComponent(fileId)
       + '?alt=media&supportsAllDrives=true';
@@ -2738,6 +2804,9 @@ async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry>
       etag,
       expiresAt: Date.now() + DRIVE_ARTWORK_CACHE_TTL_MS,
     };
+
+    // Persist before replying, so the next request can be served by any instance.
+    await writePersistentDriveArtwork(fileId, entry);
     cacheDriveArtwork(fileId, entry);
     return entry;
   });
