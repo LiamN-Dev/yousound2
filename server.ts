@@ -1604,7 +1604,7 @@ async function resolveRadioState() {
       nextProgram: null,
       syncRevision: Math.max(0, Number(config.syncRevision) || 0) + 1,
       syncTrackId: null,
-      syncAtServerMs: now + 6000,
+      syncAtServerMs: now + 1000,
     };
     const promoted = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, promotedConfig);
     if (!promoted) return resolveRadioState();
@@ -1658,7 +1658,7 @@ async function resolveRadioState() {
       const nextConfig: RadioConfig = {
         ...config,
         syncTrackId: currentTrackId,
-        syncAtServerMs: now + 6000,
+        syncAtServerMs: now + 1000,
       };
       const saved = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, nextConfig);
       if (!saved) return resolveRadioState();
@@ -1796,7 +1796,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
       syncRevision: startNow ? Math.max(0, Number(existing.syncRevision) || 0) + 1 : Math.max(0, Number(existing.syncRevision) || 0),
       syncTrackId: startNow ? null : (existing.syncTrackId || null),
-      syncAtServerMs: !body.enabled ? null : (startNow ? sharedNowMs + 6000 : (existing.syncAtServerMs ?? null)),
+      syncAtServerMs: !body.enabled ? null : (startNow ? sharedNowMs + 1000 : (existing.syncAtServerMs ?? null)),
     };
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
@@ -1893,7 +1893,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     }
     if (['toggle-pause', 'pause', 'resume', 'seek', 'set-speed', 'next'].includes(action)) {
       config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
-      config.syncAtServerMs = config.enabled && !config.pausedAt ? commandNowMs + 6000 : null;
+      config.syncAtServerMs = config.enabled && !config.pausedAt ? commandNowMs + 1000 : null;
     }
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
