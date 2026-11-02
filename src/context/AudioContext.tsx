@@ -590,7 +590,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // same future server-clock boundary used by every other listener.
         if (playRequest) await playRequest;
         audio.pause();
-        const remainingBeforeStart = Math.max(0, (Number(syncAtLocalPerfMs) - Date.now()) / 1000);
+        const remainingBeforeStart = Math.max(0, (Number(syncAtLocalPerfMs) - performance.now()) / 1000);
         const outputQueueSeconds = getRadioOutputQueueSeconds();
         const positionAtBufferStart = Math.max(0, targetAtSync - remainingBeforeStart * safePlaybackRate + outputQueueSeconds * safePlaybackRate);
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
@@ -599,7 +599,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         audio.playbackRate = safePlaybackRate;
         await audio.play();
 
-        const remainingMs = Math.max(0, Number(syncAtLocalPerfMs) - Date.now());
+        const remainingMs = Math.max(0, Number(syncAtLocalPerfMs) - performance.now());
         const context = audioGraphRef.current;
         const gain = radioGainRef.current;
         if (context && gain && context.state === 'running') {
