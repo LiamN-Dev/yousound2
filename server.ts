@@ -2546,157 +2546,241 @@ async function getDriveAccessToken(): Promise<string> {
   return accessToken;
 }
 
-// Only artwork already registered on a song may be made link-readable by
-// this public thumbnail route. This prevents a member from turning an arbitrary
-// Drive file ID into a public file just by requesting the image endpoint.
-const songArtworkPermissionChecks = new Map<string, { isSongCover: boolean; expiresAt: number }>();
+// Only artwork already registered on a library song can be requested through this route.
+let registeredSongArtworkIds: Set<string> | null = null;
+let registeredSongArtworkIdsExpiresAt = 0;
+let registeredSongArtworkIdsLoad: Promise<Set<string>> | null = null;
+
 async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
-  const cached = songArtworkPermissionChecks.get(fileId);
-  if (cached && cached.expiresAt > Date.now()) return cached.isSongCover;
-  const songs = await getSongsPersistentDb();
-  const isSongCover = songs.some((song: any) => extractDriveFileId(String(song.coverUrl || '')) === fileId);
-  songArtworkPermissionChecks.set(fileId, { isSongCover, expiresAt: Date.now() + 60_000 });
-  if (songArtworkPermissionChecks.size > 1000) {
-    for (const [id, item] of songArtworkPermissionChecks) {
-      if (item.expiresAt <= Date.now()) songArtworkPermissionChecks.delete(id);
+  if (registeredSongArtworkIds && registeredSongArtworkIdsExpiresAt > Date.now()) {
+    return registeredSongArtworkIds.has(fileId);
+  }
+  if (!registeredSongArtworkIdsLoad) {
+    registeredSongArtworkIdsLoad = getSongsPersistentDb().then((songs) => {
+      const ids = new Set<string>();
+      for (const song of songs as any[]) {
+        const id = extractDriveFileId(String(song.coverUrl || ''));
+        if (id) ids.add(id);
+      }
+      registeredSongArtworkIds = ids;
+      registeredSongArtworkIdsExpiresAt = Date.now() + 15_000;
+      return ids;
+    });
+  }
+  const loading = registeredSongArtworkIdsLoad;
+  try {
+    const ids = await loading;
+    return ids.has(fileId);
+  } finally {
+    if (registeredSongArtworkIdsLoad === loading) registeredSongArtworkIdsLoad = null;
+  }
+}
+
+type DriveArtworkCacheEntry = {
+  buffer: Buffer;
+  mimeType: string;
+  etag: string;
+  expiresAt: number;
+};
+
+const DRIVE_ARTWORK_CACHE_TTL_MS = 30 * 60 * 1000;
+const DRIVE_ARTWORK_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+const DRIVE_ARTWORK_CACHE_MAX_ENTRIES = 60;
+const DRIVE_ARTWORK_MAX_FILE_BYTES = 25 * 1024 * 1024;
+const DRIVE_ARTWORK_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const driveArtworkCache = new Map<string, DriveArtworkCacheEntry>();
+const driveArtworkInFlight = new Map<string, Promise<DriveArtworkCacheEntry>>();
+let driveArtworkCacheBytes = 0;
+
+// Keep distinct image downloads below Google's burst limits when a page opens
+// a large catalogue. Duplicate requests for the same file are already coalesced.
+const DRIVE_ARTWORK_MAX_CONCURRENT_LOADS = 4;
+let activeDriveArtworkLoads = 0;
+const waitingDriveArtworkLoads: Array<() => void> = [];
+
+async function withDriveArtworkSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeDriveArtworkLoads >= DRIVE_ARTWORK_MAX_CONCURRENT_LOADS) {
+    await new Promise<void>((resolve) => waitingDriveArtworkLoads.push(resolve));
+  }
+  activeDriveArtworkLoads += 1;
+  try {
+    return await work();
+  } finally {
+    activeDriveArtworkLoads -= 1;
+    const next = waitingDriveArtworkLoads.shift();
+    if (next) next();
+  }
+}
+
+function cacheDriveArtwork(fileId: string, entry: DriveArtworkCacheEntry): void {
+  const previous = driveArtworkCache.get(fileId);
+  if (previous) driveArtworkCacheBytes -= previous.buffer.length;
+  driveArtworkCache.delete(fileId);
+  driveArtworkCache.set(fileId, entry);
+  driveArtworkCacheBytes += entry.buffer.length;
+
+  const now = Date.now();
+  for (const [id, cached] of driveArtworkCache) {
+    if (cached.expiresAt <= now) {
+      driveArtworkCache.delete(id);
+      driveArtworkCacheBytes -= cached.buffer.length;
     }
   }
-  return isSongCover;
+  while (
+    driveArtworkCacheBytes > DRIVE_ARTWORK_CACHE_MAX_BYTES
+    || driveArtworkCache.size > DRIVE_ARTWORK_CACHE_MAX_ENTRIES
+  ) {
+    const oldest = driveArtworkCache.entries().next().value as [string, DriveArtworkCacheEntry] | undefined;
+    if (!oldest) break;
+    driveArtworkCache.delete(oldest[0]);
+    driveArtworkCacheBytes -= oldest[1].buffer.length;
+  }
 }
 
-// Album artwork is shown to every listener who can see its song, so make
-// the linked Drive image readable by link as part of serving its thumbnail.
-// This also repairs older library covers that were selected from Drive folders
-// before the uploader consistently granted reader access.
-async function ensureDriveArtworkLinkReadable(fileId: string, accessToken: string): Promise<boolean> {
-  const permissionsUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions');
-  permissionsUrl.searchParams.set('fields', 'permissions(id,type,role)');
-  permissionsUrl.searchParams.set('supportsAllDrives', 'true');
-  const listResponse = await fetch(permissionsUrl, {
-    headers: { Authorization: 'Bearer ' + accessToken },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (listResponse.ok) {
-    const data: any = await listResponse.json().catch(() => ({}));
-    const alreadyReadable = (Array.isArray(data.permissions) ? data.permissions : []).some((permission: any) =>
-      permission?.type === 'anyone' && ['reader', 'writer', 'owner'].includes(String(permission.role || '').toLowerCase())
-    );
-    if (alreadyReadable) return true;
-  } else {
-    const detail = (await listResponse.text().catch(() => '')).slice(0, 220);
-    console.warn('[DriveArtwork] Could not inspect existing image permissions:', listResponse.status, detail);
-  }
+type DriveArtworkFetchResponse = Awaited<ReturnType<typeof fetch>>;
 
-  const createUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions');
-  createUrl.searchParams.set('supportsAllDrives', 'true');
-  const createResponse = await fetch(createUrl, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!createResponse.ok) {
-    const detail = (await createResponse.text().catch(() => '')).slice(0, 300);
-    console.warn('[DriveArtwork] Could not enable link viewing for a saved song cover:', createResponse.status, detail);
-    return false;
+async function fetchDriveArtworkWithRetry(url: string, accessToken: string): Promise<DriveArtworkFetchResponse> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let response: DriveArtworkFetchResponse;
+    try {
+      response = await fetch(url, {
+        headers: { Authorization: 'Bearer ' + accessToken },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+      continue;
+    }
+
+    if (response.ok && response.body) return response;
+
+    const detail = (await response.text().catch(() => '')).slice(0, 350);
+    const retryable = response.status === 429
+      || response.status >= 500
+      || (response.status === 403 && /rateLimitExceeded|userRateLimitExceeded|sharingRateLimitExceeded/i.test(detail));
+    if (!retryable || attempt === 2) {
+      throw new Error('Google Drive artwork download failed (' + response.status + '): ' + detail);
+    }
+    console.warn('[DriveArtwork] Temporary Drive response; retrying:', response.status, detail);
+    await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
   }
-  return true;
+  throw lastError instanceof Error ? lastError : new Error('Google Drive artwork download failed.');
 }
 
-// Stream private Google Drive artwork through the site's connected account.
-// The browser never depends on Drive's public thumbnail CDN or link-sharing settings.
+async function readDriveArtworkBody(response: DriveArtworkFetchResponse): Promise<Buffer> {
+  if (!response.body) throw new Error('Google Drive returned an empty artwork response.');
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      const chunk = Buffer.from(item.value);
+      totalBytes += chunk.length;
+      if (totalBytes > DRIVE_ARTWORK_MAX_FILE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error('Artwork exceeds the 25 MB image limit.');
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!totalBytes) throw new Error('Google Drive returned an empty artwork response.');
+  return Buffer.concat(chunks, totalBytes);
+}
+
+async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry> {
+  const cached = driveArtworkCache.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) {
+    // Refresh insertion order so frequently used covers stay in the LRU cache.
+    driveArtworkCache.delete(fileId);
+    driveArtworkCache.set(fileId, cached);
+    return cached;
+  }
+  if (cached) {
+    driveArtworkCache.delete(fileId);
+    driveArtworkCacheBytes -= cached.buffer.length;
+  }
+
+  const existingLoad = driveArtworkInFlight.get(fileId);
+  if (existingLoad) return existingLoad;
+
+  const loadPromise = withDriveArtworkSlot(async () => {
+    const accessToken = await getDriveAccessToken();
+    // Fetch the original image once. Do not call Drive metadata/permissions APIs
+    // or use short-lived thumbnailLink URLs for every browser image request.
+    const mediaUrl = 'https://www.googleapis.com/drive/v3/files/'
+      + encodeURIComponent(fileId)
+      + '?alt=media&supportsAllDrives=true';
+    const response = await fetchDriveArtworkWithRetry(mediaUrl, accessToken);
+    const mimeType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!DRIVE_ARTWORK_ALLOWED_TYPES.has(mimeType)) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error('Google Drive returned an unsupported artwork type: ' + (mimeType || 'unknown'));
+    }
+
+    const advertisedLength = Number(response.headers.get('content-length') || 0);
+    if (advertisedLength > DRIVE_ARTWORK_MAX_FILE_BYTES) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error('Artwork exceeds the 25 MB image limit.');
+    }
+
+    const buffer = await readDriveArtworkBody(response);
+    const etag = '"' + createHash('sha256').update(buffer).digest('base64url') + '"';
+    const entry: DriveArtworkCacheEntry = {
+      buffer,
+      mimeType,
+      etag,
+      expiresAt: Date.now() + DRIVE_ARTWORK_CACHE_TTL_MS,
+    };
+    cacheDriveArtwork(fileId, entry);
+    return entry;
+  });
+
+  driveArtworkInFlight.set(fileId, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (driveArtworkInFlight.get(fileId) === loadPromise) driveArtworkInFlight.delete(fileId);
+  }
+}
+
+// Serve the original image bytes through one same-origin endpoint. Multiple
+// listeners requesting the same cover share one Drive download and the result
+// is cached briefly, avoiding bursts of duplicate Drive API calls.
 app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
   const fileId = String(req.params.fileId || '').trim();
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return res.status(400).send('Invalid Google Drive artwork ID.');
 
   try {
-    const accessToken = await getDriveAccessToken();
-    const metadataResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed,thumbnailLink&supportsAllDrives=true',
-      { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) },
-    );
-    if (!metadataResponse.ok) {
-      const detail = (await metadataResponse.text().catch(() => '')).slice(0, 300);
-      const status = metadataResponse.status === 404 || metadataResponse.status === 403 ? 404 : 502;
-      console.warn('[DriveArtwork] Metadata lookup failed:', metadataResponse.status, detail);
-      return res.status(status).send('Artwork is unavailable in the connected Google Drive account.');
+    if (!(await isRegisteredSongArtwork(fileId))) {
+      return res.status(404).send('This image is not registered as YouSong library artwork.');
     }
 
-    const metadata: any = await metadataResponse.json().catch(() => ({}));
-    const allowedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-    const mimeType = String(metadata.mimeType || '').toLowerCase();
-    const size = Number(metadata.size || 0);
-    if (metadata.trashed) return res.status(404).send('This artwork file has been deleted from Google Drive.');
-    if (!allowedImageTypes.has(mimeType)) return res.status(415).send('The selected Google Drive file is not a supported image.');
-    if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
-
-    // The public CDN is the cheapest and most reliable browser path. Repair
-    // legacy permissions only for artwork already attached to a library song.
-    if (await isRegisteredSongArtwork(fileId)) {
-      await ensureDriveArtworkLinkReadable(fileId, accessToken);
-    }
-
-    // Drive thumbnailLink values are short-lived. Fetch them server-side instead
-    // of exposing an expiring URL to browsers, then fall back to the original bytes.
-    let imageResponse: Awaited<ReturnType<typeof fetch>> | null = null;
-    const thumbnailLink = String(metadata.thumbnailLink || '');
-    if (thumbnailLink) {
-      try {
-        const candidate = await fetch(thumbnailLink, {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          redirect: 'follow',
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (candidate.ok && candidate.body && String(candidate.headers.get('content-type') || '').toLowerCase().startsWith('image/')) {
-          imageResponse = candidate;
-        } else {
-          await candidate.body?.cancel().catch(() => undefined);
-        }
-      } catch (thumbnailError: any) {
-        console.warn('[DriveArtwork] Generated thumbnail unavailable; trying original file:', thumbnailError?.message || thumbnailError);
-      }
-    }
-    if (!imageResponse) {
-      const originalResponse = await fetch(
-        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
-        { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
-      );
-      if (!originalResponse.ok || !originalResponse.body) {
-        const detail = (await originalResponse.text().catch(() => '')).slice(0, 250);
-        console.warn('[DriveArtwork] Original download failed:', originalResponse.status, detail);
-        return res.status(502).send('Google Drive could not stream this artwork. Check the site\'s access to this image file.');
-      }
-      imageResponse = originalResponse;
-    }
-
-    const imageBody = imageResponse.body;
-    if (!imageBody) return res.status(502).send('Google Drive returned an empty artwork response.');
-    // Do not forward Google's Content-Length. Fetch may transparently decompress
-    // upstream responses, making the upstream byte count differ from the bytes
-    // actually streamed to the browser. A stale length truncates visible artwork.
-    res.status(200);
-    const returnedContentType = String(imageResponse.headers.get('content-type') || '').toLowerCase();
-    res.setHeader('Content-Type', returnedContentType.startsWith('image/') ? returnedContentType : mimeType);
+    const artwork = await loadDriveArtwork(fileId);
+    const requestEtags = String(req.headers['if-none-match'] || '').split(',').map((value) => value.trim());
+    res.setHeader('ETag', artwork.etag);
+    res.setHeader('Cache-Control', 'private, max-age=1800, stale-while-revalidate=300');
+    res.setHeader('Content-Type', artwork.mimeType);
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    // Let Express use chunked transfer for the streamed body; never advertise
-    // an upstream Content-Length for a potentially decoded response.
-    const etag = imageResponse.headers.get('etag');
-    if (etag) res.setHeader('ETag', etag);
-
-    const imageStream = (await import('stream')).Readable.fromWeb(imageBody as any);
-    imageStream.on('error', (error) => {
-      console.error('[DriveArtwork] Stream error:', error);
-      if (!res.headersSent) res.status(502).end(); else res.destroy(error);
-    });
-    res.on('close', () => {
-      if (!res.writableEnded) imageStream.destroy();
-    });
-    return imageStream.pipe(res);
+    res.setHeader('Content-Length', artwork.buffer.length);
+    if (requestEtags.includes('*') || requestEtags.includes(artwork.etag) || requestEtags.includes('W/' + artwork.etag)) {
+      return res.status(304).end();
+    }
+    return res.status(200).end(artwork.buffer);
   } catch (error: any) {
-    console.error('[DriveArtwork] Could not stream Google Drive artwork:', error);
-    return res.status(502).send('Could not connect to Google Drive to load this artwork.');
+    const message = String(error?.message || error || 'Could not load artwork.');
+    console.error('[DriveArtwork] Could not serve artwork ' + fileId + ':', message);
+    const status = /persistent database/i.test(message) ? 503
+      : /not found|not registered/i.test(message) ? 404
+      : 502;
+    return res.status(status).send('Could not load this song artwork. Please retry.');
   }
 });
 
