@@ -78,7 +78,7 @@ export function formatCoverMediaUrl(url?: string | null): string {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${encodeURIComponent(driveId)}`;
     }
-    return `/api/drive/cover/${encodeURIComponent(driveId)}`;
+    return `/api/drive/cover/${encodeURIComponent(driveId)}?v=3`;
   }
 
   return trimmed;
