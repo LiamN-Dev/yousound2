@@ -31,7 +31,7 @@ const formatTrackTime = (seconds: number) => {
 
 export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const { currentUser, isAdmin, allUsers } = useAuth();
-  const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio, playbackError, clearPlaybackError } = useAudio();
+  const { adminAllSongs, allSongs, joinRadioPlayback, playRadioSong, leaveRadio, playbackError, clearPlaybackError, getRadioAudioDiagnostics } = useAudio();
   const [joined, setJoined] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const previousStationClockRef = useRef<{ songId: string | null; paused: boolean | null; syncRevision: number | null }>({ songId: null, paused: null, syncRevision: null });
@@ -39,8 +39,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
   const latestStationServerTimeRef = useRef(0);
-  // Estimated server-minus-local clock offset, continuously refined from request midpoints.
+  // NTP-style samples map the server epoch clock to this tab's monotonic performance clock.
   const serverClockOffsetRef = useRef<number | null>(null);
+  const clockSamplesRef = useRef<Array<{ rtt: number; offset: number }>>([]);
+  const [bestClockRttMs, setBestClockRttMs] = useState<number | null>(null);
+  const [clockOffsetMs, setClockOffsetMs] = useState<number | null>(null);
   const [seekDraft, setSeekDraft] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
   const [error, setError] = useState('');
@@ -91,10 +94,10 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (stationFetchInFlight.current) return;
     stationFetchInFlight.current = true;
     try {
-      const requestStartedAt = Date.now();
+      const requestStartedAt = performance.now();
       const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
-      const receivedAt = Date.now();
+      const receivedAt = performance.now();
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio is unavailable.');
       const state = data.state as Station;
       const serverTime = Date.parse(state.serverNow || '');
@@ -102,11 +105,23 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (Number.isFinite(serverTime) && serverTime < latestStationServerTimeRef.current) return;
       if (Number.isFinite(serverTime)) {
         latestStationServerTimeRef.current = serverTime;
+        const rtt = Math.max(0, receivedAt - requestStartedAt);
         const midpoint = (requestStartedAt + receivedAt) / 2;
         const measuredOffset = serverTime - midpoint;
+        clockSamplesRef.current = [...clockSamplesRef.current, { rtt, offset: measuredOffset }]
+          .sort((a, b) => a.rtt - b.rtt)
+          .slice(0, 8);
+        // Keep the lowest-latency samples; their midpoint error bound is the smallest.
+        const best = clockSamplesRef.current[0];
         const previousOffset = serverClockOffsetRef.current;
-        // Smooth network jitter while adapting to real clock skew or server restarts.
-        serverClockOffsetRef.current = previousOffset === null ? measuredOffset : previousOffset * 0.75 + measuredOffset * 0.25;
+        const nextOffset = previousOffset === null
+          ? best.offset
+          : Math.abs(best.offset - previousOffset) > 750
+            ? best.offset
+            : previousOffset * 0.8 + best.offset * 0.2;
+        serverClockOffsetRef.current = nextOffset;
+        setBestClockRttMs(best.rtt);
+        setClockOffsetMs(nextOffset);
       }
       setStation(state);
       setError('');
@@ -123,7 +138,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         const offset = serverClockOffsetRef.current || 0;
         const ageSinceSnapshot = state.paused || !Number.isFinite(serverTime)
           ? 0
-          : Math.max(0, (Date.now() + offset - serverTime) / 1000) * rate;
+          : Math.max(0, (performance.now() + offset - serverTime) / 1000) * rate;
 
         if (state.paused) {
           if (trackChanged || previousClock.paused !== true || timelineChanged) {
@@ -132,7 +147,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         } else if (trackChanged || broadcastResumed || timelineChanged) {
           // Every listener chooses the same future server-clock boundary. This avoids
           // each browser starting a newly loaded song at a different network-arrival time.
-          const estimatedServerNow = Date.now() + offset;
+          const estimatedServerNow = performance.now() + offset;
           const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
           const snapshotTime = Number.isFinite(serverTime) ? serverTime : estimatedServerNow;
           const targetAtSync = state.elapsedSeconds + Math.max(0, (syncAtServerMs - snapshotTime) / 1000) * rate;
@@ -287,7 +302,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     // Buffer first, then start on a shared five-second server-clock boundary.
     // The audio engine seeks to the position the station will be at when that
     // boundary arrives, so network and decode time are hidden before listeners hear it.
-    const estimatedServerNow = Date.now() + offset;
+    const estimatedServerNow = performance.now() + offset;
     const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
     const snapshotTime = Number.isFinite(snapshotServerTime) ? snapshotServerTime : estimatedServerNow;
     const currentAge = Math.max(0, (estimatedServerNow - snapshotTime) / 1000) * rate;
@@ -367,7 +382,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     setSaving(true);
     setAdminNote('');
     try {
-      const requestStartedAt = Date.now();
+      const requestStartedAt = performance.now();
       const response = await fetch('/api/admin/radio/control', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }),
@@ -376,13 +391,25 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio control failed.');
       const confirmedState = data.state as Station;
       if (confirmedState) {
-        const receivedAt = Date.now();
+        const receivedAt = performance.now();
         const confirmedServerTime = Date.parse(confirmedState.serverNow || '');
         if (Number.isFinite(confirmedServerTime)) {
           latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
+          const rtt = Math.max(0, receivedAt - requestStartedAt);
           const measuredOffset = confirmedServerTime - (requestStartedAt + receivedAt) / 2;
+          clockSamplesRef.current = [...clockSamplesRef.current, { rtt, offset: measuredOffset }]
+            .sort((a, b) => a.rtt - b.rtt)
+            .slice(0, 8);
+          const best = clockSamplesRef.current[0];
           const previousOffset = serverClockOffsetRef.current;
-          serverClockOffsetRef.current = previousOffset === null ? measuredOffset : previousOffset * 0.75 + measuredOffset * 0.25;
+          const nextOffset = previousOffset === null
+            ? best.offset
+            : Math.abs(best.offset - previousOffset) > 750
+              ? best.offset
+              : previousOffset * 0.8 + best.offset * 0.2;
+          serverClockOffsetRef.current = nextOffset;
+          setBestClockRttMs(best.rtt);
+          setClockOffsetMs(nextOffset);
         }
         setStation(confirmedState);
         previousStationClockRef.current = {
