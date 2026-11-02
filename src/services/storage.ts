@@ -1455,52 +1455,55 @@ class StorageService {
   }
 
   async resetSongPlays(songId: string): Promise<boolean> {
-    const s = this.songs.find((item) => item.id === songId);
-    if (s) {
-      s.plays = 0;
-      s.dailyPlays = 0;
-      s.weeklyPlays = 0;
-      s.dailyPlaysResetDate = undefined;
-      s.weeklyPlaysResetDate = undefined;
-      s.lastPlayedAt = undefined;
+    const response = await fetch(`/api/songs/${encodeURIComponent(songId)}/reset-plays`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `The server did not reset this song's listen counts (${response.status}).`);
+    }
+    const song = this.songs.find((item) => item.id === songId);
+    if (song) {
+      song.plays = 0;
+      song.dailyPlays = 0;
+      song.weeklyPlays = 0;
+      song.dailyPlaysResetDate = undefined;
+      song.weeklyPlaysResetDate = undefined;
+      song.lastPlayedAt = undefined;
       this.saveSongs();
       this.notify();
     }
-    try {
-      await fetch(`/api/songs/${encodeURIComponent(songId)}/reset-plays`, { method: 'POST' });
-      return true;
-    } catch (e) {
-      console.error('Reset plays error:', e);
-      return false;
-    }
+    return true;
   }
 
   async bulkResetSongPlays(ids?: string[]): Promise<boolean> {
+    const response = await fetch('/api/songs/bulk-reset-plays', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `The server did not reset the selected listen counts (${response.status}).`);
+    }
     const targetSet = ids ? new Set(ids) : null;
-    this.songs.forEach((s) => {
-      if (!targetSet || targetSet.has(s.id)) {
-        s.plays = 0;
-        s.dailyPlays = 0;
-        s.weeklyPlays = 0;
-        s.dailyPlaysResetDate = undefined;
-        s.weeklyPlaysResetDate = undefined;
-        s.lastPlayedAt = undefined;
+    this.songs.forEach((song) => {
+      if (!targetSet || targetSet.has(song.id)) {
+        song.plays = 0;
+        song.dailyPlays = 0;
+        song.weeklyPlays = 0;
+        song.dailyPlaysResetDate = undefined;
+        song.weeklyPlaysResetDate = undefined;
+        song.lastPlayedAt = undefined;
       }
     });
     this.saveSongs();
     this.notify();
-
-    try {
-      await fetch('/api/songs/bulk-reset-plays', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
-      });
-      return true;
-    } catch (e) {
-      console.error('Bulk reset plays error:', e);
-      return false;
-    }
+    return true;
   }
 
   async importCloudCover(url: string): Promise<{ success: boolean; coverUrl?: string; error?: string }> {
