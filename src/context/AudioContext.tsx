@@ -599,14 +599,25 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         audio.playbackRate = safePlaybackRate;
         await audio.play();
 
+        // play() may resolve a few milliseconds after the request. Re-anchor the
+        // media playhead at the actual post-play time, not the earlier buffer time.
         const remainingMs = Math.max(0, Number(syncAtLocalPerfMs) - performance.now());
+        const outputQueueSeconds = getRadioOutputQueueSeconds();
+        const positionAtOutputBoundary = Math.max(
+          0,
+          targetAtSync - (remainingMs / 1000) * safePlaybackRate + outputQueueSeconds * safePlaybackRate,
+        );
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          audio.currentTime = Math.min(positionAtOutputBoundary, Math.max(0, audio.duration - 0.25));
+        }
+
         const context = audioGraphRef.current;
         const gain = radioGainRef.current;
         if (context && gain && context.state === 'running') {
           const stamp = (context as any).getOutputTimestamp?.();
           const audibleAt = stamp && Number.isFinite(stamp.contextTime) && Number.isFinite(stamp.performanceTime) && stamp.performanceTime > 0
             ? Number(stamp.contextTime) + (Number(syncAtLocalPerfMs) - Number(stamp.performanceTime)) / 1000
-            : context.currentTime + remainingMs / 1000;
+            : context.currentTime + Math.max(0, remainingMs / 1000 - outputQueueSeconds);
           gain.gain.cancelScheduledValues(context.currentTime);
           gain.gain.setValueAtTime(0, context.currentTime);
           gain.gain.setValueAtTime(0, Math.max(context.currentTime, audibleAt));
