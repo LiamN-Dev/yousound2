@@ -2559,7 +2559,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
       imageResponse = originalResponse;
     }
 
-    const responseLength = Number(imageResponse.headers.get('content-length') || size || 0);
+    const responseLength = Number(imageResponse.headers.get('content-length') || 0);
     if (responseLength > 25 * 1024 * 1024) {
       await imageResponse.body.cancel().catch(() => undefined);
       return res.status(413).send('Artwork exceeds the 25 MB image limit.');
