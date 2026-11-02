@@ -119,7 +119,7 @@ export async function updateUserDb(
   }
 ) {
   if (!(await checkSqlAvailability())) {
-    return localStore.updateUser(userId, updates);
+    throw new Error('The persistent database is unavailable. Account security and preference changes were not saved.');
   }
   try {
     const whereClause =
@@ -134,11 +134,12 @@ export async function updateUserDb(
       .set(updates)
       .where(whereClause!)
       .returning();
-    localStore.updateUser(userId, updates);
-    return updated[0] || localStore.updateUser(userId, updates);
+    if (!updated[0]) throw new Error('User account not found. Refresh the account list and try again.');
+    localStore.updateUser(userId, updated[0]);
+    return updated[0];
   } catch (error) {
     noteDbError('updateUserDb', error);
-    return localStore.updateUser(userId, updates);
+    throw error instanceof Error ? error : new Error('The database rejected the account update.');
   }
 }
 
