@@ -1913,6 +1913,53 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
         config.startedAt = new Date(now - (elapsedBeforeTarget / rate) * 1000).toISOString();
       }
+    } else if (action === 'reorder-queue') {
+      if (!config.enabled) return res.status(409).json({ success: false, error: 'Start the broadcast before rearranging its live queue.' });
+      const state = await resolveRadioState();
+      if (!state.currentSong) return res.status(409).json({ success: false, error: 'There is no current song to anchor the queue reorder.' });
+
+      // Re-read after resolveRadioState because it may have promoted a schedule or
+      // recorded a natural track transition while this request was in flight.
+      const latestConfig = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || config;
+      Object.assign(config, latestConfig);
+
+      const playlist = Array.isArray(state.playlist) ? state.playlist : [];
+      const currentIndex = Number(state.currentIndex);
+      if (currentIndex < 0 || !playlist[currentIndex] || String(playlist[currentIndex].id) !== String(state.currentSong.id)) {
+        return res.status(409).json({ success: false, error: 'The live queue changed. Refresh the radio control room and try again.' });
+      }
+      const existingUpcoming = playlist.slice(currentIndex + 1).map((song: any) => String(song.id));
+      const requestedUpcoming = Array.isArray(req.body?.songIds)
+        ? req.body.songIds.map((id: unknown) => String(id))
+        : [];
+      const uniqueRequested = new Set(requestedUpcoming);
+      if (
+        requestedUpcoming.length !== existingUpcoming.length ||
+        uniqueRequested.size !== requestedUpcoming.length ||
+        requestedUpcoming.some((id: string) => !existingUpcoming.includes(id))
+      ) {
+        return res.status(400).json({ success: false, error: 'Queue order must contain each upcoming song exactly once. Refresh the queue and retry.' });
+      }
+
+      const playedAndCurrent = playlist.slice(0, currentIndex + 1).map((song: any) => String(song.id));
+      config.currentProgram = {
+        ...config.currentProgram,
+        songIds: [...playedAndCurrent, ...requestedUpcoming],
+      };
+
+      // Keep the current track and its exact playhead untouched. Only the songs
+      // after it move; the re-anchored start time preserves the same server clock.
+      const elapsedBeforeCurrent = playlist.slice(0, currentIndex).reduce(
+        (sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180),
+        0,
+      );
+      const programOffset = elapsedBeforeCurrent + Number(state.elapsedSeconds || 0);
+      const stateNowMs = Date.parse(state.serverNow || '');
+      const anchor = config.pausedAt
+        ? new Date(config.pausedAt).getTime()
+        : (Number.isFinite(stateNowMs) ? stateNowMs : commandNowMs);
+      const rate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
+      config.startedAt = new Date(anchor - (programOffset / rate) * 1000).toISOString();
     } else if (action === 'toggle-loop') {
       config.loopPlaylist = !config.loopPlaylist;
     } else {
