@@ -449,7 +449,10 @@ function normalizeSongUpdate(input: Record<string, any>) {
     } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
       if (typeof value !== 'boolean') throw new Error(key + ' must be true or false.');
       updates[key] = value;
-    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode', 'audioUrl', 'coverUrl'].includes(key)) {
+    } else if (key === 'audioUrl' || key === 'coverUrl') {
+      if (typeof value !== 'string' || !value.trim()) throw new Error(key + ' cannot be empty. Choose a valid Drive media file.');
+      updates[key] = value.trim();
+    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode'].includes(key)) {
       if (value === null || value === '') updates[key] = null;
       else if (typeof value !== 'string') throw new Error(key + ' must be text.');
       else updates[key] = value.trim();
@@ -498,9 +501,9 @@ export async function bulkUpdateSongsDb(
     'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);
   const cleanUpdates: Record<string, any> = {};
-  for (const [key, value] of Object.entries(updates || {})) {
-    if (key === 'badgeCustomText') cleanUpdates.badgeMessage = value;
-    else if (allowedColumns.has(key) && value !== undefined) cleanUpdates[key] = value;
+  Object.assign(cleanUpdates, normalizeSongUpdate(updates || {}));
+  for (const [key, value] of Object.entries(cleanUpdates)) {
+    if (!allowedColumns.has(key)) delete cleanUpdates[key];
   }
 
   const ids = Array.from(new Set(songIds.map(String).filter(Boolean)));
