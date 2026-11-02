@@ -2603,19 +2603,48 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
           return res.status(400).json({ success: false, error: 'The submitted artwork link must be a public HTTPS image URL.' });
         }
         const submittedDriveId = extractGoogleDriveFileId(requestItem.webLink);
-        const downloadUrl = submittedDriveId
-          ? 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(submittedDriveId)
-          : imageUrl.toString();
-        const imageResponse = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+        let imageResponse: Response;
+        if (submittedDriveId) {
+          // Drive's legacy uc?export=download endpoint often returns an HTML virus-scan
+          // confirmation page for larger files. Use the user-content download endpoint
+          // with the same public-link permission, then validate the resulting binary.
+          const driveDownloads = [
+            'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(submittedDriveId) + '&export=download&confirm=t',
+            'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(submittedDriveId),
+          ];
+          let lastStatus = 0;
+          let usable: Response | null = null;
+          for (const downloadUrl of driveDownloads) {
+            const candidate = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+            lastStatus = candidate.status;
+            const mime = String(candidate.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            if (candidate.ok && ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mime)) {
+              usable = candidate;
+              break;
+            }
+            await candidate.body?.cancel().catch(() => undefined);
+          }
+          if (!usable) {
+            throw new Error('Google Drive did not return the submitted image as a public image file. Change its sharing to “Anyone with the link — Viewer” and submit the link again (last response ' + lastStatus + ').');
+          }
+          imageResponse = usable;
+        } else {
+          imageResponse = await fetch(imageUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+        }
         if (!imageResponse.ok) throw new Error('Could not download the submitted artwork link (' + imageResponse.status + ').');
         const finalImageUrl = imageResponse.url ? new URL(imageResponse.url) : imageUrl;
         if (finalImageUrl.protocol !== 'https:' || blockedArtworkHost(finalImageUrl.hostname)) {
+          await imageResponse.body?.cancel().catch(() => undefined);
           throw new Error('The artwork link redirected to an address that is not allowed.');
         }
         const contentLength = Number(imageResponse.headers.get('content-length') || 0);
-        if (contentLength > 25 * 1024 * 1024) throw new Error('Submitted artwork is larger than 25 MB.');
+        if (contentLength > 25 * 1024 * 1024) {
+          await imageResponse.body?.cancel().catch(() => undefined);
+          throw new Error('Submitted artwork is larger than 25 MB.');
+        }
         coverMimeType = String(imageResponse.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
         if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverMimeType)) {
+          await imageResponse.body?.cancel().catch(() => undefined);
           throw new Error('The submitted link did not return a supported image. Use a direct JPG, PNG, WEBP, or GIF image link.');
         }
         const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
