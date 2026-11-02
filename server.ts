@@ -1319,20 +1319,36 @@ app.post('/api/songs/:id/duration', async (req: Request, res: Response) => {
 
 app.patch('/api/songs/:id', async (req: Request, res: Response) => {
   try {
-    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Song changes were not saved.' });
+    }
     const { id } = req.params;
-    const updates = { ...req.body };
-    if (typeof updates.audioUrl === 'string' && !/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+/i.test(updates.audioUrl)) {
-      return res.status(400).json({ success: false, error: 'Song audio must be uploaded to the site Google Drive. External links and embedded audio are disabled.' });
+    const updates = { ...(req.body || {}) };
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'audioUrl')) {
+      const value = String(updates.audioUrl || '').trim();
+      if (!/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+$/i.test(value)) {
+        return res.status(400).json({ success: false, error: 'Song audio must be a direct file in the site Google Drive.' });
+      }
+      updates.audioUrl = value;
     }
-    if (typeof updates.coverUrl === 'string' && updates.coverUrl && !/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(updates.coverUrl)) {
-      return res.status(400).json({ success: false, error: 'Song artwork must be uploaded to the site Google Drive.' });
+    if (Object.prototype.hasOwnProperty.call(updates, 'coverUrl')) {
+      const value = String(updates.coverUrl || '').trim();
+      const match = value.match(/^https:\/\/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)(?:=w\d+(?:-h\d+)?)?$/i);
+      if (value && !match) {
+        return res.status(400).json({ success: false, error: 'Song artwork must be uploaded to the site Google Drive.' });
+      }
+      // Store a stable canonical Drive image URL. Display sizing is added by MediaCover.
+      updates.coverUrl = value ? 'https://lh3.googleusercontent.com/d/' + match![1] : null;
     }
+
     const updated = await updateSongDb(id, updates);
     return res.json({ success: true, song: updated });
   } catch (error: any) {
     console.error('Update song error:', error);
-    return res.status(500).json({ error: error.message });
+    const status = /not found/i.test(String(error?.message || '')) ? 404 : /persistent database/i.test(String(error?.message || '')) ? 503 : 400;
+    return res.status(status).json({ success: false, error: error.message || 'Could not save song changes.' });
   }
 });
 
