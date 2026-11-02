@@ -40,8 +40,9 @@ interface AudioContextType {
   equalizer: EqualizerSettings;
   setEqualizer: (updates: Partial<EqualizerSettings>) => void;
   isRadioMode: boolean;
-  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean, playbackRate?: number, syncAtLocalEpochMs?: number) => Promise<void>;
-  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number, syncAtLocalEpochMs?: number) => Promise<void>;
+  getRadioAudioDiagnostics: () => { outputQueueMs: number; outputLatencyMs: number; graphState: string; outputTimestampAvailable: boolean };
+  joinRadioPlayback: (song: Song, elapsedSeconds: number, paused?: boolean, playbackRate?: number, syncAtLocalPerfMs?: number) => Promise<void>;
+  playRadioSong: (song: Song, elapsedSeconds: number, playbackRate?: number, syncAtLocalPerfMs?: number) => Promise<void>;
   leaveRadio: () => void;
   pauseRadioPlayback: () => void;
   // Controls
@@ -120,6 +121,35 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const radioSyncPendingRef = useRef(false);
   const radioSyncTimerRef = useRef<number | null>(null);
   const radioSyncResolveRef = useRef<(() => void) | null>(null);
+
+  const getRadioOutputQueueSeconds = () => {
+    const graph = audioGraphRef.current;
+    if (!graph) return 0;
+    try {
+      const stamp = (graph as any).getOutputTimestamp?.();
+      if (stamp && Number.isFinite(stamp.contextTime) && Number.isFinite(stamp.performanceTime) && stamp.performanceTime > 0) {
+        return Math.max(0, Math.min(0.35, graph.currentTime - Number(stamp.contextTime)));
+      }
+    } catch {}
+    const fallbackLatency = Number((graph as any).outputLatency ?? graph.baseLatency ?? 0);
+    return Math.max(0, Math.min(0.35, Number.isFinite(fallbackLatency) ? fallbackLatency : 0));
+  };
+
+  const getRadioAudioDiagnostics = useCallback(() => {
+    const graph = audioGraphRef.current;
+    if (!graph) return { outputQueueMs: 0, outputLatencyMs: 0, graphState: 'unavailable', outputTimestampAvailable: false };
+    let outputTimestampAvailable = false;
+    try {
+      const stamp = (graph as any).getOutputTimestamp?.();
+      outputTimestampAvailable = Boolean(stamp && Number.isFinite(stamp.contextTime) && Number.isFinite(stamp.performanceTime) && stamp.performanceTime > 0);
+    } catch {}
+    return {
+      outputQueueMs: Math.round(getRadioOutputQueueSeconds() * 1000),
+      outputLatencyMs: Math.round(Number((graph as any).outputLatency ?? graph.baseLatency ?? 0) * 1000),
+      graphState: graph.state,
+      outputTimestampAvailable,
+    };
+  }, []);
   const radioFallbackMuteRef = useRef<{ muted: boolean; volume: number } | null>(null);
   const audioGraphRef = useRef<AudioContext | null>(null);
   const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
@@ -455,7 +485,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     song: Song,
     elapsedSeconds: number,
     playbackRate = 1,
-    syncAtLocalEpochMs?: number,
+    syncAtLocalPerfMs?: number,
   ) => {
     if (!radioJoinedRef.current) return;
     if (radioSyncPendingRef.current) {
@@ -572,11 +602,14 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const context = audioGraphRef.current;
         const gain = radioGainRef.current;
         if (context && gain && context.state === 'running') {
-          const audibleAt = context.currentTime + remainingMs / 1000;
+          const stamp = (context as any).getOutputTimestamp?.();
+          const audibleAt = stamp && Number.isFinite(stamp.contextTime) && Number.isFinite(stamp.performanceTime) && stamp.performanceTime > 0
+            ? Number(stamp.contextTime) + (Number(syncAtLocalPerfMs) - Number(stamp.performanceTime)) / 1000
+            : context.currentTime + remainingMs / 1000;
           gain.gain.cancelScheduledValues(context.currentTime);
           gain.gain.setValueAtTime(0, context.currentTime);
-          gain.gain.setValueAtTime(0, audibleAt);
-          gain.gain.linearRampToValueAtTime(1, audibleAt + 0.015);
+          gain.gain.setValueAtTime(0, Math.max(context.currentTime, audibleAt));
+          gain.gain.linearRampToValueAtTime(1, Math.max(context.currentTime, audibleAt) + 0.008);
         }
 
         await new Promise<void>((resolve) => {
@@ -637,14 +670,15 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (attemptId !== playAttemptRef.current || !radioModeRef.current || radioSyncPendingRef.current) return;
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      const target = Math.min(targetAtSync, Math.max(0, audio.duration - 0.25));
+      const outputQueueSeconds = getRadioOutputQueueSeconds();
+      const target = Math.min(targetAtSync + outputQueueSeconds * safePlaybackRate, Math.max(0, audio.duration - 0.25));
       const drift = target - audio.currentTime;
       const absoluteDrift = Math.abs(drift);
-      if (absoluteDrift > 0.45) {
+      if (absoluteDrift > 0.12) {
         try { audio.currentTime = target; } catch {}
         audio.playbackRate = safePlaybackRate;
-      } else if (absoluteDrift > 0.035) {
-        const correction = Math.max(-0.03, Math.min(0.03, drift * 0.12));
+      } else if (absoluteDrift > 0.02) {
+        const correction = Math.max(-0.02, Math.min(0.02, drift * 0.16));
         audio.playbackRate = safePlaybackRate * (1 + correction);
       } else {
         audio.playbackRate = safePlaybackRate;
@@ -1093,6 +1127,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         equalizer,
         setEqualizer,
         isRadioMode,
+        getRadioAudioDiagnostics,
         joinRadioPlayback,
         playRadioSong,
         leaveRadio,
