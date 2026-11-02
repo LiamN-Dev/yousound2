@@ -313,7 +313,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     // A joining listener gets a short local preparation boundary. Existing listeners
     // are already aligned by the server-persisted barrier for track/revision changes.
     const estimatedServerNow = performance.now() + offset;
-    const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+    const syncAtServerMs = estimatedServerNow + 1000;
     const snapshotTime = Number.isFinite(snapshotServerTime) ? snapshotServerTime : estimatedServerNow;
     const currentAge = Math.max(0, (estimatedServerNow - snapshotTime) / 1000) * rate;
     const elapsedAtSync = station.elapsedSeconds + currentAge + Math.max(0, (syncAtServerMs - estimatedServerNow) / 1000) * rate;
