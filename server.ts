@@ -1553,6 +1553,10 @@ type RadioConfig = {
   playbackRate?: number;
   /** Changes whenever the authoritative playback timeline is repositioned. */
   syncRevision?: number;
+  /** A single server-issued audible start boundary shared by every connected listener. */
+  syncAtServerMs?: number | null;
+  /** The track associated with the stored synchronization boundary. */
+  syncTrackId?: string | null;
 };
 
 const DEFAULT_RADIO_CONFIG: RadioConfig = {
@@ -1598,6 +1602,8 @@ async function resolveRadioState() {
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
       syncRevision: Math.max(0, Number(config.syncRevision) || 0) + 1,
+      syncTrackId: null,
+      syncAtServerMs: now + 6000,
     };
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     await clearRadioChatMessagesDb();
@@ -1640,6 +1646,21 @@ async function resolveRadioState() {
     if (!config.enabled) { currentSong = null; elapsedSeconds = 0; currentIndex = 0; }
   }
 
+  // The first state request that observes a natural track transition writes one
+  // future start barrier to persistent config. All listeners then receive the
+  // same boundary instead of independently rounding their local clocks.
+  if (config.enabled && !config.pausedAt && currentSong) {
+    const currentTrackId = String(currentSong.id);
+    if (config.syncTrackId !== currentTrackId) {
+      config = {
+        ...config,
+        syncTrackId: currentTrackId,
+        syncAtServerMs: now + 6000,
+      };
+      await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
+    }
+  }
+
   const nextAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
   return {
     enabled: Boolean(config.enabled),
@@ -1657,6 +1678,7 @@ async function resolveRadioState() {
     loopPlaylist: Boolean(config.loopPlaylist),
     playbackRate,
     syncRevision: Math.max(0, Number(config.syncRevision) || 0),
+    syncAtServerMs: Number.isFinite(Number(config.syncAtServerMs)) ? Number(config.syncAtServerMs) : null,
     serverNow: new Date(now).toISOString(),
   };
 }
@@ -1764,6 +1786,8 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       loopPlaylist: existing.loopPlaylist === true,
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
       syncRevision: Math.max(0, Number(existing.syncRevision) || 0) + 1,
+      syncTrackId: null,
+      syncAtServerMs: body.enabled && startNow ? sharedNowMs + 6000 : null,
     };
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
@@ -1860,6 +1884,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     }
     if (['toggle-pause', 'pause', 'resume', 'seek', 'set-speed', 'next'].includes(action)) {
       config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
+      config.syncAtServerMs = config.enabled && !config.pausedAt ? commandNowMs + 6000 : null;
     }
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
