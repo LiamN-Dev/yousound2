@@ -3,6 +3,7 @@ name: Verify YouSong
 on:
   push:
     branches:
+      - fix/song-admin-thumbnails-christmas-radio-reliability
       - fix-radio-sync-pipeline-moderation
   pull_request:
     branches: [main]
