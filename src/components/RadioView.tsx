@@ -499,6 +499,16 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     void controlRadio('reorder-queue', { songIds: reordered.map((song) => song.id) });
   };
 
+  const moveScheduledQueueSong = (index: number, direction: -1 | 1) => {
+    setNextIds((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const reordered = [...current];
+      [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+      return reordered;
+    });
+  };
+
   const updateBan = async (userId: string, banned: boolean) => {
     if (!userId || banSaving) return;
     setBanSaving(true);
@@ -631,6 +641,18 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <label className="block text-[10px] text-slate-300">Description<input value={nextDescription} onChange={(e) => setNextDescription(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /></label>
                 <div className="mb-1 flex items-center justify-between text-[10px] font-bold text-indigo-100"><span>Next playlist · {nextIds.length} chosen</span><button type="button" onClick={() => { setNextIds([]); setNextName(''); setNextAt(''); setNextDescription(''); }} className="font-normal text-slate-400">Clear schedule</button></div>
                 {picker(nextIds, setNextIds)}
+                {nextIds.length > 0 && <div className="space-y-1 rounded-lg border border-white/[0.06] bg-black/20 p-2">
+                  <div className="mb-1 text-[9px] font-bold uppercase tracking-wide text-indigo-100">Scheduled play order</div>
+                  {nextIds.map((id, index) => {
+                    const song = pool.find((item) => item.id === id);
+                    return <div key={id} className="flex items-center gap-2 rounded-md px-1.5 py-1">
+                      <span className="w-4 shrink-0 text-[9px] text-slate-500">{index + 1}.</span>
+                      <span className="min-w-0 flex-1 truncate text-[10px] text-white">{song?.title || 'Unavailable song'}</span>
+                      <button type="button" aria-label={'Move scheduled song ' + (song?.title || id) + ' up'} title="Move up" disabled={index === 0} onClick={() => moveScheduledQueueSong(index, -1)} className="rounded border border-white/10 p-1 text-indigo-100 disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
+                      <button type="button" aria-label={'Move scheduled song ' + (song?.title || id) + ' down'} title="Move down" disabled={index === nextIds.length - 1} onClick={() => moveScheduledQueueSong(index, 1)} className="rounded border border-white/10 p-1 text-indigo-100 disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
+                    </div>;
+                  })}
+                </div>}
               </div>
               {station?.enabled && <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex flex-wrap gap-2">
