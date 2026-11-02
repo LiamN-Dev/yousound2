@@ -2547,19 +2547,33 @@ async function getDriveAccessToken(): Promise<string> {
 }
 
 // Only artwork already registered on a library song can be requested through this route.
-const songArtworkPermissionChecks = new Map<string, { isSongCover: boolean; expiresAt: number }>();
+let registeredSongArtworkIds: Set<string> | null = null;
+let registeredSongArtworkIdsExpiresAt = 0;
+let registeredSongArtworkIdsLoad: Promise<Set<string>> | null = null;
+
 async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
-  const cached = songArtworkPermissionChecks.get(fileId);
-  if (cached && cached.expiresAt > Date.now()) return cached.isSongCover;
-  const songs = await getSongsPersistentDb();
-  const isSongCover = songs.some((song: any) => extractDriveFileId(String(song.coverUrl || '')) === fileId);
-  songArtworkPermissionChecks.set(fileId, { isSongCover, expiresAt: Date.now() + 60_000 });
-  if (songArtworkPermissionChecks.size > 1000) {
-    for (const [id, item] of songArtworkPermissionChecks) {
-      if (item.expiresAt <= Date.now()) songArtworkPermissionChecks.delete(id);
-    }
+  if (registeredSongArtworkIds && registeredSongArtworkIdsExpiresAt > Date.now()) {
+    return registeredSongArtworkIds.has(fileId);
   }
-  return isSongCover;
+  if (!registeredSongArtworkIdsLoad) {
+    registeredSongArtworkIdsLoad = getSongsPersistentDb().then((songs) => {
+      const ids = new Set<string>();
+      for (const song of songs as any[]) {
+        const id = extractDriveFileId(String(song.coverUrl || ''));
+        if (id) ids.add(id);
+      }
+      registeredSongArtworkIds = ids;
+      registeredSongArtworkIdsExpiresAt = Date.now() + 15_000;
+      return ids;
+    });
+  }
+  const loading = registeredSongArtworkIdsLoad;
+  try {
+    const ids = await loading;
+    return ids.has(fileId);
+  } finally {
+    if (registeredSongArtworkIdsLoad === loading) registeredSongArtworkIdsLoad = null;
+  }
 }
 
 type DriveArtworkCacheEntry = {
@@ -2577,6 +2591,26 @@ const DRIVE_ARTWORK_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/w
 const driveArtworkCache = new Map<string, DriveArtworkCacheEntry>();
 const driveArtworkInFlight = new Map<string, Promise<DriveArtworkCacheEntry>>();
 let driveArtworkCacheBytes = 0;
+
+// Keep distinct image downloads below Google's burst limits when a page opens
+// a large catalogue. Duplicate requests for the same file are already coalesced.
+const DRIVE_ARTWORK_MAX_CONCURRENT_LOADS = 4;
+let activeDriveArtworkLoads = 0;
+const waitingDriveArtworkLoads: Array<() => void> = [];
+
+async function withDriveArtworkSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeDriveArtworkLoads >= DRIVE_ARTWORK_MAX_CONCURRENT_LOADS) {
+    await new Promise<void>((resolve) => waitingDriveArtworkLoads.push(resolve));
+  }
+  activeDriveArtworkLoads += 1;
+  try {
+    return await work();
+  } finally {
+    activeDriveArtworkLoads -= 1;
+    const next = waitingDriveArtworkLoads.shift();
+    if (next) next();
+  }
+}
 
 function cacheDriveArtwork(fileId: string, entry: DriveArtworkCacheEntry): void {
   const previous = driveArtworkCache.get(fileId);
@@ -2674,7 +2708,7 @@ async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry>
   const existingLoad = driveArtworkInFlight.get(fileId);
   if (existingLoad) return existingLoad;
 
-  const loadPromise = (async () => {
+  const loadPromise = withDriveArtworkSlot(async () => {
     const accessToken = await getDriveAccessToken();
     // Fetch the original image once. Do not call Drive metadata/permissions APIs
     // or use short-lived thumbnailLink URLs for every browser image request.
@@ -2704,7 +2738,7 @@ async function loadDriveArtwork(fileId: string): Promise<DriveArtworkCacheEntry>
     };
     cacheDriveArtwork(fileId, entry);
     return entry;
-  })();
+  });
 
   driveArtworkInFlight.set(fileId, loadPromise);
   try {
