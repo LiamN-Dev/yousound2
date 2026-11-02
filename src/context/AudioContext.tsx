@@ -533,6 +533,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const targetAtSync = Math.max(0, Number(elapsedSeconds) || 0);
 
     if (useBarrier) {
+      radioDriftEwmaRef.current = 0;
       radioSyncPendingRef.current = true;
       const graph = audioGraphRef.current;
       const gain = radioGainRef.current;
@@ -757,6 +758,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ) => {
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+    if (paused) radioDriftEwmaRef.current = 0;
     if (paused && radioSyncPendingRef.current) {
       // A server pause/paused seek cancels a pending future audible start immediately.
       playAttemptRef.current += 1;
