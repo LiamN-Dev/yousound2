@@ -1623,6 +1623,7 @@ async function resolveRadioState() {
   let elapsedSeconds = 0;
   let currentIndex = 0;
   let programElapsedSeconds = 0;
+  let loopCycle = 0;
 
   if (config.enabled && playlist.length) {
     const durations = playlist.map((song) => Math.max(1, Number(song.durationExact) || Number(song.duration) || 180));
@@ -1630,6 +1631,7 @@ async function resolveRadioState() {
     const startedAtMs = new Date(config.startedAt || now).getTime();
     const radioClockMs = config.pausedAt ? new Date(config.pausedAt).getTime() : now;
     programElapsedSeconds = Math.max(0, ((Number.isFinite(radioClockMs) ? radioClockMs : now) - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000) * playbackRate;
+    loopCycle = config.loopPlaylist ? Math.floor(programElapsedSeconds / totalDuration) : 0;
     if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
@@ -1653,7 +1655,9 @@ async function resolveRadioState() {
   // future start barrier to persistent config. All listeners then receive the
   // same boundary instead of independently rounding their local clocks.
   if (config.enabled && !config.pausedAt && currentSong) {
-    const currentTrackId = String(currentSong.id);
+    // Include loop cycle as well as track ID so a single-track looping station
+    // establishes a fresh shared barrier each time the song wraps to its start.
+    const currentTrackId = String(currentSong.id) + ':' + String(loopCycle);
     if (config.syncTrackId !== currentTrackId) {
       const nextConfig: RadioConfig = {
         ...config,
