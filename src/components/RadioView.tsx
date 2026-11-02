@@ -437,7 +437,9 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         };
         if (joined && confirmedState.enabled && confirmedState.currentSong) {
           const rate = Math.min(2, Math.max(0.5, Number(confirmedState.playbackRate) || 1));
-          if (confirmedState.paused) {
+          if (action === 'reorder-queue') {
+            // Queue metadata changed; no audio seek or restart is needed.
+          } else if (confirmedState.paused) {
             void joinRadioPlayback(confirmedState.currentSong, confirmedState.elapsedSeconds, true, rate);
           } else if (['next', 'seek', 'set-speed'].includes(action) || (action === 'toggle-pause' && !confirmedState.paused)) {
             const offset = serverClockOffsetRef.current || 0;
