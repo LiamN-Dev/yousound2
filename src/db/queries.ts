@@ -597,41 +597,47 @@ export async function incrementSongPlayDb(id: string, isAdmin: boolean = false) 
 }
 
 export async function resetSongPlaysDb(id: string) {
-  localStore.resetSongPlays(id);
-  if (!(await checkSqlAvailability())) return localStore.resetSongPlays(id);
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Listen counts were not reset.');
+  }
   try {
-    const updated = await db
-      .update(songs)
-      .set({
-        plays: 0,
-        dailyPlays: 0,
-        weeklyPlays: 0,
-      })
+    const updated = await db.update(songs)
+      .set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 })
       .where(eq(songs.id, id))
       .returning();
-    return updated[0] || localStore.resetSongPlays(id);
+    if (!updated[0]) throw new Error('Song not found. Refresh the library and try again.');
+    localStore.updateSong(id, updated[0]);
+    return updated[0];
   } catch (error) {
     noteDbError('resetSongPlaysDb', error);
-    return localStore.resetSongPlays(id);
+    throw error instanceof Error ? error : new Error('The database did not confirm the listen-count reset.');
   }
 }
 
 export async function bulkResetSongPlaysDb(ids?: string[]) {
-  localStore.bulkResetSongPlays(ids);
-  if (!(await checkSqlAvailability())) return true;
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Listen counts were not reset.');
+  }
   try {
+    let updated: any[];
     if (ids && ids.length > 0) {
-      await db
-        .update(songs)
+      updated = await db.update(songs)
         .set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 })
-        .where(inArray(songs.id, ids));
+        .where(inArray(songs.id, ids))
+        .returning();
+      if (updated.length !== new Set(ids).size) {
+        throw new Error('The database reset fewer songs than selected. Refresh the library and try again.');
+      }
     } else {
-      await db.update(songs).set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 });
+      updated = await db.update(songs)
+        .set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 })
+        .returning();
     }
+    updated.forEach((song) => localStore.updateSong(song.id, song));
     return true;
   } catch (error) {
     noteDbError('bulkResetSongPlaysDb', error);
-    return true;
+    throw error instanceof Error ? error : new Error('The database did not confirm the listen-count reset.');
   }
 }
 
