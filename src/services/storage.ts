@@ -1297,21 +1297,23 @@ class StorageService {
   }
 
   async updateSong(songId: string, updates: Partial<Song>): Promise<boolean> {
-    const index = this.songs.findIndex((s) => s.id === songId);
-    if (index === -1) return false;
-    this.songs[index] = { ...this.songs[index], ...updates };
+    const response = await fetch(`/api/songs/${encodeURIComponent(songId)}`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success || !data.song) {
+      throw new Error(data.error || `The server did not save this song (${response.status}).`);
+    }
+    const savedSong = data.song as Song;
+    const index = this.songs.findIndex((item) => item.id === songId);
+    if (index === -1) this.songs = [savedSong, ...this.songs];
+    else this.songs[index] = savedSong;
     this.saveSongs();
     this.notify();
-
-    try {
-      await fetch(`/api/songs/${encodeURIComponent(songId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-    } catch (e) {
-      console.error('Update song error:', e);
-    }
     return true;
   }
 
