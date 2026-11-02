@@ -294,30 +294,43 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const setSiteBan = async (user: User, banned: boolean, reason = '') => {
+    const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/site-ban`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ banned, reason }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success || Boolean(data.user?.isSuspended) !== banned) {
+      throw new Error(data.error || 'The server did not confirm the site-ban change.');
+    }
+    await storage.syncWithServer();
+    refreshState();
+  };
+
   const handleConfirmSuspend = async () => {
     if (!suspendingUser) return;
-    const res = await adminUpdateUser(suspendingUser.id, {
-      isSuspended: true,
-      suspendedReason: suspendReasonInput.trim() || 'Suspended by Administrator',
-    });
-    if (res.success) {
-      setUserEditFeedback(`Account @${suspendingUser.username} has been suspended.`);
-      setTimeout(() => setUserEditFeedback(null), 3000);
+    try {
+      await setSiteBan(suspendingUser, true, suspendReasonInput.trim() || 'Banned from YouSong by an administrator.');
+      setUserEditFeedback(`@${suspendingUser.username} is now banned from the entire YouSong site.`);
+      setSuspendingUser(null);
+      setTimeout(() => setUserEditFeedback(null), 4000);
+    } catch (error: any) {
+      setUserEditFeedback(error?.message || 'Site ban failed. The account was not confirmed as banned.');
     }
-    setSuspendingUser(null);
   };
 
   const handleConfirmUnsuspend = async () => {
     if (!unsuspendingUser) return;
-    const res = await adminUpdateUser(unsuspendingUser.id, {
-      isSuspended: false,
-      suspendedReason: '',
-    });
-    if (res.success) {
-      setUserEditFeedback(`Account @${unsuspendingUser.username} has been unsuspended.`);
-      setTimeout(() => setUserEditFeedback(null), 3000);
+    try {
+      await setSiteBan(unsuspendingUser, false);
+      setUserEditFeedback(`Site access restored for @${unsuspendingUser.username}.`);
+      setUnsuspendingUser(null);
+      setTimeout(() => setUserEditFeedback(null), 4000);
+    } catch (error: any) {
+      setUserEditFeedback(error?.message || 'Could not restore site access.');
     }
-    setUnsuspendingUser(null);
   };
 
   const handleConfirmDeleteUser = async () => {
@@ -1157,7 +1170,7 @@ export const AdminPanel: React.FC = () => {
                                   ? 'bg-amber-500/20 border-amber-500/30 text-amber-300 hover:bg-amber-500/30'
                                   : 'bg-white/[0.04] border-white/10 text-slate-400 hover:text-amber-300 hover:bg-white/[0.08]'
                               }`}
-                              title={u.isSuspended ? 'Account Suspended: Click to Unsuspend' : 'Suspend Account (Directs user to appeal chat)'}
+                              title={u.isSuspended ? 'Site banned: Click to restore site access' : 'Ban user from the entire YouSong site'}
                             >
                               <ShieldAlert className="w-3.5 h-3.5" />
                             </button>
@@ -1874,7 +1887,7 @@ export const AdminPanel: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-amber-400" />
-                Suspend Account: @{suspendingUser.username}
+                Ban from YouSong: @{suspendingUser.username}
               </h3>
               <button onClick={() => setSuspendingUser(null)} className="text-slate-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
@@ -1883,10 +1896,10 @@ export const AdminPanel: React.FC = () => {
 
             <div>
               <p className="text-xs text-slate-300 mb-2">
-                This user will be redirected to the suspension appeal dispatch and blocked from playing audio.
+                This blocks this account from the entire YouSong site on every device. Radio and chat bans are separate controls.
               </p>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Reason for Suspension (Visible to User) *
+                Reason for Site Ban (Shown to the user) *
               </label>
               <input
                 type="text"
@@ -1910,7 +1923,7 @@ export const AdminPanel: React.FC = () => {
                 onClick={handleConfirmSuspend}
                 className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all active:scale-95 shadow-md"
               >
-                Confirm Suspension
+                Ban from site
               </button>
             </div>
           </div>
@@ -1924,7 +1937,7 @@ export const AdminPanel: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-emerald-400" />
-                Restore Account Access
+                Restore YouSong Site Access
               </h3>
               <button onClick={() => setUnsuspendingUser(null)} className="text-slate-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
@@ -1948,7 +1961,7 @@ export const AdminPanel: React.FC = () => {
                 onClick={handleConfirmUnsuspend}
                 className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all active:scale-95 shadow-md"
               >
-                Restore Account
+                Restore site access
               </button>
             </div>
           </div>

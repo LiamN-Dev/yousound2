@@ -76,7 +76,7 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
           }
           if (id && !isAuthenticatedProxy && !target.dataset.driveProxyFallback) {
             target.dataset.driveProxyFallback = 'true';
-            target.src = `/api/drive/cover/${encodeURIComponent(id)}`;
+            target.src = `/api/drive/cover/${encodeURIComponent(id)}?v=2`;
             return;
           }
           handleImageFallback(e, fallbackTitle, fallbackGenre);
