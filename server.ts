@@ -2510,6 +2510,24 @@ async function getDriveAccessToken(): Promise<string> {
   return accessToken;
 }
 
+// Only artwork already registered on a song may be made link-readable by
+// this public thumbnail route. This prevents a member from turning an arbitrary
+// Drive file ID into a public file just by requesting the image endpoint.
+const songArtworkPermissionChecks = new Map<string, { isSongCover: boolean; expiresAt: number }>();
+async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
+  const cached = songArtworkPermissionChecks.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) return cached.isSongCover;
+  const songs = await getSongsPersistentDb();
+  const isSongCover = songs.some((song: any) => extractDriveFileId(String(song.coverUrl || '')) === fileId);
+  songArtworkPermissionChecks.set(fileId, { isSongCover, expiresAt: Date.now() + 60_000 });
+  if (songArtworkPermissionChecks.size > 1000) {
+    for (const [id, item] of songArtworkPermissionChecks) {
+      if (item.expiresAt <= Date.now()) songArtworkPermissionChecks.delete(id);
+    }
+  }
+  return isSongCover;
+}
+
 // Album artwork is shown to every listener who can see its song, so make
 // the linked Drive image readable by link as part of serving its thumbnail.
 // This also repairs older library covers that were selected from Drive folders
@@ -2577,9 +2595,10 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
 
     // The public CDN is the cheapest and most reliable browser path. Repair
-    // older Drive-picked covers that never received the same link-reader permission
-    // as images uploaded directly through the site.
-    await ensureDriveArtworkLinkReadable(fileId, accessToken);
+    // legacy permissions only for artwork already attached to a library song.
+    if (await isRegisteredSongArtwork(fileId)) {
+      await ensureDriveArtworkLinkReadable(fileId, accessToken);
+    }
 
     // Drive thumbnailLink values are short-lived. Fetch them server-side instead
     // of exposing an expiring URL to browsers, then fall back to the original bytes.
