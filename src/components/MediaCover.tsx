@@ -68,6 +68,9 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
           // depends on the URL supplied by the song record.
           if (id && isAuthenticatedProxy && !target.dataset.drivePublicFallback) {
             target.dataset.drivePublicFallback = 'true';
+            // Mark the proxy as already attempted too, including when it was the
+            // original URL, so a failed CDN retry cannot loop back to the proxy.
+            target.dataset.driveProxyFallback = 'true';
             target.src = `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w1200`;
             return;
           }
