@@ -389,7 +389,7 @@ function extractDriveFileId(inputUrl: string): string | null {
 
   // Accept an ID directly, standard Drive/Docs share URLs, and this app's own stream URLs.
   if (/^[a-zA-Z0-9_-]{10,200}$/.test(trimmed)) return trimmed;
-  const localRouteMatch = trimmed.match(/^\/api\/(?:drive\/stream|media\/drive-stream)\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
+  const localRouteMatch = trimmed.match(/^(?:https?:\/\/[^/]+)?\/api\/(?:drive\/(?:stream|cover)|media\/drive-stream)\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
   if (localRouteMatch) return localRouteMatch[1];
 
   try {
@@ -1325,23 +1325,46 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
       return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Song changes were not saved.' });
     }
     const { id } = req.params;
+    const existingSong = await getSongByIdDb(id);
+    if (!existingSong) return res.status(404).json({ success: false, error: 'Song not found. Refresh the library and try again.' });
     const updates = { ...(req.body || {}) };
 
     if (Object.prototype.hasOwnProperty.call(updates, 'audioUrl')) {
       const value = String(updates.audioUrl || '').trim();
-      if (!/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+$/i.test(value)) {
-        return res.status(400).json({ success: false, error: 'Song audio must be a direct file in the site Google Drive.' });
+      const driveId = extractDriveFileId(value);
+      if (driveId) {
+        // Library uploads now store the same-origin stream path, not Drive's old
+        // download URL. Normalize every accepted Drive link to that canonical route.
+        updates.audioUrl = '/api/drive/stream/' + encodeURIComponent(driveId);
+      } else if (value === String(existingSong.audioUrl || '')) {
+        // Preserve legacy non-Drive URLs when the editor has not changed them.
+        delete updates.audioUrl;
+      } else {
+        return res.status(400).json({ success: false, error: 'Choose a valid Google Drive MP3. Existing unchanged legacy audio links are preserved.' });
       }
-      updates.audioUrl = value;
     }
     if (Object.prototype.hasOwnProperty.call(updates, 'coverUrl')) {
       const value = String(updates.coverUrl || '').trim();
-      const match = value.match(/^https:\/\/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)(?:=w\d+(?:-h\d+)?)?$/i);
-      if (!match) {
-        return res.status(400).json({ success: false, error: 'Song artwork must remain a valid Google Drive image. Choose a cover image rather than leaving this field empty.' });
+      const driveId = extractDriveFileId(value);
+      const isLocalArtwork = /^\/(?:src\/assets\/images|assets)\/[A-Za-z0-9 _-]+\.(?:jpe?g|png|webp|gif|svg)$/i.test(value);
+      if (driveId) {
+        // Keep Drive IDs canonical in the database; the UI chooses a fast CDN or
+        // authenticated same-origin route depending on which image request works.
+        updates.coverUrl = 'https://lh3.googleusercontent.com/d/' + driveId;
+      } else if (isLocalArtwork) {
+        updates.coverUrl = value;
+      } else if (value === String(existingSong.coverUrl || '')) {
+        // Do not block metadata-only edits on older songs with legacy artwork URLs.
+        delete updates.coverUrl;
+      } else {
+        let externalImageIsValid = false;
+        try {
+          const parsed = new URL(value);
+          externalImageIsValid = parsed.protocol === 'https:' && !parsed.username && !parsed.password;
+        } catch {}
+        if (externalImageIsValid) updates.coverUrl = value;
+        else return res.status(400).json({ success: false, error: 'Choose a Google Drive image, an HTTPS image URL, or one of the built-in YouSong covers.' });
       }
-      // Store a stable canonical Drive image URL. Display sizing is added by MediaCover.
-      updates.coverUrl = 'https://lh3.googleusercontent.com/d/' + match[1];
     }
 
     const updated = await updateSongDb(id, updates);
