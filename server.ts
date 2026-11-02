@@ -2482,10 +2482,11 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
 // before storage in system_settings, so the browser never owns the long-lived credential.
 const DRIVE_TOKEN_SETTING = 'site_google_drive_refresh_token_v1';
 const DRIVE_STATE_SETTING = 'site_google_drive_oauth_state_v1';
-const DRIVE_LIBRARY_SCOPE_VERSION_SETTING = 'site_google_drive_library_scope_version_v3';
-const DRIVE_LIBRARY_SCOPE_VERSION = '3';
+const DRIVE_LIBRARY_SCOPE_VERSION_SETTING = 'site_google_drive_library_scope_version_v4';
+const DRIVE_LIBRARY_SCOPE_VERSION = '4';
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_METADATA_SCOPE = 'https://www.googleapis.com/auth/drive.metadata';
+const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 function driveClientId(): string { return String(process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim(); }
 function driveClientSecret(): string { return String(process.env.GOOGLE_CLIENT_SECRET || '').trim(); }
 function driveRedirectUri(): string {
@@ -2872,7 +2873,7 @@ app.get('/api/admin/google-drive/status', async (req: Request, res: Response) =>
       configured: true,
       storageReady: true,
       storage: 'postgresql',
-      libraryAccess: 'read and rename file metadata',
+      libraryAccess: 'read and rename file metadata; read existing Drive artwork',
     });
   } catch (error: any) {
     return res.status(200).json({ connected: false, accountMode: 'site-wide', redirectUri: driveRedirectUri(), configured, storageReady: false, error: error.message || 'Persistent Google Drive storage is not available.' });
@@ -2895,7 +2896,7 @@ app.get('/api/admin/google-drive/auth-url', async (req: Request, res: Response) 
       access_type: 'offline',
       prompt: 'consent',
       include_granted_scopes: 'true',
-      scope: DRIVE_FILE_SCOPE + ' ' + DRIVE_METADATA_SCOPE,
+      scope: DRIVE_FILE_SCOPE + ' ' + DRIVE_METADATA_SCOPE + ' ' + DRIVE_READONLY_SCOPE,
       state,
     });
     return res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
@@ -2929,8 +2930,8 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
     const tokens: any = await tokenRes.json().catch(() => ({}));
     if (!tokenRes.ok || !tokens.access_token) return res.status(502).send(`Google token exchange failed (${tokenRes.status}). Check the OAuth client and exact redirect URI in Google Cloud Console.`);
     const grantedScopes = await getGrantedDriveScopes(String(tokens.access_token));
-    if (!grantedScopes.has(DRIVE_METADATA_SCOPE)) {
-      return res.status(403).send('Google did not grant YouSong permission to view and rename Drive file metadata. Return to the site and approve the additional Drive metadata permission so the folder selector can search files and match audio with cover artwork.');
+    if (!grantedScopes.has(DRIVE_METADATA_SCOPE) || !grantedScopes.has(DRIVE_READONLY_SCOPE)) {
+      return res.status(403).send('Google did not grant YouSong the required Drive permissions. Approve both the Drive metadata permission and read-only Drive access so the site can find files and load existing song artwork.');
     }
     let refreshToken = tokens.refresh_token as string | undefined;
     if (!refreshToken) {
@@ -2955,8 +2956,8 @@ app.get('/api/admin/google-drive/oauth/callback', async (req: Request, res: Resp
       return res.status(502).send('Google granted the new permission but the site could not verify its saved refresh token. Reconnect Google Drive and approve the requested permissions again.');
     }
     const refreshedScopes = await getGrantedDriveScopes(String(refreshedTokens.access_token));
-    if (!refreshedScopes.has(DRIVE_METADATA_SCOPE)) {
-      return res.status(502).send('The saved Google Drive connection did not retain permission to rename file metadata. Reconnect Drive and approve the additional permission.');
+    if (!refreshedScopes.has(DRIVE_METADATA_SCOPE) || !refreshedScopes.has(DRIVE_READONLY_SCOPE)) {
+      return res.status(502).send('The saved Google Drive connection did not retain the required metadata and read-only permissions. Reconnect Drive and approve all requested permissions.');
     }
 
     await setPersistentSettingDb(DRIVE_TOKEN_SETTING, encryptDriveToken(refreshToken));
