@@ -2580,7 +2580,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
 
     // Drive thumbnailLink values are short-lived. Fetch them server-side instead
     // of exposing an expiring URL to browsers, then fall back to the original bytes.
-    let imageResponse: Response | null = null;
+    let imageResponse: globalThis.Response | null = null;
     const thumbnailLink = String(metadata.thumbnailLink || '');
     if (thumbnailLink) {
       try {
