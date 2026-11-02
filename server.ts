@@ -2556,7 +2556,8 @@ async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
     return registeredSongArtworkIds.has(fileId);
   }
   if (!registeredSongArtworkIdsLoad) {
-    registeredSongArtworkIdsLoad = getSongsPersistentDb().then((songs) => {
+    // Match the same catalogue source used by GET /api/songs, including its local fallback during a DB outage.
+    registeredSongArtworkIdsLoad = getSongsDb().then((songs) => {
       const ids = new Set<string>();
       for (const song of songs as any[]) {
         const id = extractDriveFileId(String(song.coverUrl || ''));
