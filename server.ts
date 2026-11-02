@@ -2545,7 +2545,7 @@ async function getDriveAccessToken(): Promise<string> {
       if (tokenData.error === 'invalid_grant') {
         throw new Error('Google rejected the saved Drive refresh token (invalid_grant). If Google Auth Platform → Audience is still set to Testing, switch Publishing status to In production, then reconnect the site Drive account once. Also confirm the token was not revoked and DRIVE_TOKEN_ENCRYPTION_KEY has not changed.');
       }
-      throw new Error(\`Google Drive could not refresh its access token (\${tokenRes.status}\${tokenData.error ? \`: \${tokenData.error}\` : ''}). Check Render logs; reconnect only if Google has actually revoked or expired the refresh token.\`);
+      throw new Error('Google Drive could not refresh its access token (' + tokenRes.status + (tokenData.error ? ': ' + tokenData.error : '') + '). Check Render logs; reconnect only if Google has actually revoked or expired the refresh token.');
     }
     const accessToken = String(tokenData.access_token);
     const expiresInSeconds = Math.max(60, Number(tokenData.expires_in) || 3600);
