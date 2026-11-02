@@ -218,21 +218,30 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
       break;
     }
   }
-  if (level === 'public') return next();
-
   const user = getAuthUser(req);
   if (!user) {
+    if (level === 'public') return next();
     return res.status(401).json({ success: false, error: 'Please log in again.', code: 'AUTH_REQUIRED' });
   }
+
+  // A site ban applies globally, including routes that are otherwise public.
+  // Keep only account status, appeal, login feedback, and logout available.
+  const safeSuspendedRoute =
+    (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
+    (req.method === 'POST' && ['/api/chat/appeal', '/api/auth/logout', '/api/auth/login'].includes(url));
+  if (user.role !== 'admin' && user.isSuspended && !safeSuspendedRoute) {
+    return res.status(403).json({
+      success: false,
+      error: 'This account is banned from YouSong. Contact an administrator or submit an appeal.',
+      code: 'ACCOUNT_SUSPENDED',
+    });
+  }
+
+  if (level === 'public') return next();
+
   const safeLockRoute = (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) || (req.method === 'POST' && url === '/api/auth/unlock');
   if (user.role !== 'admin' && user.isLocked && !safeLockRoute) return res.status(423).json({ success: false, error: 'This account is locked. Enter the current seven-digit code supplied by an administrator.', code: 'ACCOUNT_LOCKED' });
   if (level === 'login') {
-    const isSafeSuspendedRoute =
-      (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
-      (req.method === 'POST' && url === '/api/chat/appeal');
-    if (user.role !== 'admin' && user.isSuspended && !isSafeSuspendedRoute) {
-      return res.status(403).json({ success: false, error: 'This account is suspended. Contact an administrator or submit an appeal.', code: 'ACCOUNT_SUSPENDED' });
-    }
     return next();
   }
   if (level === 'admin') {
