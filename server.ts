@@ -2499,6 +2499,45 @@ async function getDriveAccessToken(): Promise<string> {
   return accessToken;
 }
 
+// Album artwork is shown to every listener who can see its song, so make
+// the linked Drive image readable by link as part of serving its thumbnail.
+// This also repairs older library covers that were selected from Drive folders
+// before the uploader consistently granted reader access.
+async function ensureDriveArtworkLinkReadable(fileId: string, accessToken: string): Promise<boolean> {
+  const permissionsUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions');
+  permissionsUrl.searchParams.set('fields', 'permissions(id,type,role)');
+  permissionsUrl.searchParams.set('supportsAllDrives', 'true');
+  const listResponse = await fetch(permissionsUrl, {
+    headers: { Authorization: 'Bearer ' + accessToken },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (listResponse.ok) {
+    const data: any = await listResponse.json().catch(() => ({}));
+    const alreadyReadable = (Array.isArray(data.permissions) ? data.permissions : []).some((permission: any) =>
+      permission?.type === 'anyone' && ['reader', 'writer', 'owner'].includes(String(permission.role || '').toLowerCase())
+    );
+    if (alreadyReadable) return true;
+  } else {
+    const detail = (await listResponse.text().catch(() => '')).slice(0, 220);
+    console.warn('[DriveArtwork] Could not inspect existing image permissions:', listResponse.status, detail);
+  }
+
+  const createUrl = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions');
+  createUrl.searchParams.set('supportsAllDrives', 'true');
+  const createResponse = await fetch(createUrl, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!createResponse.ok) {
+    const detail = (await createResponse.text().catch(() => '')).slice(0, 300);
+    console.warn('[DriveArtwork] Could not enable link viewing for a saved song cover:', createResponse.status, detail);
+    return false;
+  }
+  return true;
+}
+
 // Stream private Google Drive artwork through the site's connected account.
 // The browser never depends on Drive's public thumbnail CDN or link-sharing settings.
 app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
@@ -2525,6 +2564,11 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     if (metadata.trashed) return res.status(404).send('This artwork file has been deleted from Google Drive.');
     if (!allowedImageTypes.has(mimeType)) return res.status(415).send('The selected Google Drive file is not a supported image.');
     if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
+
+    // The public CDN is the cheapest and most reliable browser path. Repair
+    // older Drive-picked covers that never received the same link-reader permission
+    // as images uploaded directly through the site.
+    await ensureDriveArtworkLinkReadable(fileId, accessToken);
 
     // Drive thumbnailLink values are short-lived. Fetch them server-side instead
     // of exposing an expiring URL to browsers, then fall back to the original bytes.
