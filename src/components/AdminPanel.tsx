@@ -1019,6 +1019,7 @@ export const AdminPanel: React.FC = () => {
               </button>
             </div>
             {massLogoutFeedback && <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] text-slate-200">{massLogoutFeedback}</div>}
+            {userEditFeedback && <div className="mb-4 rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] px-3 py-2 text-[10px] text-cyan-100">{userEditFeedback}</div>}
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
