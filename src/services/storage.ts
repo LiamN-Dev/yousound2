@@ -171,7 +171,11 @@ class StorageService {
         updated.isSuspended !== current.isSuspended ||
         updated.isLocked !== current.isLocked ||
         updated.suspendedReason !== current.suspendedReason ||
-        updated.isApproved !== current.isApproved
+        updated.isApproved !== current.isApproved ||
+        updated.chatBlocked !== current.chatBlocked ||
+        updated.christmasMode !== current.christmasMode ||
+        updated.colorAccent !== current.colorAccent ||
+        updated.dailyListenLimit !== current.dailyListenLimit
       ) {
         this.setCurrentSessionUser({ ...current, ...updated });
         this.notify();
