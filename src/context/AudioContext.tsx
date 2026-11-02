@@ -975,9 +975,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return s;
   }, [refreshSongLibrary]);
 
-  const updateSong = useCallback((id: string, updates: Partial<Song>) => {
-    storage.updateSong(id, updates);
+  const updateSong = useCallback(async (id: string, updates: Partial<Song>) => {
+    const saved = await storage.updateSong(id, updates);
     refreshSongLibrary();
+    return saved;
   }, [refreshSongLibrary]);
 
   const bulkUpdateSongs = useCallback(async (
