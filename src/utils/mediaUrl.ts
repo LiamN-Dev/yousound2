@@ -58,7 +58,7 @@ export function formatCoverMediaUrl(url?: string | null): string {
   // proxy URL so browsers discard any previously cached, truncated image response.
   if (trimmed.startsWith('/api/drive/cover/')) {
     const path = trimmed.split('?')[0];
-    return `${path}?v=3`;
+    return `${path}?v=4`;
   }
   if (
     trimmed.startsWith('/api/media/') ||
@@ -78,7 +78,7 @@ export function formatCoverMediaUrl(url?: string | null): string {
     if (trimmed.toLowerCase().includes('.mp4') || trimmed.toLowerCase().includes('.webm')) {
       return `/api/media/drive-stream/${encodeURIComponent(driveId)}`;
     }
-    return `/api/drive/cover/${encodeURIComponent(driveId)}?v=3`;
+    return `/api/drive/cover/${encodeURIComponent(driveId)}?v=4`;
   }
 
   return trimmed;
