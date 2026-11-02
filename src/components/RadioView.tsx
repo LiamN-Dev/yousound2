@@ -105,10 +105,19 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (Number.isFinite(serverTime) && serverTime < latestStationServerTimeRef.current) return;
       if (Number.isFinite(serverTime)) {
         latestStationServerTimeRef.current = serverTime;
-        const rtt = Math.max(0, receivedAt - requestStartedAt);
-        const midpoint = (requestStartedAt + receivedAt) / 2;
-        const measuredOffset = serverTime - midpoint;
-        clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+        const clockSample = data.clock || {};
+        const serverReceivedAtMs = Number(clockSample.serverReceivedAtMs);
+        const serverSentAtMs = Number(clockSample.serverSentAtMs);
+        const databaseOffsetMs = Number(clockSample.databaseOffsetMs);
+        if (Number.isFinite(serverReceivedAtMs) && Number.isFinite(serverSentAtMs) && Number.isFinite(databaseOffsetMs)) {
+          // Four-timestamp NTP estimate, translated to PostgreSQL's authoritative radio clock.
+          const serverProcessingMs = Math.max(0, serverSentAtMs - serverReceivedAtMs);
+          const rtt = Math.max(0, receivedAt - requestStartedAt - serverProcessingMs);
+          const measuredOffset =
+            ((serverReceivedAtMs - requestStartedAt) + (serverSentAtMs - receivedAt)) / 2
+            + databaseOffsetMs;
+          clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+        }
         // Keep a rolling window, then choose the lowest-latency sample within it.
         const best = [...clockSamplesRef.current].sort((a, b) => a.rtt - b.rtt)[0];
         const previousOffset = serverClockOffsetRef.current;
@@ -116,7 +125,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           ? best.offset
           : Math.abs(best.offset - previousOffset) > 750
             ? best.offset
-            : previousOffset * 0.8 + best.offset * 0.2;
+            : previousOffset * 0.65 + best.offset * 0.35;
         serverClockOffsetRef.current = nextOffset;
         setBestClockRttMs(best.rtt);
         setClockOffsetMs(nextOffset);
@@ -394,16 +403,25 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         const confirmedServerTime = Date.parse(confirmedState.serverNow || '');
         if (Number.isFinite(confirmedServerTime)) {
           latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
-          const rtt = Math.max(0, receivedAt - requestStartedAt);
-          const measuredOffset = confirmedServerTime - (requestStartedAt + receivedAt) / 2;
-          clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+          const clockSample = data.clock || {};
+          const serverReceivedAtMs = Number(clockSample.serverReceivedAtMs);
+          const serverSentAtMs = Number(clockSample.serverSentAtMs);
+          const databaseOffsetMs = Number(clockSample.databaseOffsetMs);
+          if (Number.isFinite(serverReceivedAtMs) && Number.isFinite(serverSentAtMs) && Number.isFinite(databaseOffsetMs)) {
+            const serverProcessingMs = Math.max(0, serverSentAtMs - serverReceivedAtMs);
+            const rtt = Math.max(0, receivedAt - requestStartedAt - serverProcessingMs);
+            const measuredOffset =
+              ((serverReceivedAtMs - requestStartedAt) + (serverSentAtMs - receivedAt)) / 2
+              + databaseOffsetMs;
+            clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+          }
           const best = [...clockSamplesRef.current].sort((a, b) => a.rtt - b.rtt)[0];
           const previousOffset = serverClockOffsetRef.current;
           const nextOffset = previousOffset === null
             ? best.offset
             : Math.abs(best.offset - previousOffset) > 750
               ? best.offset
-              : previousOffset * 0.8 + best.offset * 0.2;
+              : previousOffset * 0.65 + best.offset * 0.35;
           serverClockOffsetRef.current = nextOffset;
           setBestClockRttMs(best.rtt);
           setClockOffsetMs(nextOffset);
