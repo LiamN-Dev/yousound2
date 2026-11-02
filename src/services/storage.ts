@@ -317,7 +317,12 @@ class StorageService {
                 updated.username !== current.username ||
                 updated.temporaryPasswordAssigned !== current.temporaryPasswordAssigned ||
                 updated.chatBlocked !== current.chatBlocked ||
-                updated.isSuspended !== current.isSuspended
+                updated.isSuspended !== current.isSuspended ||
+                updated.isLocked !== current.isLocked ||
+                updated.christmasMode !== current.christmasMode ||
+                updated.colorAccent !== current.colorAccent ||
+                updated.dailyListenLimit !== current.dailyListenLimit ||
+                updated.suspendedReason !== current.suspendedReason
               ) {
                 this.setCurrentSessionUser({ ...current, ...updated });
               }
