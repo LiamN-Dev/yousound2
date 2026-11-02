@@ -2614,9 +2614,11 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
       imageResponse = originalResponse;
     }
 
+    const imageBody = imageResponse.body;
+    if (!imageBody) return res.status(502).send('Google Drive returned an empty artwork response.');
     const responseLength = Number(imageResponse.headers.get('content-length') || 0);
     if (responseLength > 25 * 1024 * 1024) {
-      await imageResponse.body.cancel().catch(() => undefined);
+      await imageBody.cancel().catch(() => undefined);
       return res.status(413).send('Artwork exceeds the 25 MB image limit.');
     }
     res.status(200);
@@ -2629,7 +2631,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     const etag = imageResponse.headers.get('etag');
     if (etag) res.setHeader('ETag', etag);
 
-    const imageStream = (await import('stream')).Readable.fromWeb(imageResponse.body as any);
+    const imageStream = (await import('stream')).Readable.fromWeb(imageBody as any);
     imageStream.on('error', (error) => {
       console.error('[DriveArtwork] Stream error:', error);
       if (!res.headersSent) res.status(502).end(); else res.destroy(error);
