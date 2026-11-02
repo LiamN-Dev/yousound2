@@ -454,8 +454,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
             setSyncing(true);
             void playRadioSong(confirmedState.currentSong, targetAtSync, rate, syncAtServerMs - offset)
               .finally(() => setSyncing(false));
-          } else if (action !== 'reorder-queue') {
-            // Reordering future tracks must not touch the currently playing audio element.
+          } else {
             void playRadioSong(confirmedState.currentSong, confirmedState.elapsedSeconds, rate);
           }
         }
