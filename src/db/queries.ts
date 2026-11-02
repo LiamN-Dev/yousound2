@@ -119,7 +119,7 @@ export async function updateUserDb(
   }
 ) {
   if (!(await checkSqlAvailability())) {
-    return localStore.updateUser(userId, updates);
+    throw new Error('The persistent database is unavailable. Account security and preference changes were not saved.');
   }
   try {
     const whereClause =
@@ -134,11 +134,12 @@ export async function updateUserDb(
       .set(updates)
       .where(whereClause!)
       .returning();
-    localStore.updateUser(userId, updates);
-    return updated[0] || localStore.updateUser(userId, updates);
+    if (!updated[0]) throw new Error('User account not found. Refresh the account list and try again.');
+    localStore.updateUser(userId, updated[0]);
+    return updated[0];
   } catch (error) {
     noteDbError('updateUserDb', error);
-    return localStore.updateUser(userId, updates);
+    throw error instanceof Error ? error : new Error('The database rejected the account update.');
   }
 }
 
@@ -416,21 +417,74 @@ export async function insertSongDb(songData: {
     throw error;
   }
 }
-export async function updateSongDb(id: string, updates: any) {
-  localStore.updateSong(id, updates);
+const SONG_EDITABLE_COLUMNS = new Set([
+  'title', 'artist', 'mediaCode', 'album', 'genre', 'tags', 'typeMood', 'audioUrl', 'coverUrl',
+  'duration', 'durationExact', 'plays', 'featured', 'description',
+  'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
+  'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate',
+  'autoReleaseOnDrop', 'hiddenFrom', 'isSpotlight', 'spotlightOrder',
+  'spotlightNote', 'dailyPlays', 'dailyPlaysResetDate', 'weeklyPlays',
+  'weeklyPlaysResetDate', 'isScheduledForDeletion', 'scheduledDeletionAt',
+  'lastPlayedAt',
+]);
+
+function normalizeSongUpdate(input: Record<string, any>) {
+  const updates: Record<string, any> = {};
+  for (const [rawKey, value] of Object.entries(input || {})) {
+    if (value === undefined) continue;
+    const key = rawKey === 'badgeCustomText' ? 'badgeMessage' : rawKey;
+    if (!SONG_EDITABLE_COLUMNS.has(key)) continue;
+    if (['tags', 'hiddenFrom'].includes(key)) {
+      if (value === null && key === 'hiddenFrom') updates[key] = [];
+      else if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        throw new Error(key + ' must be a list of text values.');
+      } else updates[key] = value.map((item: string) => item.trim()).filter(Boolean);
+    } else if (['duration', 'plays', 'dailyPlays', 'weeklyPlays', 'spotlightOrder'].includes(key)) {
+      if (!Number.isFinite(Number(value)) || Number(value) < 0) throw new Error(key + ' must be a non-negative number.');
+      updates[key] = Math.floor(Number(value));
+    } else if (key === 'durationExact') {
+      if (value === null) updates[key] = null;
+      else if (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 43200) throw new Error('durationExact must be between 0 and 43,200 seconds.');
+      else updates[key] = Number(value);
+    } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
+      if (typeof value !== 'boolean') throw new Error(key + ' must be true or false.');
+      updates[key] = value;
+    } else if (key === 'audioUrl' || key === 'coverUrl') {
+      if (typeof value !== 'string' || !value.trim()) throw new Error(key + ' cannot be empty. Choose a valid Drive media file.');
+      updates[key] = value.trim();
+    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode'].includes(key)) {
+      if (value === null || value === '') updates[key] = null;
+      else if (typeof value !== 'string') throw new Error(key + ' must be text.');
+      else updates[key] = value.trim();
+    } else if (key === 'title' || key === 'artist' || key === 'genre' || key === 'badgeType') {
+      if (typeof value !== 'string' || (['title', 'artist', 'genre'].includes(key) && !value.trim())) {
+        throw new Error(key + ' must be non-empty text.');
+      }
+      updates[key] = value.trim();
+    }
+  }
+  return updates;
+}
+
+export async function updateSongDb(id: string, updates: Record<string, any>) {
   if (!(await checkSqlAvailability())) {
-    return localStore.updateSong(id, updates);
+    throw new Error('The persistent database is unavailable. The song was not changed.');
+  }
+  const cleanUpdates = normalizeSongUpdate(updates);
+  if (Object.keys(cleanUpdates).length === 0) {
+    throw new Error('No valid song fields were supplied to update.');
   }
   try {
-    const updated = await db
-      .update(songs)
-      .set(updates)
+    const rows = await db.update(songs)
+      .set(cleanUpdates)
       .where(eq(songs.id, id))
       .returning();
-    return updated[0] || localStore.updateSong(id, updates);
+    if (!rows[0]) throw new Error('Song not found. Refresh the library and try again.');
+    localStore.updateSong(id, rows[0]);
+    return rows[0];
   } catch (error) {
     noteDbError('updateSongDb', error);
-    return localStore.updateSong(id, updates);
+    throw error instanceof Error ? error : new Error('The database rejected the song update.');
   }
 }
 
@@ -440,16 +494,16 @@ export async function bulkUpdateSongsDb(
   tagOperation?: { action: 'add' | 'remove' | 'set'; tags: string[] }
 ) {
   const allowedColumns = new Set([
-    'title', 'artist', 'album', 'genre', 'typeMood', 'duration',
-    'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
+    'title', 'artist', 'mediaCode', 'album', 'genre', 'typeMood', 'duration', 'durationExact', 'plays',
+    'dailyPlays', 'weeklyPlays', 'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
     'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'autoReleaseOnDrop',
     'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
-    'isScheduledForDeletion', 'scheduledDeletionAt',
+    'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);
   const cleanUpdates: Record<string, any> = {};
-  for (const [key, value] of Object.entries(updates || {})) {
-    if (key === 'badgeCustomText') cleanUpdates.badgeMessage = value;
-    else if (allowedColumns.has(key) && value !== undefined) cleanUpdates[key] = value;
+  Object.assign(cleanUpdates, normalizeSongUpdate(updates || {}));
+  for (const [key, value] of Object.entries(cleanUpdates)) {
+    if (!allowedColumns.has(key)) delete cleanUpdates[key];
   }
 
   const ids = Array.from(new Set(songIds.map(String).filter(Boolean)));
@@ -546,41 +600,47 @@ export async function incrementSongPlayDb(id: string, isAdmin: boolean = false) 
 }
 
 export async function resetSongPlaysDb(id: string) {
-  localStore.resetSongPlays(id);
-  if (!(await checkSqlAvailability())) return localStore.resetSongPlays(id);
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Listen counts were not reset.');
+  }
   try {
-    const updated = await db
-      .update(songs)
-      .set({
-        plays: 0,
-        dailyPlays: 0,
-        weeklyPlays: 0,
-      })
+    const updated = await db.update(songs)
+      .set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 })
       .where(eq(songs.id, id))
       .returning();
-    return updated[0] || localStore.resetSongPlays(id);
+    if (!updated[0]) throw new Error('Song not found. Refresh the library and try again.');
+    localStore.updateSong(id, updated[0]);
+    return updated[0];
   } catch (error) {
     noteDbError('resetSongPlaysDb', error);
-    return localStore.resetSongPlays(id);
+    throw error instanceof Error ? error : new Error('The database did not confirm the listen-count reset.');
   }
 }
 
 export async function bulkResetSongPlaysDb(ids?: string[]) {
-  localStore.bulkResetSongPlays(ids);
-  if (!(await checkSqlAvailability())) return true;
+  if (!(await checkSqlAvailability())) {
+    throw new Error('The persistent database is unavailable. Listen counts were not reset.');
+  }
   try {
+    let updated: any[];
     if (ids && ids.length > 0) {
-      await db
-        .update(songs)
+      updated = await db.update(songs)
         .set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 })
-        .where(inArray(songs.id, ids));
+        .where(inArray(songs.id, ids))
+        .returning();
+      if (updated.length !== new Set(ids).size) {
+        throw new Error('The database reset fewer songs than selected. Refresh the library and try again.');
+      }
     } else {
-      await db.update(songs).set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 });
+      updated = await db.update(songs)
+        .set({ plays: 0, dailyPlays: 0, weeklyPlays: 0 })
+        .returning();
     }
+    updated.forEach((song) => localStore.updateSong(song.id, song));
     return true;
   } catch (error) {
     noteDbError('bulkResetSongPlaysDb', error);
-    return true;
+    throw error instanceof Error ? error : new Error('The database did not confirm the listen-count reset.');
   }
 }
 

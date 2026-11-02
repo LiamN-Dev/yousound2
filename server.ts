@@ -1319,20 +1319,36 @@ app.post('/api/songs/:id/duration', async (req: Request, res: Response) => {
 
 app.patch('/api/songs/:id', async (req: Request, res: Response) => {
   try {
-    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent database is unavailable. Song changes were not saved.' });
+    }
     const { id } = req.params;
-    const updates = { ...req.body };
-    if (typeof updates.audioUrl === 'string' && !/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+/i.test(updates.audioUrl)) {
-      return res.status(400).json({ success: false, error: 'Song audio must be uploaded to the site Google Drive. External links and embedded audio are disabled.' });
+    const updates = { ...(req.body || {}) };
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'audioUrl')) {
+      const value = String(updates.audioUrl || '').trim();
+      if (!/^https:\/\/drive\.google\.com\/uc\?export=download&id=[A-Za-z0-9_-]+$/i.test(value)) {
+        return res.status(400).json({ success: false, error: 'Song audio must be a direct file in the site Google Drive.' });
+      }
+      updates.audioUrl = value;
     }
-    if (typeof updates.coverUrl === 'string' && updates.coverUrl && !/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+/i.test(updates.coverUrl)) {
-      return res.status(400).json({ success: false, error: 'Song artwork must be uploaded to the site Google Drive.' });
+    if (Object.prototype.hasOwnProperty.call(updates, 'coverUrl')) {
+      const value = String(updates.coverUrl || '').trim();
+      const match = value.match(/^https:\/\/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)(?:=w\d+(?:-h\d+)?)?$/i);
+      if (!match) {
+        return res.status(400).json({ success: false, error: 'Song artwork must remain a valid Google Drive image. Choose a cover image rather than leaving this field empty.' });
+      }
+      // Store a stable canonical Drive image URL. Display sizing is added by MediaCover.
+      updates.coverUrl = 'https://lh3.googleusercontent.com/d/' + match[1];
     }
+
     const updated = await updateSongDb(id, updates);
     return res.json({ success: true, song: updated });
   } catch (error: any) {
     console.error('Update song error:', error);
-    return res.status(500).json({ error: error.message });
+    const status = /not found/i.test(String(error?.message || '')) ? 404 : /persistent database/i.test(String(error?.message || '')) ? 503 : 400;
+    return res.status(status).json({ success: false, error: error.message || 'Could not save song changes.' });
   }
 });
 
@@ -1888,7 +1904,7 @@ app.get('/api/radio/chat', async (req: Request, res: Response) => {
     const station = await resolveRadioState();
     const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
-    const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
+    const messages = station.enabled && canChat ? await getRadioChatMessagesDb(60) : [];
     return res.json({
       success: true,
       messages,
@@ -2587,19 +2603,48 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
           return res.status(400).json({ success: false, error: 'The submitted artwork link must be a public HTTPS image URL.' });
         }
         const submittedDriveId = extractGoogleDriveFileId(requestItem.webLink);
-        const downloadUrl = submittedDriveId
-          ? 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(submittedDriveId)
-          : imageUrl.toString();
-        const imageResponse = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+        let imageResponse: Awaited<ReturnType<typeof fetch>>;
+        if (submittedDriveId) {
+          // Drive's legacy uc?export=download endpoint often returns an HTML virus-scan
+          // confirmation page for larger files. Use the user-content download endpoint
+          // with the same public-link permission, then validate the resulting binary.
+          const driveDownloads = [
+            'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(submittedDriveId) + '&export=download&confirm=t',
+            'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(submittedDriveId),
+          ];
+          let lastStatus = 0;
+          let usable: Awaited<ReturnType<typeof fetch>> | null = null;
+          for (const downloadUrl of driveDownloads) {
+            const candidate = await fetch(downloadUrl, { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+            lastStatus = candidate.status;
+            const mime = String(candidate.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            if (candidate.ok && ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mime)) {
+              usable = candidate;
+              break;
+            }
+            await candidate.body?.cancel().catch(() => undefined);
+          }
+          if (!usable) {
+            throw new Error('Google Drive did not return the submitted image as a public image file. Change its sharing to “Anyone with the link — Viewer” and submit the link again (last response ' + lastStatus + ').');
+          }
+          imageResponse = usable;
+        } else {
+          imageResponse = await fetch(imageUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+        }
         if (!imageResponse.ok) throw new Error('Could not download the submitted artwork link (' + imageResponse.status + ').');
         const finalImageUrl = imageResponse.url ? new URL(imageResponse.url) : imageUrl;
         if (finalImageUrl.protocol !== 'https:' || blockedArtworkHost(finalImageUrl.hostname)) {
+          await imageResponse.body?.cancel().catch(() => undefined);
           throw new Error('The artwork link redirected to an address that is not allowed.');
         }
         const contentLength = Number(imageResponse.headers.get('content-length') || 0);
-        if (contentLength > 25 * 1024 * 1024) throw new Error('Submitted artwork is larger than 25 MB.');
+        if (contentLength > 25 * 1024 * 1024) {
+          await imageResponse.body?.cancel().catch(() => undefined);
+          throw new Error('Submitted artwork is larger than 25 MB.');
+        }
         coverMimeType = String(imageResponse.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
         if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(coverMimeType)) {
+          await imageResponse.body?.cancel().catch(() => undefined);
           throw new Error('The submitted link did not return a supported image. Use a direct JPG, PNG, WEBP, or GIF image link.');
         }
         const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
@@ -3653,7 +3698,9 @@ app.post('/api/admin/maintenance', async (req: Request, res: Response) => {
 app.get('/api/chat/requests', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) {
-      return res.json({ requests: await getChatRequestsForUserDb(getAuthUser(req).uid) });
+      const member = getAuthUser(req);
+      if (member?.chatBlocked) return res.status(403).json({ error: 'Your account is blocked from chat.' });
+      return res.json({ requests: await getChatRequestsForUserDb(member.uid) });
     }
     const { userId } = req.query;
     if (userId && typeof userId === 'string') {
@@ -3763,7 +3810,10 @@ app.delete('/api/chat/requests/:id', async (req: Request, res: Response) => {
 app.get('/api/chat/threads', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) {
-      return res.json({ threads: await getChatThreadsForUserDb(getAuthUser(req).uid) });
+      const member = getAuthUser(req);
+      const threads = await getChatThreadsForUserDb(member.uid);
+      // Account-wide chat blocks may keep access to a suspension appeal thread only.
+      return res.json({ threads: member.chatBlocked ? threads.filter((thread: any) => thread.isAppealThread) : threads });
     }
     const { userId, mode } = req.query;
     if (userId && typeof userId === 'string') {
@@ -3890,6 +3940,9 @@ app.get('/api/chat/messages/:threadId', async (req: Request, res: Response) => {
       const thread: any = await getChatThreadByIdDb(threadId);
       if (!thread || (thread.user1Id !== me.uid && thread.user2Id !== me.uid)) {
         return res.status(403).json({ error: 'You are not part of this conversation' });
+      }
+      if (me.chatBlocked && !thread.isAppealThread) {
+        return res.status(403).json({ error: 'Your account is blocked from chat.' });
       }
     }
     const messages = await getChatMessagesDb(threadId);

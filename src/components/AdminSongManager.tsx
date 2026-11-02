@@ -304,43 +304,57 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
 
   // Bulk Reset Plays
   const handleBulkResetPlays = async () => {
-    if (confirm(`Reset all-time and weekly play counts to 0 for ${selectedSongIds.length} selected song(s)? This will reset their Top Hit designation.`)) {
+    if (!confirm(`Reset all-time and daily/weekly play counts to 0 for ${selectedSongIds.length} selected song(s)? This will reset their Top Hit designation.`)) return;
+    try {
       await bulkResetSongPlays(selectedSongIds);
       setFeedback(`✓ Reset listen amounts to 0 for ${selectedSongIds.length} song(s). Top Hit metric refreshed.`);
       setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback(`Listen-count reset failed: ${error?.message || 'The server did not save the reset.'}`);
     }
   };
 
   // Single Song Reset Plays
   const handleSingleResetPlays = async (song: Song) => {
-    if (confirm(`Reset listen counters for "${song.title}" back to 0?`)) {
+    if (!confirm(`Reset listen counters for "${song.title}" back to 0?`)) return;
+    try {
       await resetSongPlays(song.id);
       setFeedback(`✓ Reset listen counts for "${song.title}" to 0.`);
       setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback(`Listen-count reset failed: ${error?.message || 'The server did not save the reset.'}`);
     }
   };
 
-  // Restore track from scheduled deletion
-  const handleRestoreSong = (song: Song) => {
-    updateSong(song.id, {
-      isScheduledForDeletion: false,
-      scheduledDeletionAt: undefined,
-      hiddenFrom: [],
-    });
-    setFeedback(`✓ Restored "${song.title}" back to active library.`);
-    setTimeout(() => setFeedback(null), 3000);
+  // Restore only after the server confirms that visibility and deletion flags were cleared.
+  const handleRestoreSong = async (song: Song) => {
+    try {
+      await updateSong(song.id, {
+        isScheduledForDeletion: false,
+        scheduledDeletionAt: null as any,
+        hiddenFrom: [],
+      });
+      setFeedback(`✓ Restored "${song.title}" back to active library.`);
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback(`Could not restore "${song.title}": ${error?.message || 'The server did not save the change.'}`);
+    }
   };
 
   // Safe schedule for deletion (hides from listeners, keeps in admin)
-  const handleScheduleSongDeletion = (song: Song) => {
-    updateSong(song.id, {
-      isScheduledForDeletion: true,
-      scheduledDeletionAt: new Date().toISOString(),
-      hiddenFrom: ['all'],
-    });
-    setDeletingSong(null);
-    setFeedback(`✓ Scheduled "${song.title}" for deletion. Hidden from all listeners and preserved in Admin Panel.`);
-    setTimeout(() => setFeedback(null), 3000);
+  const handleScheduleSongDeletion = async (song: Song) => {
+    try {
+      await updateSong(song.id, {
+        isScheduledForDeletion: true,
+        scheduledDeletionAt: new Date().toISOString(),
+        hiddenFrom: ['all'],
+      });
+      setDeletingSong(null);
+      setFeedback(`✓ Scheduled "${song.title}" for deletion. Hidden from all listeners and preserved in Admin Panel.`);
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback(`Could not schedule "${song.title}": ${error?.message || 'The server did not save the change.'}`);
+    }
   };
 
   // Permanent deletion
@@ -474,26 +488,34 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
     setTimeout(() => setFeedback(null), 3000);
   };
 
-  // Inline Tag Add for a single song
-  const handleAddInlineTag = (song: Song) => {
+  // Inline tag changes are server-confirmed like all other song metadata edits.
+  const handleAddInlineTag = async (song: Song) => {
     if (!inlineTagValue.trim()) {
       setAddingTagSongId(null);
       return;
     }
     const cleanTag = inlineTagValue.trim().toLowerCase().replace(/^#/, '');
     const currentTags = song.tags ? [...song.tags] : [];
-    if (!currentTags.map((t) => t.toLowerCase()).includes(cleanTag)) {
-      currentTags.push(cleanTag);
-      updateSong(song.id, { tags: currentTags });
+    try {
+      if (!currentTags.map((tag) => tag.toLowerCase()).includes(cleanTag)) {
+        currentTags.push(cleanTag);
+        await updateSong(song.id, { tags: currentTags });
+      }
+      setInlineTagValue('');
+      setAddingTagSongId(null);
+    } catch (error: any) {
+      setFeedback(`Tag update failed: ${error?.message || 'The server did not save the change.'}`);
     }
-    setInlineTagValue('');
-    setAddingTagSongId(null);
   };
 
-  const handleRemoveSingleTag = (song: Song, tagToRemove: string) => {
+  const handleRemoveSingleTag = async (song: Song, tagToRemove: string) => {
     const currentTags = song.tags ? [...song.tags] : [];
-    const updated = currentTags.filter((t) => t.toLowerCase() !== tagToRemove.toLowerCase());
-    updateSong(song.id, { tags: updated });
+    const updated = currentTags.filter((tag) => tag.toLowerCase() !== tagToRemove.toLowerCase());
+    try {
+      await updateSong(song.id, { tags: updated });
+    } catch (error: any) {
+      setFeedback(`Tag removal failed: ${error?.message || 'The server did not save the change.'}`);
+    }
   };
 
   const formatDuration = (seconds: number) => {
@@ -1104,7 +1126,14 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                               setSpotlightNoteSong(song);
                               setSpotlightNoteInput(song.spotlightNote || '');
                             } else {
-                              updateSong(song.id, { isSpotlight: false });
+                              void updateSong(song.id, { isSpotlight: false })
+                                .then(() => {
+                                  setFeedback(`Removed "${song.title}" from Spotlight.`);
+                                  setTimeout(() => setFeedback(null), 3000);
+                                })
+                                .catch((error: any) => {
+                                  setFeedback(`Could not update Spotlight: ${error?.message || 'The server did not save the change.'}`);
+                                });
                             }
                           }}
                           className={`p-2 rounded-xl border transition-all ${
@@ -1486,13 +1515,17 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
               </button>
               <button
                 onClick={async () => {
-                  await updateSong(spotlightNoteSong.id, {
-                    isSpotlight: true,
-                    spotlightNote: spotlightNoteInput.trim() || undefined,
-                  });
-                  setFeedback(`Added "${spotlightNoteSong.title}" to Spotlight!`);
-                  setSpotlightNoteSong(null);
-                  setTimeout(() => setFeedback(null), 3000);
+                  try {
+                    await updateSong(spotlightNoteSong.id, {
+                      isSpotlight: true,
+                      spotlightNote: spotlightNoteInput.trim() || null as any,
+                    });
+                    setFeedback(`Added "${spotlightNoteSong.title}" to Spotlight!`);
+                    setSpotlightNoteSong(null);
+                    setTimeout(() => setFeedback(null), 3000);
+                  } catch (error: any) {
+                    setFeedback(`Could not update Spotlight: ${error?.message || 'The server did not save the change.'}`);
+                  }
                 }}
                 className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-bold shadow-lg shadow-amber-500/20"
               >

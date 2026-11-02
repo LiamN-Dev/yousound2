@@ -487,8 +487,18 @@ export const AdminPipelineManager: React.FC = () => {
             const busy = workingId === request.id;
             const stagedUrl = request.stagingAudioUrl || request.audioUrl || '';
             return (
-              <article key={request.id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-4 sm:p-5">
-                <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+              <article key={request.id} className="rounded-2xl border border-white/10 bg-slate-950/45 px-4 sm:px-5">
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 py-4 [&::-webkit-details-marker]:hidden">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-white">{request.songTitle || 'Untitled request'}</span>
+                      <span className="mt-0.5 block truncate text-[10px] text-slate-400">Requested by {request.requestedByUsername || 'Unknown member'}</span>
+                    </span>
+                    <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-bold uppercase tracking-wide ${request.status === 'published' ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : request.status === 'staging' ? 'border-cyan-400/30 bg-cyan-500/10 text-cyan-200' : request.status === 'declined' ? 'border-rose-400/30 bg-rose-500/10 text-rose-200' : 'border-white/10 bg-white/[0.04] text-slate-300'}`}>{request.status}</span>
+                    <span className="shrink-0 text-[10px] text-slate-500 transition-transform group-open:rotate-180">▼</span>
+                  </summary>
+                  <div className="border-t border-white/10 py-4">
+                    <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="mb-3 flex flex-wrap items-center gap-2">
                       {request.status === 'approved' && (
@@ -562,6 +572,8 @@ export const AdminPipelineManager: React.FC = () => {
                     <span className="text-[10px] text-emerald-200">Audio and artwork are stored in Google Drive; only their references are stored in the database.</span>
                   </div>
                 )}
+                  </div>
+                </details>
               </article>
             );
           })}

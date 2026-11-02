@@ -171,7 +171,11 @@ class StorageService {
         updated.isSuspended !== current.isSuspended ||
         updated.isLocked !== current.isLocked ||
         updated.suspendedReason !== current.suspendedReason ||
-        updated.isApproved !== current.isApproved
+        updated.isApproved !== current.isApproved ||
+        updated.chatBlocked !== current.chatBlocked ||
+        updated.christmasMode !== current.christmasMode ||
+        updated.colorAccent !== current.colorAccent ||
+        updated.dailyListenLimit !== current.dailyListenLimit
       ) {
         this.setCurrentSessionUser({ ...current, ...updated });
         this.notify();
@@ -317,7 +321,12 @@ class StorageService {
                 updated.username !== current.username ||
                 updated.temporaryPasswordAssigned !== current.temporaryPasswordAssigned ||
                 updated.chatBlocked !== current.chatBlocked ||
-                updated.isSuspended !== current.isSuspended
+                updated.isSuspended !== current.isSuspended ||
+                updated.isLocked !== current.isLocked ||
+                updated.christmasMode !== current.christmasMode ||
+                updated.colorAccent !== current.colorAccent ||
+                updated.dailyListenLimit !== current.dailyListenLimit ||
+                updated.suspendedReason !== current.suspendedReason
               ) {
                 this.setCurrentSessionUser({ ...current, ...updated });
               }
@@ -1297,21 +1306,23 @@ class StorageService {
   }
 
   async updateSong(songId: string, updates: Partial<Song>): Promise<boolean> {
-    const index = this.songs.findIndex((s) => s.id === songId);
-    if (index === -1) return false;
-    this.songs[index] = { ...this.songs[index], ...updates };
+    const response = await fetch(`/api/songs/${encodeURIComponent(songId)}`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success || !data.song) {
+      throw new Error(data.error || `The server did not save this song (${response.status}).`);
+    }
+    const savedSong = data.song as Song;
+    const index = this.songs.findIndex((item) => item.id === songId);
+    if (index === -1) this.songs = [savedSong, ...this.songs];
+    else this.songs[index] = savedSong;
     this.saveSongs();
     this.notify();
-
-    try {
-      await fetch(`/api/songs/${encodeURIComponent(songId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-    } catch (e) {
-      console.error('Update song error:', e);
-    }
     return true;
   }
 
@@ -1444,52 +1455,55 @@ class StorageService {
   }
 
   async resetSongPlays(songId: string): Promise<boolean> {
-    const s = this.songs.find((item) => item.id === songId);
-    if (s) {
-      s.plays = 0;
-      s.dailyPlays = 0;
-      s.weeklyPlays = 0;
-      s.dailyPlaysResetDate = undefined;
-      s.weeklyPlaysResetDate = undefined;
-      s.lastPlayedAt = undefined;
+    const response = await fetch(`/api/songs/${encodeURIComponent(songId)}/reset-plays`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `The server did not reset this song's listen counts (${response.status}).`);
+    }
+    const song = this.songs.find((item) => item.id === songId);
+    if (song) {
+      song.plays = 0;
+      song.dailyPlays = 0;
+      song.weeklyPlays = 0;
+      song.dailyPlaysResetDate = undefined;
+      song.weeklyPlaysResetDate = undefined;
+      song.lastPlayedAt = undefined;
       this.saveSongs();
       this.notify();
     }
-    try {
-      await fetch(`/api/songs/${encodeURIComponent(songId)}/reset-plays`, { method: 'POST' });
-      return true;
-    } catch (e) {
-      console.error('Reset plays error:', e);
-      return false;
-    }
+    return true;
   }
 
   async bulkResetSongPlays(ids?: string[]): Promise<boolean> {
+    const response = await fetch('/api/songs/bulk-reset-plays', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `The server did not reset the selected listen counts (${response.status}).`);
+    }
     const targetSet = ids ? new Set(ids) : null;
-    this.songs.forEach((s) => {
-      if (!targetSet || targetSet.has(s.id)) {
-        s.plays = 0;
-        s.dailyPlays = 0;
-        s.weeklyPlays = 0;
-        s.dailyPlaysResetDate = undefined;
-        s.weeklyPlaysResetDate = undefined;
-        s.lastPlayedAt = undefined;
+    this.songs.forEach((song) => {
+      if (!targetSet || targetSet.has(song.id)) {
+        song.plays = 0;
+        song.dailyPlays = 0;
+        song.weeklyPlays = 0;
+        song.dailyPlaysResetDate = undefined;
+        song.weeklyPlaysResetDate = undefined;
+        song.lastPlayedAt = undefined;
       }
     });
     this.saveSongs();
     this.notify();
-
-    try {
-      await fetch('/api/songs/bulk-reset-plays', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
-      });
-      return true;
-    } catch (e) {
-      console.error('Bulk reset plays error:', e);
-      return false;
-    }
+    return true;
   }
 
   async importCloudCover(url: string): Promise<{ success: boolean; coverUrl?: string; error?: string }> {
