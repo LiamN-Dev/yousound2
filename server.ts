@@ -1662,6 +1662,9 @@ async function resolveRadioState() {
 }
 
 app.get('/api/radio/state', async (req: Request, res: Response) => {
+  // Capture both ends of the server-side request window. RadioView combines these
+  // with the browser's monotonic timestamps using the NTP four-timestamp equation.
+  const serverReceivedAtMs = Date.now();
   try {
     res.setHeader('Cache-Control', 'no-store');
     const state = await resolveRadioState();
@@ -1673,7 +1676,14 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
       delete (state as any).currentIndex;
       if (state.currentProgram) state.currentProgram = { name: state.currentProgram.name, description: state.currentProgram.description, songIds: [] };
     }
-    return res.json({ success: true, state });
+    const serverSentAtMs = Date.now();
+    const serverDbTimeMs = Date.parse(state.serverNow || '');
+    const databaseOffsetMs = Number.isFinite(serverDbTimeMs) ? serverDbTimeMs - serverSentAtMs : null;
+    return res.json({
+      success: true,
+      state,
+      clock: { serverReceivedAtMs, serverSentAtMs, databaseOffsetMs },
+    });
   } catch (error: any) {
     console.error('[Radio] State error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Could not load radio state.' });
@@ -1765,6 +1775,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
 });
 
 app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
+  const serverReceivedAtMs = Date.now();
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
@@ -1852,7 +1863,16 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     }
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
-    return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist), state });
+    const serverSentAtMs = Date.now();
+    const serverDbTimeMs = Date.parse(state.serverNow || '');
+    const databaseOffsetMs = Number.isFinite(serverDbTimeMs) ? serverDbTimeMs - serverSentAtMs : null;
+    return res.json({
+      success: true,
+      paused: Boolean(config.pausedAt),
+      loopPlaylist: Boolean(config.loopPlaylist),
+      state,
+      clock: { serverReceivedAtMs, serverSentAtMs, databaseOffsetMs },
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not control radio.' });
   }
@@ -2376,7 +2396,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
   try {
     const accessToken = await getDriveAccessToken();
     const metadataResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed&supportsAllDrives=true',
       { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) },
     );
     if (!metadataResponse.ok) {
@@ -2394,7 +2414,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
 
     const imageResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
       { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
     );
     if (!imageResponse.ok || !imageResponse.body) {
