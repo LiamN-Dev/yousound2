@@ -1815,7 +1815,9 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       enabled: Boolean(body.enabled),
       stationName: String(body.stationName || existing.stationName || 'YouSong Radio').trim().slice(0, 80) || 'YouSong Radio',
       stationDescription: String(body.stationDescription || '').trim().slice(0, 240),
-      currentProgram,
+      // A schedule-only save must not silently replace the live queue with
+      // the possibly stale playlist currently shown in the admin form.
+      currentProgram: startNow ? currentProgram : existing.currentProgram,
       startedAt: startNow ? new Date(sharedNowMs).toISOString() : existing.startedAt,
       nextProgram,
       autoStartScheduled: body.autoStartScheduled !== false,
