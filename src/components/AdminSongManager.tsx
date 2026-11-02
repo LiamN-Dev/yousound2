@@ -1126,7 +1126,14 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                               setSpotlightNoteSong(song);
                               setSpotlightNoteInput(song.spotlightNote || '');
                             } else {
-                              updateSong(song.id, { isSpotlight: false });
+                              void updateSong(song.id, { isSpotlight: false })
+                                .then(() => {
+                                  setFeedback(`Removed "${song.title}" from Spotlight.`);
+                                  setTimeout(() => setFeedback(null), 3000);
+                                })
+                                .catch((error: any) => {
+                                  setFeedback(`Could not update Spotlight: ${error?.message || 'The server did not save the change.'}`);
+                                });
                             }
                           }}
                           className={`p-2 rounded-xl border transition-all ${
@@ -1508,13 +1515,17 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
               </button>
               <button
                 onClick={async () => {
-                  await updateSong(spotlightNoteSong.id, {
-                    isSpotlight: true,
-                    spotlightNote: spotlightNoteInput.trim() || undefined,
-                  });
-                  setFeedback(`Added "${spotlightNoteSong.title}" to Spotlight!`);
-                  setSpotlightNoteSong(null);
-                  setTimeout(() => setFeedback(null), 3000);
+                  try {
+                    await updateSong(spotlightNoteSong.id, {
+                      isSpotlight: true,
+                      spotlightNote: spotlightNoteInput.trim() || null as any,
+                    });
+                    setFeedback(`Added "${spotlightNoteSong.title}" to Spotlight!`);
+                    setSpotlightNoteSong(null);
+                    setTimeout(() => setFeedback(null), 3000);
+                  } catch (error: any) {
+                    setFeedback(`Could not update Spotlight: ${error?.message || 'The server did not save the change.'}`);
+                  }
                 }}
                 className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-bold shadow-lg shadow-amber-500/20"
               >
