@@ -1904,7 +1904,7 @@ app.get('/api/radio/chat', async (req: Request, res: Response) => {
     const station = await resolveRadioState();
     const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
-    const messages = station.enabled ? await getRadioChatMessagesDb(60) : [];
+    const messages = station.enabled && canChat ? await getRadioChatMessagesDb(60) : [];
     return res.json({
       success: true,
       messages,
@@ -3698,7 +3698,9 @@ app.post('/api/admin/maintenance', async (req: Request, res: Response) => {
 app.get('/api/chat/requests', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) {
-      return res.json({ requests: await getChatRequestsForUserDb(getAuthUser(req).uid) });
+      const member = getAuthUser(req);
+      if (member?.chatBlocked) return res.status(403).json({ error: 'Your account is blocked from chat.' });
+      return res.json({ requests: await getChatRequestsForUserDb(member.uid) });
     }
     const { userId } = req.query;
     if (userId && typeof userId === 'string') {
@@ -3808,7 +3810,10 @@ app.delete('/api/chat/requests/:id', async (req: Request, res: Response) => {
 app.get('/api/chat/threads', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) {
-      return res.json({ threads: await getChatThreadsForUserDb(getAuthUser(req).uid) });
+      const member = getAuthUser(req);
+      const threads = await getChatThreadsForUserDb(member.uid);
+      // Account-wide chat blocks may keep access to a suspension appeal thread only.
+      return res.json({ threads: member.chatBlocked ? threads.filter((thread: any) => thread.isAppealThread) : threads });
     }
     const { userId, mode } = req.query;
     if (userId && typeof userId === 'string') {
@@ -3935,6 +3940,9 @@ app.get('/api/chat/messages/:threadId', async (req: Request, res: Response) => {
       const thread: any = await getChatThreadByIdDb(threadId);
       if (!thread || (thread.user1Id !== me.uid && thread.user2Id !== me.uid)) {
         return res.status(403).json({ error: 'You are not part of this conversation' });
+      }
+      if (me.chatBlocked && !thread.isAppealThread) {
+        return res.status(403).json({ error: 'Your account is blocked from chat.' });
       }
     }
     const messages = await getChatMessagesDb(threadId);
