@@ -49,6 +49,7 @@ import {
   setSettingDb,
   getPersistentSettingDb,
   setPersistentSettingDb,
+  compareAndSetPersistentSettingDb,
   getMediaIdsDb,
   getMediaIdByCodeDb,
   reserveMediaIdDb,
@@ -1594,7 +1595,7 @@ async function resolveRadioState() {
   // Promote a scheduled program on the server, so every connected listener sees the same transition.
   if (config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
     // A scheduled program is an instruction to go live at its start time.
-    config = {
+    const promotedConfig: RadioConfig = {
       ...config,
       enabled: config.autoStartScheduled !== false,
       pausedAt: null,
@@ -1605,7 +1606,9 @@ async function resolveRadioState() {
       syncTrackId: null,
       syncAtServerMs: now + 6000,
     };
-    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
+    const promoted = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, promotedConfig);
+    if (!promoted) return resolveRadioState();
+    config = promotedConfig;
     await clearRadioChatMessagesDb();
   }
 
@@ -1652,12 +1655,14 @@ async function resolveRadioState() {
   if (config.enabled && !config.pausedAt && currentSong) {
     const currentTrackId = String(currentSong.id);
     if (config.syncTrackId !== currentTrackId) {
-      config = {
+      const nextConfig: RadioConfig = {
         ...config,
         syncTrackId: currentTrackId,
         syncAtServerMs: now + 6000,
       };
-      await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
+      const saved = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, nextConfig);
+      if (!saved) return resolveRadioState();
+      config = nextConfig;
     }
   }
 
@@ -1789,9 +1794,9 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
       loopPlaylist: existing.loopPlaylist === true,
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
-      syncRevision: Math.max(0, Number(existing.syncRevision) || 0) + 1,
-      syncTrackId: null,
-      syncAtServerMs: body.enabled && startNow ? sharedNowMs + 6000 : null,
+      syncRevision: startNow ? Math.max(0, Number(existing.syncRevision) || 0) + 1 : Math.max(0, Number(existing.syncRevision) || 0),
+      syncTrackId: startNow ? null : (existing.syncTrackId || null),
+      syncAtServerMs: !body.enabled ? null : (startNow ? sharedNowMs + 6000 : (existing.syncAtServerMs ?? null)),
     };
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
