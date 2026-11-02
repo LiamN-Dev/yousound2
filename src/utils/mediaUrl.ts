@@ -54,11 +54,15 @@ export function formatCoverMediaUrl(url?: string | null): string {
   if (!url) return '';
   const trimmed = url.trim();
 
-  // Keep explicit stream, cover-proxy, and local media URLs intact.
+  // Keep explicit stream and local media URLs intact. Version the Drive cover
+  // proxy URL so browsers discard any previously cached, truncated image response.
+  if (trimmed.startsWith('/api/drive/cover/')) {
+    const path = trimmed.split('?')[0];
+    return `${path}?v=2`;
+  }
   if (
     trimmed.startsWith('/api/media/') ||
     trimmed.startsWith('/api/drive/stream/') ||
-    trimmed.startsWith('/api/drive/cover/') ||
     trimmed.startsWith('data:') ||
     trimmed.startsWith('blob:')
   ) {
