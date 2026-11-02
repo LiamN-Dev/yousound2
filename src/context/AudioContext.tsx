@@ -505,6 +505,9 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     const audio = audioRef.current;
     if (!audio || !song?.audioUrl) return;
+    // elapsedSeconds is anchored to syncAtLocalPerfMs. Preserve that anchor so
+    // a delayed buffer can be positioned at the live point instead of starting late.
+    const syncRequestedAtPerfMs = performance.now();
 
     if (!radioModeRef.current) radioPreviousSpeedRef.current = audio.playbackRate || 1;
     radioModeRef.current = true;
@@ -590,9 +593,14 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // same future server-clock boundary used by every other listener.
         if (playRequest) await playRequest;
         audio.pause();
-        const remainingBeforeStart = Math.max(0, (Number(syncAtLocalPerfMs) - performance.now()) / 1000);
+        const elapsedAtBufferStart = (performance.now() - Number(syncAtLocalPerfMs)) / 1000;
         const bufferOutputQueueSeconds = getRadioOutputQueueSeconds();
-        const positionAtBufferStart = Math.max(0, targetAtSync - remainingBeforeStart * safePlaybackRate + bufferOutputQueueSeconds * safePlaybackRate);
+        // A client that misses the barrier must seek forward to the current
+        // station position; clamping "remaining" to zero leaves it behind.
+        const positionAtBufferStart = Math.max(
+          0,
+          targetAtSync + (elapsedAtBufferStart + bufferOutputQueueSeconds) * safePlaybackRate,
+        );
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
           audio.currentTime = Math.min(positionAtBufferStart, Math.max(0, audio.duration - 0.25));
         }
@@ -601,11 +609,12 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         // play() may resolve a few milliseconds after the request. Re-anchor the
         // media playhead at the actual post-play time, not the earlier buffer time.
-        const remainingMs = Math.max(0, Number(syncAtLocalPerfMs) - performance.now());
+        const remainingMs = Number(syncAtLocalPerfMs) - performance.now();
         const outputQueueSeconds = getRadioOutputQueueSeconds();
+        const elapsedAtOutput = (performance.now() - Number(syncAtLocalPerfMs)) / 1000;
         const positionAtOutputBoundary = Math.max(
           0,
-          targetAtSync - (remainingMs / 1000) * safePlaybackRate + outputQueueSeconds * safePlaybackRate,
+          targetAtSync + (elapsedAtOutput + outputQueueSeconds) * safePlaybackRate,
         );
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
           audio.currentTime = Math.min(positionAtOutputBoundary, Math.max(0, audio.duration - 0.25));
@@ -640,7 +649,7 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             resolve();
           };
           radioSyncResolveRef.current = finishSync;
-          radioSyncTimerRef.current = window.setTimeout(finishSync, remainingMs + 35);
+          radioSyncTimerRef.current = window.setTimeout(finishSync, Math.max(0, remainingMs) + 35);
         });
       } else {
         if (playRequest) {
@@ -653,7 +662,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }
         if (Number.isFinite(audio.duration) && audio.duration > 0) {
-          audio.currentTime = Math.min(targetAtSync, Math.max(0, audio.duration - 0.25));
+          const elapsedSinceRequest = (performance.now() - syncRequestedAtPerfMs) / 1000;
+          const outputQueueSeconds = getRadioOutputQueueSeconds();
+          const targetNow = targetAtSync + (elapsedSinceRequest + outputQueueSeconds) * safePlaybackRate;
+          audio.currentTime = Math.min(Math.max(0, targetNow), Math.max(0, audio.duration - 0.25));
         }
       }
     } catch (error: any) {
@@ -683,7 +695,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (attemptId !== playAttemptRef.current || !radioModeRef.current || radioSyncPendingRef.current) return;
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
       const outputQueueSeconds = getRadioOutputQueueSeconds();
-      const target = Math.min(targetAtSync + outputQueueSeconds * safePlaybackRate, Math.max(0, audio.duration - 0.25));
+      const targetPerfAnchor = useBarrier ? Number(syncAtLocalPerfMs) : syncRequestedAtPerfMs;
+      const elapsedFromAnchor = (performance.now() - targetPerfAnchor) / 1000;
+      const targetNow = targetAtSync + (elapsedFromAnchor + outputQueueSeconds) * safePlaybackRate;
+      const target = Math.min(Math.max(0, targetNow), Math.max(0, audio.duration - 0.25));
       const drift = target - audio.currentTime;
       const absoluteDrift = Math.abs(drift);
       if (absoluteDrift > 0.08) {
