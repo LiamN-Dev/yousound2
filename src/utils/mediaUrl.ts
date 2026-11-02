@@ -58,7 +58,7 @@ export function formatCoverMediaUrl(url?: string | null): string {
   // proxy URL so browsers discard any previously cached, truncated image response.
   if (trimmed.startsWith('/api/drive/cover/')) {
     const path = trimmed.split('?')[0];
-    return `${path}?v=2`;
+    return `${path}?v=3`;
   }
   if (
     trimmed.startsWith('/api/media/') ||
