@@ -304,19 +304,25 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
 
   // Bulk Reset Plays
   const handleBulkResetPlays = async () => {
-    if (confirm(`Reset all-time and weekly play counts to 0 for ${selectedSongIds.length} selected song(s)? This will reset their Top Hit designation.`)) {
+    if (!confirm(`Reset all-time and daily/weekly play counts to 0 for ${selectedSongIds.length} selected song(s)? This will reset their Top Hit designation.`)) return;
+    try {
       await bulkResetSongPlays(selectedSongIds);
       setFeedback(`✓ Reset listen amounts to 0 for ${selectedSongIds.length} song(s). Top Hit metric refreshed.`);
       setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback(`Listen-count reset failed: ${error?.message || 'The server did not save the reset.'}`);
     }
   };
 
   // Single Song Reset Plays
   const handleSingleResetPlays = async (song: Song) => {
-    if (confirm(`Reset listen counters for "${song.title}" back to 0?`)) {
+    if (!confirm(`Reset listen counters for "${song.title}" back to 0?`)) return;
+    try {
       await resetSongPlays(song.id);
       setFeedback(`✓ Reset listen counts for "${song.title}" to 0.`);
       setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback(`Listen-count reset failed: ${error?.message || 'The server did not save the reset.'}`);
     }
   };
 
