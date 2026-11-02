@@ -1698,9 +1698,13 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
       delete (state as any).currentIndex;
       if (state.currentProgram) state.currentProgram = { name: state.currentProgram.name, description: state.currentProgram.description, songIds: [] };
     }
+    // Bracket a PostgreSQL clock read with app-server timestamps so the
+    // browser clock can be translated to the authoritative database clock.
+    const dbClockRequestStartedAtMs = Date.now();
+    const serverDbTimeMs = await getPersistentDbNowMs();
+    const dbClockRequestFinishedAtMs = Date.now();
+    const databaseOffsetMs = serverDbTimeMs - (dbClockRequestStartedAtMs + dbClockRequestFinishedAtMs) / 2;
     const serverSentAtMs = Date.now();
-    const serverDbTimeMs = Date.parse(state.serverNow || '');
-    const databaseOffsetMs = Number.isFinite(serverDbTimeMs) ? serverDbTimeMs - serverSentAtMs : null;
     return res.json({
       success: true,
       state,
@@ -1888,9 +1892,13 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     }
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
+    // Bracket a PostgreSQL clock read with app-server timestamps so the
+    // browser clock can be translated to the authoritative database clock.
+    const dbClockRequestStartedAtMs = Date.now();
+    const serverDbTimeMs = await getPersistentDbNowMs();
+    const dbClockRequestFinishedAtMs = Date.now();
+    const databaseOffsetMs = serverDbTimeMs - (dbClockRequestStartedAtMs + dbClockRequestFinishedAtMs) / 2;
     const serverSentAtMs = Date.now();
-    const serverDbTimeMs = Date.parse(state.serverNow || '');
-    const databaseOffsetMs = Number.isFinite(serverDbTimeMs) ? serverDbTimeMs - serverSentAtMs : null;
     return res.json({
       success: true,
       paused: Boolean(config.pausedAt),
