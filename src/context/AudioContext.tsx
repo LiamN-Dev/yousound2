@@ -121,6 +121,10 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const radioSyncPendingRef = useRef(false);
   const radioSyncTimerRef = useRef<number | null>(null);
   const radioSyncResolveRef = useRef<(() => void) | null>(null);
+  const radioFallbackMuteRef = useRef<{ muted: boolean; volume: number } | null>(null);
+  const audioGraphRef = useRef<AudioContext | null>(null);
+  const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
+  const equalizerOwnerRef = useRef<string | null>(null);
 
   const getRadioOutputQueueSeconds = () => {
     const graph = audioGraphRef.current;
@@ -145,15 +149,11 @@ export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {}
     return {
       outputQueueMs: Math.round(getRadioOutputQueueSeconds() * 1000),
-      outputLatencyMs: Math.round(Number((graph as any).outputLatency ?? graph.baseLatency ?? 0) * 1000),
+      outputLatencyMs: Math.round((Number.isFinite(Number((graph as any).outputLatency ?? graph.baseLatency ?? 0)) ? Number((graph as any).outputLatency ?? graph.baseLatency ?? 0) : 0) * 1000),
       graphState: graph.state,
       outputTimestampAvailable,
     };
   }, []);
-  const radioFallbackMuteRef = useRef<{ muted: boolean; volume: number } | null>(null);
-  const audioGraphRef = useRef<AudioContext | null>(null);
-  const eqFiltersRef = useRef<BiquadFilterNode[]>([]);
-  const equalizerOwnerRef = useRef<string | null>(null);
 
   const [allSongs, setAllSongs] = useState<Song[]>(() => storage.getSongs(currentUser));
   const [adminAllSongs, setAdminAllSongs] = useState<Song[]>(() => storage.getAllAdminSongs());
