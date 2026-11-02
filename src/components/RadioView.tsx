@@ -421,7 +421,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           } else if (['next', 'seek', 'set-speed'].includes(action) || (action === 'toggle-pause' && !confirmedState.paused)) {
             const offset = serverClockOffsetRef.current || 0;
             const serverTime = Date.parse(confirmedState.serverNow || '');
-            const estimatedServerNow = Date.now() + offset;
+            const estimatedServerNow = performance.now() + offset;
             const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
             const snapshotTime = Number.isFinite(serverTime) ? serverTime : estimatedServerNow;
             const targetAtSync = confirmedState.elapsedSeconds + Math.max(0, (syncAtServerMs - snapshotTime) / 1000) * rate;
