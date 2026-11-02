@@ -1336,11 +1336,11 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
     if (Object.prototype.hasOwnProperty.call(updates, 'coverUrl')) {
       const value = String(updates.coverUrl || '').trim();
       const match = value.match(/^https:\/\/lh3\.googleusercontent\.com\/d\/([A-Za-z0-9_-]+)(?:=w\d+(?:-h\d+)?)?$/i);
-      if (value && !match) {
-        return res.status(400).json({ success: false, error: 'Song artwork must be uploaded to the site Google Drive.' });
+      if (!match) {
+        return res.status(400).json({ success: false, error: 'Song artwork must remain a valid Google Drive image. Choose a cover image rather than leaving this field empty.' });
       }
       // Store a stable canonical Drive image URL. Display sizing is added by MediaCover.
-      updates.coverUrl = value ? 'https://lh3.googleusercontent.com/d/' + match![1] : null;
+      updates.coverUrl = 'https://lh3.googleusercontent.com/d/' + match[1];
     }
 
     const updated = await updateSongDb(id, updates);
