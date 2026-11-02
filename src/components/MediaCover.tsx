@@ -64,8 +64,8 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
           const id = extractDriveFileId(src);
           const currentUrl = target.currentSrc || target.src;
           const isAuthenticatedProxy = currentUrl.includes('/api/drive/cover/');
-          // Try each Drive delivery path at most once. Which one comes first
-          // depends on the URL supplied by the song record.
+          // The authenticated Drive proxy is the primary path. If it fails,
+          // try the public CDN once; never alternate between the two indefinitely.
           if (id && isAuthenticatedProxy && !target.dataset.drivePublicFallback) {
             target.dataset.drivePublicFallback = 'true';
             // Mark the proxy as already attempted too, including when it was the
