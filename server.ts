@@ -49,6 +49,7 @@ import {
   setSettingDb,
   getPersistentSettingDb,
   setPersistentSettingDb,
+  compareAndSetPersistentSettingDb,
   getMediaIdsDb,
   getMediaIdByCodeDb,
   reserveMediaIdDb,
@@ -1553,6 +1554,10 @@ type RadioConfig = {
   playbackRate?: number;
   /** Changes whenever the authoritative playback timeline is repositioned. */
   syncRevision?: number;
+  /** A single server-issued audible start boundary shared by every connected listener. */
+  syncAtServerMs?: number | null;
+  /** The track associated with the stored synchronization boundary. */
+  syncTrackId?: string | null;
 };
 
 const DEFAULT_RADIO_CONFIG: RadioConfig = {
@@ -1590,7 +1595,7 @@ async function resolveRadioState() {
   // Promote a scheduled program on the server, so every connected listener sees the same transition.
   if (config.nextProgram && Number.isFinite(nextStartsAt) && nextStartsAt <= now) {
     // A scheduled program is an instruction to go live at its start time.
-    config = {
+    const promotedConfig: RadioConfig = {
       ...config,
       enabled: config.autoStartScheduled !== false,
       pausedAt: null,
@@ -1598,8 +1603,12 @@ async function resolveRadioState() {
       startedAt: new Date(nextStartsAt).toISOString(),
       nextProgram: null,
       syncRevision: Math.max(0, Number(config.syncRevision) || 0) + 1,
+      syncTrackId: null,
+      syncAtServerMs: now + 1000,
     };
-    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
+    const promoted = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, promotedConfig);
+    if (!promoted) return resolveRadioState();
+    config = promotedConfig;
     await clearRadioChatMessagesDb();
   }
 
@@ -1614,6 +1623,7 @@ async function resolveRadioState() {
   let elapsedSeconds = 0;
   let currentIndex = 0;
   let programElapsedSeconds = 0;
+  let loopCycle = 0;
 
   if (config.enabled && playlist.length) {
     const durations = playlist.map((song) => Math.max(1, Number(song.durationExact) || Number(song.duration) || 180));
@@ -1621,6 +1631,7 @@ async function resolveRadioState() {
     const startedAtMs = new Date(config.startedAt || now).getTime();
     const radioClockMs = config.pausedAt ? new Date(config.pausedAt).getTime() : now;
     programElapsedSeconds = Math.max(0, ((Number.isFinite(radioClockMs) ? radioClockMs : now) - (Number.isFinite(startedAtMs) ? startedAtMs : now)) / 1000) * playbackRate;
+    loopCycle = config.loopPlaylist ? Math.floor(programElapsedSeconds / totalDuration) : 0;
     if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
@@ -1640,6 +1651,25 @@ async function resolveRadioState() {
     if (!config.enabled) { currentSong = null; elapsedSeconds = 0; currentIndex = 0; }
   }
 
+  // The first state request that observes a natural track transition writes one
+  // future start barrier to persistent config. All listeners then receive the
+  // same boundary instead of independently rounding their local clocks.
+  if (config.enabled && !config.pausedAt && currentSong) {
+    // Include loop cycle as well as track ID so a single-track looping station
+    // establishes a fresh shared barrier each time the song wraps to its start.
+    const currentTrackId = String(currentSong.id) + ':' + String(loopCycle);
+    if (config.syncTrackId !== currentTrackId) {
+      const nextConfig: RadioConfig = {
+        ...config,
+        syncTrackId: currentTrackId,
+        syncAtServerMs: now + 1000,
+      };
+      const saved = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, nextConfig);
+      if (!saved) return resolveRadioState();
+      config = nextConfig;
+    }
+  }
+
   const nextAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
   return {
     enabled: Boolean(config.enabled),
@@ -1657,11 +1687,15 @@ async function resolveRadioState() {
     loopPlaylist: Boolean(config.loopPlaylist),
     playbackRate,
     syncRevision: Math.max(0, Number(config.syncRevision) || 0),
+    syncAtServerMs: Number.isFinite(Number(config.syncAtServerMs)) ? Number(config.syncAtServerMs) : null,
     serverNow: new Date(now).toISOString(),
   };
 }
 
 app.get('/api/radio/state', async (req: Request, res: Response) => {
+  // Capture both ends of the server-side request window. RadioView combines these
+  // with the browser's monotonic timestamps using the NTP four-timestamp equation.
+  const serverReceivedAtMs = Date.now();
   try {
     res.setHeader('Cache-Control', 'no-store');
     const state = await resolveRadioState();
@@ -1673,7 +1707,18 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
       delete (state as any).currentIndex;
       if (state.currentProgram) state.currentProgram = { name: state.currentProgram.name, description: state.currentProgram.description, songIds: [] };
     }
-    return res.json({ success: true, state });
+    // Bracket a PostgreSQL clock read with app-server timestamps so the
+    // browser clock can be translated to the authoritative database clock.
+    const dbClockRequestStartedAtMs = Date.now();
+    const serverDbTimeMs = await getPersistentDbNowMs();
+    const dbClockRequestFinishedAtMs = Date.now();
+    const databaseOffsetMs = serverDbTimeMs - (dbClockRequestStartedAtMs + dbClockRequestFinishedAtMs) / 2;
+    const serverSentAtMs = Date.now();
+    return res.json({
+      success: true,
+      state,
+      clock: { serverReceivedAtMs, serverSentAtMs, databaseOffsetMs },
+    });
   } catch (error: any) {
     console.error('[Radio] State error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Could not load radio state.' });
@@ -1753,7 +1798,9 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       pausedAt: body.enabled === false ? null : (startNow ? null : (existing.pausedAt || null)),
       loopPlaylist: existing.loopPlaylist === true,
       playbackRate: Math.min(2, Math.max(0.5, Number(existing.playbackRate) || 1)),
-      syncRevision: Math.max(0, Number(existing.syncRevision) || 0) + 1,
+      syncRevision: startNow ? Math.max(0, Number(existing.syncRevision) || 0) + 1 : Math.max(0, Number(existing.syncRevision) || 0),
+      syncTrackId: startNow ? null : (existing.syncTrackId || null),
+      syncAtServerMs: !body.enabled ? null : (startNow ? sharedNowMs + 1000 : (existing.syncAtServerMs ?? null)),
     };
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
@@ -1765,6 +1812,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
 });
 
 app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
+  const serverReceivedAtMs = Date.now();
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
@@ -1849,10 +1897,24 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
     }
     if (['toggle-pause', 'pause', 'resume', 'seek', 'set-speed', 'next'].includes(action)) {
       config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
+      config.syncAtServerMs = config.enabled && !config.pausedAt ? commandNowMs + 1000 : null;
     }
     await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
     const state = await resolveRadioState();
-    return res.json({ success: true, paused: Boolean(config.pausedAt), loopPlaylist: Boolean(config.loopPlaylist), state });
+    // Bracket a PostgreSQL clock read with app-server timestamps so the
+    // browser clock can be translated to the authoritative database clock.
+    const dbClockRequestStartedAtMs = Date.now();
+    const serverDbTimeMs = await getPersistentDbNowMs();
+    const dbClockRequestFinishedAtMs = Date.now();
+    const databaseOffsetMs = serverDbTimeMs - (dbClockRequestStartedAtMs + dbClockRequestFinishedAtMs) / 2;
+    const serverSentAtMs = Date.now();
+    return res.json({
+      success: true,
+      paused: Boolean(config.pausedAt),
+      loopPlaylist: Boolean(config.loopPlaylist),
+      state,
+      clock: { serverReceivedAtMs, serverSentAtMs, databaseOffsetMs },
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not control radio.' });
   }
@@ -2376,7 +2438,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
   try {
     const accessToken = await getDriveAccessToken();
     const metadataResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id,name,mimeType,size,trashed&supportsAllDrives=true',
       { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(20_000) },
     );
     if (!metadataResponse.ok) {
@@ -2394,7 +2456,7 @@ app.get('/api/drive/cover/:fileId', async (req: Request, res: Response) => {
     if (size > 25 * 1024 * 1024) return res.status(413).send('Artwork exceeds the 25 MB image limit.');
 
     const imageResponse = await fetch(
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&supportsAllDrives=true',
       { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(30_000) },
     );
     if (!imageResponse.ok || !imageResponse.body) {

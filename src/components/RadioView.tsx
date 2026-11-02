@@ -11,6 +11,7 @@ type Station = {
   currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
   nextStartsInMs: number | null; serverNow: string; autoStartScheduled?: boolean; paused?: boolean; loopPlaylist?: boolean; playbackRate?: number; syncRevision?: number;
+  syncAtServerMs?: number | null;
 };
 type Message = { id: string; userId: string; username: string; message: string; createdAt: string };
 
@@ -96,8 +97,8 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     try {
       const requestStartedAt = performance.now();
       const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
       const receivedAt = performance.now();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio is unavailable.');
       const state = data.state as Station;
       const serverTime = Date.parse(state.serverNow || '');
@@ -105,10 +106,19 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (Number.isFinite(serverTime) && serverTime < latestStationServerTimeRef.current) return;
       if (Number.isFinite(serverTime)) {
         latestStationServerTimeRef.current = serverTime;
-        const rtt = Math.max(0, receivedAt - requestStartedAt);
-        const midpoint = (requestStartedAt + receivedAt) / 2;
-        const measuredOffset = serverTime - midpoint;
-        clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+        const clockSample = data.clock || {};
+        const serverReceivedAtMs = Number(clockSample.serverReceivedAtMs);
+        const serverSentAtMs = Number(clockSample.serverSentAtMs);
+        const databaseOffsetMs = Number(clockSample.databaseOffsetMs);
+        if (Number.isFinite(serverReceivedAtMs) && Number.isFinite(serverSentAtMs) && Number.isFinite(databaseOffsetMs)) {
+          // Four-timestamp NTP estimate, translated to PostgreSQL's authoritative radio clock.
+          const serverProcessingMs = Math.max(0, serverSentAtMs - serverReceivedAtMs);
+          const rtt = Math.max(0, receivedAt - requestStartedAt - serverProcessingMs);
+          const measuredOffset =
+            ((serverReceivedAtMs - requestStartedAt) + (serverSentAtMs - receivedAt)) / 2
+            + databaseOffsetMs;
+          clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+        }
         // Keep a rolling window, then choose the lowest-latency sample within it.
         const best = [...clockSamplesRef.current].sort((a, b) => a.rtt - b.rtt)[0];
         const previousOffset = serverClockOffsetRef.current;
@@ -116,7 +126,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           ? best.offset
           : Math.abs(best.offset - previousOffset) > 750
             ? best.offset
-            : previousOffset * 0.8 + best.offset * 0.2;
+            : previousOffset * 0.65 + best.offset * 0.35;
         serverClockOffsetRef.current = nextOffset;
         setBestClockRttMs(best.rtt);
         setClockOffsetMs(nextOffset);
@@ -143,12 +153,15 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
             void joinRadioPlayback(state.currentSong, state.elapsedSeconds, true, rate);
           }
         } else if (trackChanged || broadcastResumed || timelineChanged) {
-          // Every listener chooses the same future server-clock boundary. This avoids
-          // each browser starting a newly loaded song at a different network-arrival time.
+          // Use the exact boundary persisted by the server for this track/revision.
+          // A local fallback is retained for older stored radio configurations.
           const estimatedServerNow = performance.now() + offset;
-          const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+          const storedSyncAt = Number(state.syncAtServerMs);
+          const syncAtServerMs = Number.isFinite(storedSyncAt) && storedSyncAt > 0
+            ? storedSyncAt
+            : Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
           const snapshotTime = Number.isFinite(serverTime) ? serverTime : estimatedServerNow;
-          const targetAtSync = state.elapsedSeconds + Math.max(0, (syncAtServerMs - snapshotTime) / 1000) * rate;
+          const targetAtSync = Math.max(0, state.elapsedSeconds + ((syncAtServerMs - snapshotTime) / 1000) * rate);
           setSyncing(true);
           void playRadioSong(state.currentSong, targetAtSync, rate, syncAtServerMs - offset)
             .finally(() => setSyncing(false));
@@ -297,11 +310,10 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       return;
     }
 
-    // Buffer first, then start on a shared five-second server-clock boundary.
-    // The audio engine seeks to the position the station will be at when that
-    // boundary arrives, so network and decode time are hidden before listeners hear it.
+    // A joining listener gets a short local preparation boundary. Existing listeners
+    // are already aligned by the server-persisted barrier for track/revision changes.
     const estimatedServerNow = performance.now() + offset;
-    const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+    const syncAtServerMs = estimatedServerNow + 1000;
     const snapshotTime = Number.isFinite(snapshotServerTime) ? snapshotServerTime : estimatedServerNow;
     const currentAge = Math.max(0, (estimatedServerNow - snapshotTime) / 1000) * rate;
     const elapsedAtSync = station.elapsedSeconds + currentAge + Math.max(0, (syncAtServerMs - estimatedServerNow) / 1000) * rate;
@@ -386,24 +398,33 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }),
       });
+      const receivedAt = performance.now();
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio control failed.');
       const confirmedState = data.state as Station;
       if (confirmedState) {
-        const receivedAt = performance.now();
         const confirmedServerTime = Date.parse(confirmedState.serverNow || '');
         if (Number.isFinite(confirmedServerTime)) {
           latestStationServerTimeRef.current = Math.max(latestStationServerTimeRef.current, confirmedServerTime);
-          const rtt = Math.max(0, receivedAt - requestStartedAt);
-          const measuredOffset = confirmedServerTime - (requestStartedAt + receivedAt) / 2;
-          clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+          const clockSample = data.clock || {};
+          const serverReceivedAtMs = Number(clockSample.serverReceivedAtMs);
+          const serverSentAtMs = Number(clockSample.serverSentAtMs);
+          const databaseOffsetMs = Number(clockSample.databaseOffsetMs);
+          if (Number.isFinite(serverReceivedAtMs) && Number.isFinite(serverSentAtMs) && Number.isFinite(databaseOffsetMs)) {
+            const serverProcessingMs = Math.max(0, serverSentAtMs - serverReceivedAtMs);
+            const rtt = Math.max(0, receivedAt - requestStartedAt - serverProcessingMs);
+            const measuredOffset =
+              ((serverReceivedAtMs - requestStartedAt) + (serverSentAtMs - receivedAt)) / 2
+              + databaseOffsetMs;
+            clockSamplesRef.current = [...clockSamplesRef.current.slice(-11), { rtt, offset: measuredOffset }];
+          }
           const best = [...clockSamplesRef.current].sort((a, b) => a.rtt - b.rtt)[0];
           const previousOffset = serverClockOffsetRef.current;
           const nextOffset = previousOffset === null
             ? best.offset
             : Math.abs(best.offset - previousOffset) > 750
               ? best.offset
-              : previousOffset * 0.8 + best.offset * 0.2;
+              : previousOffset * 0.65 + best.offset * 0.35;
           serverClockOffsetRef.current = nextOffset;
           setBestClockRttMs(best.rtt);
           setClockOffsetMs(nextOffset);
@@ -422,9 +443,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
             const offset = serverClockOffsetRef.current || 0;
             const serverTime = Date.parse(confirmedState.serverNow || '');
             const estimatedServerNow = performance.now() + offset;
-            const syncAtServerMs = Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
+            const storedSyncAt = Number(confirmedState.syncAtServerMs);
+            const syncAtServerMs = Number.isFinite(storedSyncAt) && storedSyncAt > 0
+              ? storedSyncAt
+              : Math.ceil((estimatedServerNow + 5500) / 5000) * 5000;
             const snapshotTime = Number.isFinite(serverTime) ? serverTime : estimatedServerNow;
-            const targetAtSync = confirmedState.elapsedSeconds + Math.max(0, (syncAtServerMs - snapshotTime) / 1000) * rate;
+            const targetAtSync = Math.max(0, confirmedState.elapsedSeconds + ((syncAtServerMs - snapshotTime) / 1000) * rate);
             setSyncing(true);
             void playRadioSong(confirmedState.currentSong, targetAtSync, rate, syncAtServerMs - offset)
               .finally(() => setSyncing(false));

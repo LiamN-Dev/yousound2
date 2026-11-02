@@ -60,9 +60,16 @@ export const MediaCover: React.FC<MediaCoverProps> = ({
         onError={(e) => {
           const target = e.currentTarget;
           const id = extractDriveFileId(src);
+          // If the primary authenticated route fails, try the legacy public CDN
+          // once before falling back to generated local artwork.
           if (id && !target.dataset.driveProxyFallback && formattedUrl.startsWith('https://lh3.googleusercontent.com/')) {
             target.dataset.driveProxyFallback = 'true';
             target.src = `/api/drive/cover/${encodeURIComponent(id)}`;
+            return;
+          }
+          if (id && !target.dataset.drivePublicFallback && formattedUrl.startsWith('/api/drive/cover/')) {
+            target.dataset.drivePublicFallback = 'true';
+            target.src = `https://lh3.googleusercontent.com/d/${encodeURIComponent(id)}=w800`;
             return;
           }
           handleImageFallback(e, fallbackTitle, fallbackGenre);

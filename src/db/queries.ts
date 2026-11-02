@@ -1464,6 +1464,29 @@ export async function setPersistentSettingDb(key: string, value: any): Promise<v
   }
 }
 
+/**
+ * Compare-and-set a persistent JSON setting. Radio uses this when the first
+ * request observes a new track, ensuring concurrent listeners share one barrier.
+ */
+export async function compareAndSetPersistentSettingDb(key: string, expectedValue: any, nextValue: any): Promise<boolean> {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Persistent PostgreSQL/Supabase storage is unavailable. A shared radio clock cannot be established.');
+  }
+  const expectedSerialized = JSON.stringify(expectedValue);
+  const nextSerialized = JSON.stringify(nextValue);
+  try {
+    const rows = await db
+      .update(systemSettings)
+      .set({ value: nextSerialized, updatedAt: new Date() })
+      .where(and(eq(systemSettings.key, key), eq(systemSettings.value, expectedSerialized)))
+      .returning({ key: systemSettings.key });
+    return rows.length > 0;
+  } catch (error) {
+    noteDbError('compareAndSetPersistentSettingDb', error);
+    throw new Error('Could not atomically establish the shared radio synchronization boundary.');
+  }
+}
+
 // ----------------- ADMIN MEDIA ID REGISTRY -----------------
 export async function getMediaIdsDb() {
   if (!(await checkSqlAvailability())) {
