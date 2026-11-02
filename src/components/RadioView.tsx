@@ -578,6 +578,17 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 </div>}
               </div>}
               {adminNote && <p className="text-[10px] text-cyan-200">{adminNote}</p>}
+              <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                <div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Radio clock diagnostics</div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[9px] text-slate-300">
+                  <span>Best RTT: {bestClockRttMs === null ? '—' : bestClockRttMs.toFixed(1) + ' ms'}</span>
+                  <span>Server offset: {clockOffsetMs === null ? '—' : (clockOffsetMs >= 0 ? '+' : '') + clockOffsetMs.toFixed(1) + ' ms'}</span>
+                  <span>Output queue: {getRadioAudioDiagnostics().outputQueueMs} ms</span>
+                  <span>Base latency: {getRadioAudioDiagnostics().outputLatencyMs} ms</span>
+                  <span>Audio engine: {getRadioAudioDiagnostics().graphState}</span>
+                  <span>Output timestamp: {getRadioAudioDiagnostics().outputTimestampAvailable ? 'available' : 'fallback'}</span>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" disabled={saving} onClick={() => void saveConfig(true, true)} className="rounded-lg bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-50">{saving ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <Radio className="mr-1 inline h-3 w-3" />} Start / restart broadcast</button>
                 <button type="button" disabled={saving || !nextAt || !nextIds.length} onClick={() => void saveConfig(Boolean(station?.enabled), false)} className="rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-[10px] font-semibold text-indigo-200 disabled:opacity-40"><CalendarClock className="mr-1 inline h-3 w-3" /> Save schedule only</button>
