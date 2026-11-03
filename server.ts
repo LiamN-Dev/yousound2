@@ -2391,9 +2391,16 @@ app.post('/api/requests', async (req: Request, res: Response) => {
             continue;
           }
           const reader = response.body?.getReader();
-          const first = reader ? await reader.read().catch(() => ({ value: undefined, done: true })) : { value: undefined, done: true };
-          await reader?.cancel().catch(() => undefined);
-          const bytes = first.value ? Buffer.from(first.value) : Buffer.alloc(0);
+          let bytes = Buffer.alloc(0);
+          if (reader) {
+            while (bytes.length < 32) {
+              const chunk = await reader.read().catch(() => ({ value: undefined, done: true }));
+              if (chunk.done || !chunk.value) break;
+              const remaining = 32 - bytes.length;
+              bytes = Buffer.concat([bytes, Buffer.from(chunk.value).subarray(0, remaining)]);
+            }
+            await reader.cancel().catch(() => undefined);
+          }
           const signatureOk = mime === 'image/jpeg'
             ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
             : mime === 'image/png'
