@@ -155,9 +155,6 @@ const getPort = () => {
 };
 const PORT = getPort();
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
 // Render sits behind a proxy; this lets us see real IPs and detect https
 app.set('trust proxy', 1);
 // Do not expose the Express framework signature in HTTP responses.
@@ -255,6 +252,10 @@ app.use(async (req: Request, res: Response, next: any) => {
       .send('Not Found');
   }
 });
+
+// Parse request bodies only after the emergency gate has allowed the request.
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
