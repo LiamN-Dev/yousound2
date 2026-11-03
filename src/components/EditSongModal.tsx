@@ -972,10 +972,13 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
             </div>
 
             <div className="sm:col-span-2">
-              <label className="block text-[11px] text-slate-700 dark:text-slate-300 mb-1">Custom drop message</label>
+              <label className="block text-[11px] text-slate-700 dark:text-slate-300 mb-1">Teaser message (optional)</label>
               <input type="text" value={dropMessage} onChange={(e) => setDropMessage(e.target.value)}
-                placeholder="e.g. Available after broadcast" maxLength={200}
+                placeholder="e.g. Available after the live broadcast" maxLength={200}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+              <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                When a message is entered, it replaces the release countdown on the teaser card. Leave it blank to show the countdown.
+              </p>
             </div>
 
             <div className="sm:col-span-2 p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/25 space-y-2">
