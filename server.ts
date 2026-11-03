@@ -160,6 +160,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Render sits behind a proxy; this lets us see real IPs and detect https
 app.set('trust proxy', 1);
+// Do not expose the Express framework signature in HTTP responses.
+app.disable('x-powered-by');
 // ----------------- EMERGENCY DEPLOYMENT SHUTDOWN -----------------
 // The shutdown flag lives in PostgreSQL/Supabase, not in Render's temporary
 // filesystem or process memory. A new Render commit is required to clear it.
@@ -217,32 +219,40 @@ async function getEmergencyShutdownRecord(): Promise<EmergencyShutdownRecord | n
 }
 
 // This gate runs before authentication, API routes, assets, and the frontend shell.
-// The activation endpoint passes through here, then still goes through normal admin authentication.
+// During shutdown every request receives the same unbranded 404 response. The activation
+// endpoint is reachable only while the site is not already shut down.
 app.use(async (req: Request, res: Response, next: any) => {
-  if (
-    req.method === 'POST' &&
-    req.path === '/api/admin/emergency-shutdown'
-  ) {
-    return next();
-  }
-
   if (process.env.RENDER !== 'true') return next();
 
   try {
     const shutdown = await getEmergencyShutdownRecord();
-    if (!shutdown) return next();
-    return res
-      .status(503)
-      .set('Cache-Control', 'no-store, no-cache, must-revalidate')
-      .type('html')
-      .send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>YouSong Offline</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080d19;color:#f8fafc;font:16px system-ui,sans-serif}.panel{max-width:560px;margin:24px;padding:36px;border:1px solid #713f46;border-radius:24px;background:#111827;box-shadow:0 24px 80px #0008}h1{margin:0 0 12px;color:#fca5a5;font-size:28px}p{color:#cbd5e1;line-height:1.65}.eyebrow{color:#f87171;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}</style></head><body><main class="panel"><div class="eyebrow">Emergency shutdown</div><h1>YouSong is offline</h1><p>An administrator has taken the site offline because it may be in an unsafe state.</p><p>The site's code and persistent database have not been deleted. Access will return only after a new Render deployment with a different code commit.</p></main></body></html>`);
+    if (shutdown) {
+      return res
+        .status(404)
+        .set({
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        })
+        .type('text/plain')
+        .send('Not Found');
+    }
+
+    if (req.method === 'POST' && req.path === '/api/admin/emergency-shutdown') {
+      return next();
+    }
+
+    return next();
   } catch (error: any) {
-    console.error('[Emergency Shutdown] Could not verify the persistent shutdown state:', error?.message || error);
+    // Fail closed without revealing the product name or shutdown implementation.
+    console.error('[Emergency Shutdown] State verification failed:', error?.message || error);
     return res
-      .status(503)
-      .set('Cache-Control', 'no-store')
-      .type('html')
-      .send('<!doctype html><html><head><meta charset="utf-8"><title>YouSong unavailable</title></head><body><h1>YouSong temporarily unavailable</h1><p>The server cannot verify its emergency shutdown state. Please try again after the database connection is restored.</p></body></html>');
+      .status(404)
+      .set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'X-Robots-Tag': 'noindex, nofollow, noarchive',
+      })
+      .type('text/plain')
+      .send('Not Found');
   }
 });
 
@@ -5359,7 +5369,7 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  // Harmless deployment marker: confirms a new source commit reached this server.\n  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`YouSong Server running on port ${PORT} connected to Cloud SQL PostgreSQL`);
   });
 }
