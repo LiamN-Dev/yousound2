@@ -4728,6 +4728,96 @@ app.post('/api/feedback', async (req: Request, res: Response) => {
 });
 
 // A person's own reports, with progress and an "unread" flag for anything that changed
+const LOGIN_ACTIVITY_SEEN_PREFIX = 'login_activity_seen_v1_';
+
+app.get('/api/notifications/login-digest', async (req: Request, res: Response) => {
+  try {
+    const member = getAuthUser(req);
+    if (!member) return res.status(401).json({ success: false, error: 'Sign in to load account updates.' });
+    const storedSeen = await getPersistentSettingDb<string>(LOGIN_ACTIVITY_SEEN_PREFIX + member.uid);
+    const storedDate = storedSeen ? new Date(storedSeen) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const seenAt = Number.isFinite(storedDate.getTime()) ? storedDate.getTime() : Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const [requests, feedback, threads] = await Promise.all([
+      getRequestsPersistentDb(),
+      listFeedbackForUserDb(member.uid),
+      getChatThreadsForUserDb(member.uid),
+    ]);
+    const events: Array<{ id: string; kind: 'song' | 'feedback' | 'chat'; title: string; detail: string; createdAt: string; timestamp: number }> = [];
+    for (const request of requests as any[]) {
+      if (String(request.requestedByUserId || '') !== member.uid) continue;
+      if (!['approved', 'declined', 'staging', 'published'].includes(String(request.status || ''))) continue;
+      const changedAt = request.publishedAt || request.reviewedAt || request.createdAt;
+      const timestamp = new Date(changedAt).getTime();
+      if (!Number.isFinite(timestamp) || timestamp <= seenAt) continue;
+      const statusText: Record<string, string> = {
+        approved: 'approved and waiting for upload',
+        declined: 'declined',
+        staging: 'uploaded and ready for final review',
+        published: 'published in the song library',
+      };
+      events.push({
+        id: 'song-' + String(request.id),
+        kind: 'song',
+        title: String(request.songTitle || 'Your song request'),
+        detail: 'Your request was ' + (statusText[String(request.status)] || 'updated') + '.',
+        createdAt: new Date(timestamp).toISOString(),
+        timestamp,
+      });
+    }
+    for (const item of feedback as any[]) {
+      if (!item.unread) continue;
+      const timestamp = new Date(item.updatedAt).getTime();
+      if (!Number.isFinite(timestamp) || timestamp <= seenAt) continue;
+      const statusText: Record<string, string> = { new: 'received', in_progress: 'moved into progress', done: 'marked complete', declined: 'declined' };
+      events.push({
+        id: 'feedback-' + String(item.id),
+        kind: 'feedback',
+        title: String(item.title || 'Your report'),
+        detail: 'Your ' + (item.type === 'bug' ? 'bug report' : 'feature request') + ' was ' + (statusText[String(item.status)] || 'updated') + (item.adminNote ? ' — ' + String(item.adminNote).slice(0, 180) : ''),
+        createdAt: new Date(timestamp).toISOString(),
+        timestamp,
+      });
+    }
+    for (const thread of threads as any[]) {
+      if (!thread.lastMessage || !thread.lastMessageSender || thread.lastMessageSender === member.username) continue;
+      const timestamp = new Date(thread.lastMessageAt || thread.createdAt).getTime();
+      if (!Number.isFinite(timestamp) || timestamp <= seenAt) continue;
+      events.push({
+        id: 'chat-' + String(thread.id) + '-' + String(timestamp),
+        kind: 'chat',
+        title: 'New message from ' + String(thread.lastMessageSender),
+        detail: String(thread.lastMessage).slice(0, 180),
+        createdAt: new Date(timestamp).toISOString(),
+        timestamp,
+      });
+    }
+    events.sort((a, b) => b.timestamp - a.timestamp);
+    const counts = {
+      songs: events.filter((event) => event.kind === 'song').length,
+      feedback: events.filter((event) => event.kind === 'feedback').length,
+      chats: events.filter((event) => event.kind === 'chat').length,
+    };
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, total: events.length, counts, items: events.slice(0, 8).map(({ timestamp, ...event }) => event) });
+  } catch (error: any) {
+    console.error('[LoginDigest] Could not load updates:', error);
+    return res.status(503).json({ success: false, error: 'Could not load account updates right now.' });
+  }
+});
+
+app.post('/api/notifications/login-digest/seen', async (req: Request, res: Response) => {
+  try {
+    const member = getAuthUser(req);
+    if (!member) return res.status(401).json({ success: false, error: 'Sign in to save this update.' });
+    await setPersistentSettingDb(LOGIN_ACTIVITY_SEEN_PREFIX + member.uid, new Date().toISOString());
+    await markFeedbackSeenDb(member.uid);
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('[LoginDigest] Could not mark updates seen:', error);
+    return res.status(500).json({ success: false, error: 'Could not mark these updates as seen.' });
+  }
+});
+
 app.get('/api/feedback/mine', async (req: Request, res: Response) => {
   try {
     const items = await listFeedbackForUserDb(getAuthUser(req).uid);
