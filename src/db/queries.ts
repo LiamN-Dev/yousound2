@@ -858,7 +858,7 @@ export async function createRequestDb(data: {
         status: data.status || 'pending',
         adminNote: data.adminNote || null,
         requestType: data.requestType || 'song',
-        genre: data.genre || 'Vibe / Chill',
+        genre: String(data.genre || '').trim(),
       })
       .returning();
     if (!inserted[0]) throw new Error('The database did not return the new song request.');
