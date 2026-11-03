@@ -496,7 +496,7 @@ export async function bulkUpdateSongsDb(
   const allowedColumns = new Set([
     'title', 'artist', 'mediaCode', 'album', 'genre', 'typeMood', 'duration', 'durationExact', 'plays',
     'dailyPlays', 'weeklyPlays', 'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
-    'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'autoReleaseOnDrop',
+    'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'dropMessage', 'autoReleaseOnDrop',
     'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
     'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);

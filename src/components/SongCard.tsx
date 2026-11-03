@@ -95,6 +95,19 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
   const remainingLeaveTime = song.isLimitedEdition && song.limitedUntil ? getRemainingTimeString(song.limitedUntil) : null;
   const remainingDropTime = song.isDroppingSoon && song.dropDate ? getDropCountdownString(song.dropDate) : null;
 
+  // Keep the artwork overlay readable: at most two status badges plus a compact overflow count.
+  const coverBadgeCandidates: Array<{ key: string; label: string; tone: string; icon: React.ReactNode }> = [];
+  if (song.isPinned) coverBadgeCandidates.push({ key: 'pinned', label: 'PINNED', tone: 'bg-blue-600 text-white border-blue-300/50', icon: <Pin className="h-3 w-3 fill-white" /> });
+  if (song.badgeType === 'hot') coverBadgeCandidates.push({ key: 'hot', label: 'HOT TRACK', tone: 'bg-gradient-to-r from-orange-500 to-rose-600 text-white border-orange-200/50', icon: <Flame className="h-3 w-3 fill-white" /> });
+  if (song.badgeType === 'new') coverBadgeCandidates.push({ key: 'new', label: 'NEW RELEASE', tone: 'bg-emerald-600 text-white border-emerald-300/50', icon: <Sparkles className="h-3 w-3" /> });
+  if (song.badgeType === 'top') coverBadgeCandidates.push({ key: 'top', label: 'TOP HIT', tone: 'bg-amber-300 text-slate-950 border-amber-100', icon: <Flame className="h-3 w-3 fill-current" /> });
+  if (song.badgeType === 'admin-pick') coverBadgeCandidates.push({ key: 'admin-pick', label: 'ADMIN PICK', tone: 'bg-violet-600 text-white border-violet-300/50', icon: <Sparkles className="h-3 w-3" /> });
+  if (song.badgeType === 'custom' && song.badgeCustomText) coverBadgeCandidates.push({ key: 'custom', label: song.badgeCustomText.trim().slice(0, 22), tone: 'bg-indigo-600 text-white border-indigo-300/50', icon: <Sparkles className="h-3 w-3" /> });
+  if (song.isLimitedEdition) coverBadgeCandidates.push({ key: 'limited', label: 'LEAVING SOON', tone: 'bg-rose-600 text-white border-rose-300/50', icon: <Clock className="h-3 w-3" /> });
+  if (song.isDroppingSoon) coverBadgeCandidates.push({ key: 'upcoming', label: 'UPCOMING', tone: 'bg-amber-300 text-slate-950 border-amber-100', icon: <Lock className="h-3 w-3" /> });
+  const visibleCoverBadges = coverBadgeCandidates.slice(0, 2);
+  const hiddenCoverBadges = coverBadgeCandidates.slice(2);
+
   return (
     <div
       onClick={handleCardClick}
@@ -112,7 +125,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
           <Clock className="w-7 h-7 text-amber-400 mb-1.5 animate-pulse" />
           <h4 className="text-xs font-bold font-display uppercase tracking-wider text-amber-300">New Song Dropping Soon!</h4>
           <p className="text-[11px] text-slate-200 font-mono mt-1">
-            {remainingDropTime ? `Releases in: ${remainingDropTime}` : 'Will be playable once released!'}
+            {song.dropMessage?.trim() || (remainingDropTime ? `Releases in: ${remainingDropTime}` : 'Will be playable once released!')}
           </p>
         </div>
       )}
@@ -129,60 +142,28 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
           }`}
         />
 
-        {/* Top Badges Overlay (High-Contrast, Prominent Badges) */}
-        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none z-10 gap-1.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {song.isPinned && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-black shadow-lg border border-white/25 uppercase tracking-wider">
-                <Pin className="w-3.5 h-3.5 fill-white" />
-                PINNED
+        {/* Compact status badges: no more than two labels can cover the artwork. */}
+        {visibleCoverBadges.length > 0 && (
+          <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start gap-1 pointer-events-none">
+            {visibleCoverBadges.map((badge) => (
+              <span
+                key={badge.key}
+                className={`inline-flex max-w-[72%] items-center gap-1 rounded-md border px-2 py-1 text-[9px] font-black uppercase tracking-wide shadow-lg ${badge.tone}`}
+              >
+                {badge.icon}
+                <span className="truncate">{badge.label}</span>
               </span>
-            )}
-            {song.badgeType === 'hot' && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-orange-500 via-amber-500 to-rose-600 text-white text-xs font-black shadow-lg border border-white/30 uppercase tracking-wider">
-                <Flame className="w-3.5 h-3.5 fill-white text-white" />
-                HOT TRACK
-              </span>
-            )}
-            {song.badgeType === 'new' && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-black shadow-lg border border-emerald-400/40 uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5" />
-                NEW RELEASE
-              </span>
-            )}
-            {song.badgeType === 'top' && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-400 text-slate-950 text-xs font-black shadow-lg border border-amber-300 uppercase tracking-wider">
-                <Flame className="w-3.5 h-3.5 fill-current" />
-                TOP HIT
-              </span>
-            )}
-            {song.badgeType === 'admin-pick' && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 text-white text-xs font-black shadow-lg border border-violet-400/40 uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5" />
-                ADMIN PICK
-              </span>
-            )}
-            {song.badgeType === 'custom' && song.badgeCustomText && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-black shadow-lg border border-indigo-400/40 uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5" />
-                {song.badgeCustomText}
-              </span>
-            )}
-            {song.isLimitedEdition && (
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-600 text-white text-xs font-black uppercase tracking-wider shadow-lg border border-rose-400/40">
-                <Clock className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '6s' }} />
-                LEAVING SOON
+            ))}
+            {hiddenCoverBadges.length > 0 && (
+              <span
+                title={hiddenCoverBadges.map((badge) => badge.label).join(', ')}
+                className="inline-flex items-center rounded-md border border-white/30 bg-slate-950/85 px-2 py-1 text-[9px] font-black text-white shadow-lg"
+              >
+                +{hiddenCoverBadges.length}
               </span>
             )}
           </div>
-
-          {song.isDroppingSoon && (
-            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow-lg border border-amber-300">
-              <Lock className="w-3.5 h-3.5" />
-              UPCOMING
-            </span>
-          )}
-        </div>
+        )}
 
         {/* Play / Playing Overlay OR Dropping Soon Overlay */}
         {song.isDroppingSoon ? (
@@ -193,9 +174,15 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
             <span className="text-[11px] font-extrabold text-amber-300 uppercase tracking-wider font-display">
               Upcoming Drop
             </span>
-            <span className="text-[10px] font-mono text-amber-100 font-bold mt-0.5">
-              {remainingDropTime || 'Unlocks Soon'}
-            </span>
+            {song.dropMessage?.trim() ? (
+              <p className="mt-1 max-w-full rounded-lg border border-amber-300/25 bg-black/25 px-3 py-2 text-[10px] font-semibold leading-relaxed text-amber-50 break-words">
+                {song.dropMessage}
+              </p>
+            ) : (
+              <span className="text-[10px] font-mono text-amber-100 font-bold mt-0.5">
+                {remainingDropTime || 'Unlocks Soon'}
+              </span>
+            )}
           </div>
         ) : (
           <div
@@ -222,7 +209,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
 
         {/* Playing Animated Equalizer Badge */}
         {isCurrentPlaying && (
-          <div className="absolute top-2 left-2 px-2 py-1 rounded-md bg-slate-950/80 backdrop-blur-md border border-blue-500/40 flex items-center gap-1 z-20">
+          <div className="absolute bottom-2 left-2 px-2 py-1 rounded-md bg-slate-950/80 backdrop-blur-md border border-blue-500/40 flex items-center gap-1 z-20">
             <span className="w-1 h-3 bg-blue-400 rounded-full animate-pulse" />
             <span className="w-1 h-4 bg-blue-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
             <span className="w-1 h-2 bg-blue-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
@@ -243,7 +230,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
         </div>
       )}
 
-      {remainingDropTime && !remainingLeaveTime && (
+      {remainingDropTime && !remainingLeaveTime && !song.dropMessage?.trim() && (
         <div className="mb-2 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-700 dark:text-amber-300 text-[11px] font-bold flex items-center justify-between gap-1 shadow-xs">
           <span className="flex items-center gap-1 shrink-0">
             <Lock className="w-3 h-3 text-amber-500" />
@@ -280,10 +267,6 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
 
       {song.isChristmasEdition && (
         <div className="ys-christmas-edition-pill">🎄 It&apos;s Time — Christmas Edition</div>
-      )}
-
-      {song.dropMessage && (
-        <div className="mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-200">{song.dropMessage}</div>
       )}
 
       {/* Tags expand inline so the song card does not clip the open list. */}

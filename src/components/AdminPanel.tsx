@@ -57,6 +57,7 @@ import {
   Zap,
   Database,
   Snowflake,
+  Power,
 } from 'lucide-react';
 
 const MAINTENANCE_SECTION_OPTIONS: {
@@ -132,6 +133,13 @@ export const AdminPanel: React.FC = () => {
   const [maintTabSettings, setMaintTabSettings] = useState<Partial<Record<MaintenanceTab, TabMaintenanceSetting>>>(
     () => maintenanceState.tabMaintenance || {}
   );
+
+  // Emergency shutdown uses two separate verification screens before any request is sent.
+  const [shutdownVerificationStep, setShutdownVerificationStep] = useState<0 | 1 | 2>(0);
+  const [shutdownVerificationText, setShutdownVerificationText] = useState('');
+  const [shutdownDataAcknowledged, setShutdownDataAcknowledged] = useState(false);
+  const [shutdownSubmitting, setShutdownSubmitting] = useState(false);
+  const [shutdownFeedback, setShutdownFeedback] = useState<string | null>(null);
 
   // Banner & Branding State
   const [bannerEnabled, setBannerEnabledRaw] = useState(bannerConfig.enabled);
@@ -353,6 +361,45 @@ export const AdminPanel: React.FC = () => {
         ...updates,
       },
     }));
+  };
+
+  const beginEmergencyShutdown = () => {
+    setShutdownFeedback(null);
+    setShutdownVerificationText('');
+    setShutdownDataAcknowledged(false);
+    setShutdownVerificationStep(1);
+  };
+
+  const cancelEmergencyShutdown = () => {
+    if (shutdownSubmitting) return;
+    setShutdownVerificationStep(0);
+    setShutdownVerificationText('');
+    setShutdownDataAcknowledged(false);
+  };
+
+  const handleEmergencyShutdown = async () => {
+    if (shutdownVerificationText.trim() !== 'SHUT DOWN YOU SONG' || !shutdownDataAcknowledged || shutdownSubmitting) return;
+    setShutdownSubmitting(true);
+    setShutdownFeedback(null);
+    try {
+      const response = await fetch('/api/admin/emergency-shutdown', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmationText: shutdownVerificationText.trim(),
+          confirmDataRetained: shutdownDataAcknowledged,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'The server did not confirm emergency shutdown.');
+      setShutdownVerificationStep(0);
+      setShutdownFeedback('Emergency shutdown is active. The site is offline. A new Render deployment with a different commit is required to restore it.');
+    } catch (error: any) {
+      setShutdownFeedback(error?.message || 'Emergency shutdown failed. The site may still be online.');
+    } finally {
+      setShutdownSubmitting(false);
+    }
   };
 
   const handleSaveMaintenance = () => {
@@ -1384,6 +1431,32 @@ export const AdminPanel: React.FC = () => {
       {/* TAB 6: MAINTENANCE MODE */}
       {adminTab === 'maintenance' && (
         <div className="space-y-6 animate-in fade-in">
+          <section className="rounded-3xl border border-rose-500/50 bg-rose-950/35 p-5 sm:p-6 shadow-lg shadow-rose-950/20">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="flex items-center gap-2 text-base font-bold text-rose-200">
+                  <Power className="h-5 w-5" /> Emergency Site Shutdown
+                </h2>
+                <p className="mt-1 max-w-3xl text-xs leading-relaxed text-rose-100/80">
+                  Immediately blocks the website, frontend assets, and API. Your code and persistent database stay intact.
+                  Restoring access requires a new Render deployment with a different code commit; restarting the same deployment will not unlock it.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={beginEmergencyShutdown}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-300/40 bg-rose-600 px-5 py-3 text-xs font-extrabold text-white shadow-lg transition hover:bg-rose-500 active:scale-95"
+              >
+                <Power className="h-4 w-4" /> Emergency Shutdown
+              </button>
+            </div>
+            {shutdownFeedback && (
+              <p role="status" className="mt-4 rounded-xl border border-rose-300/20 bg-black/20 p-3 text-xs text-rose-100">
+                {shutdownFeedback}
+              </p>
+            )}
+          </section>
+
           <div className="ys-admin-dark-panel liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-white/10">
             <h2 className="text-lg font-bold text-white font-display mb-2 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-400" />
@@ -1575,6 +1648,74 @@ export const AdminPanel: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {shutdownVerificationStep > 0 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="shutdown-dialog-title">
+          <div className="w-full max-w-lg space-y-5 rounded-3xl border border-rose-500/40 bg-slate-950 p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-rose-500/15 p-3 text-rose-300"><Power className="h-6 w-6" /></div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-rose-400">Emergency action · Verification {shutdownVerificationStep} of 2</p>
+                <h2 id="shutdown-dialog-title" className="mt-1 text-lg font-bold text-white">Take YouSong completely offline?</h2>
+              </div>
+            </div>
+
+            {shutdownVerificationStep === 1 ? (
+              <>
+                <div className="space-y-2 rounded-2xl border border-rose-500/20 bg-rose-950/25 p-4 text-xs leading-relaxed text-slate-200">
+                  <p>This is not normal maintenance. The server will return an offline response for the entire site, including its API and frontend.</p>
+                  <p>All code and persistent data remain stored. The shutdown cannot be cleared from the admin panel, by restarting the service, or by redeploying the same commit. Recovery requires deploying a different code commit on Render.</p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={cancelEmergencyShutdown} className="rounded-xl border border-white/15 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5">Cancel</button>
+                  <button type="button" onClick={() => setShutdownVerificationStep(2)} className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-500">Continue to final verification</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-3 rounded-2xl border border-rose-500/25 bg-rose-950/20 p-4">
+                  <label className="block text-xs font-semibold text-slate-200" htmlFor="shutdown-confirmation-text">
+                    Type <span className="font-mono text-rose-300">SHUT DOWN YOU SONG</span> exactly to confirm.
+                  </label>
+                  <input
+                    id="shutdown-confirmation-text"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={shutdownVerificationText}
+                    onChange={(event) => setShutdownVerificationText(event.target.value)}
+                    placeholder="SHUT DOWN YOU SONG"
+                    className="w-full rounded-xl border border-rose-400/30 bg-black/40 px-3 py-3 font-mono text-sm text-white outline-none focus:border-rose-300"
+                  />
+                  <label className="flex items-start gap-2 text-xs leading-relaxed text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={shutdownDataAcknowledged}
+                      onChange={(event) => setShutdownDataAcknowledged(event.target.checked)}
+                      className="mt-0.5 rounded border-rose-400/40 bg-slate-900 text-rose-500"
+                    />
+                    <span>I understand this takes the entire site offline, retains the code and persistent data, and requires a new Render code deployment to restore access.</span>
+                  </label>
+                </div>
+                <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2">
+                  <button type="button" onClick={() => setShutdownVerificationStep(1)} disabled={shutdownSubmitting} className="rounded-xl border border-white/15 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5 disabled:opacity-50">Back</button>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" onClick={cancelEmergencyShutdown} disabled={shutdownSubmitting} className="rounded-xl border border-white/15 px-4 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5 disabled:opacity-50">Cancel</button>
+                    <button
+                      type="button"
+                      onClick={handleEmergencyShutdown}
+                      disabled={shutdownSubmitting || shutdownVerificationText.trim() !== 'SHUT DOWN YOU SONG' || !shutdownDataAcknowledged}
+                      className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {shutdownSubmitting ? 'Activating shutdown…' : 'Confirm · Take Site Offline'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
