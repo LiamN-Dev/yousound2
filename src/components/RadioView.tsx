@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Radio, Send, ShieldCheck, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, Ban, CalendarClock, Clock3, Headphones, Loader2, Music2, Plus, Radio, Send, ShieldCheck, Users, X } from 'lucide-react';
 import type { Song } from '../types';
 import { useAudio } from '../context/AudioContext';
 import { useAuth } from '../context/AuthContext';
@@ -60,6 +60,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [programName, setProgramName] = useState('Now Playing');
   const [programDescription, setProgramDescription] = useState('');
   const [currentIds, setCurrentIds] = useState<string[]>([]);
+  const [liveQueueAddIds, setLiveQueueAddIds] = useState<string[]>([]);
   const [nextName, setNextName] = useState('');
   const [nextDescription, setNextDescription] = useState('');
   const [nextAt, setNextAt] = useState('');
@@ -498,6 +499,22 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     void controlRadio('reorder-queue', { songIds: reordered.map((song) => song.id) });
   };
 
+  const removeUpcomingQueueSong = (songId: string) => {
+    const currentIndex = Math.max(0, Number(station?.currentIndex || 0));
+    const upcomingIds = (station?.playlist || []).slice(currentIndex + 1).map((song) => song.id).filter((id) => id !== songId);
+    void controlRadio('reorder-queue', { songIds: upcomingIds });
+  };
+
+  const addUpcomingQueueSongs = () => {
+    if (!liveQueueAddIds.length || saving) return;
+    const currentIndex = Math.max(0, Number(station?.currentIndex || 0));
+    const playlist = station?.playlist || [];
+    const lockedIds = new Set(playlist.slice(0, currentIndex + 1).map((song) => song.id));
+    const existingUpcoming = playlist.slice(currentIndex + 1).map((song) => song.id);
+    const nextIds = [...existingUpcoming, ...liveQueueAddIds.filter((id) => !lockedIds.has(id) && !existingUpcoming.includes(id))];
+    void controlRadio('reorder-queue', { songIds: nextIds }).then(() => setLiveQueueAddIds([]));
+  };
+
   const moveScheduledQueueSong = (index: number, direction: -1 | 1) => {
     setNextIds((current) => {
       const target = index + direction;
@@ -533,16 +550,16 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     ? new Date(station.serverNow).getTime() + (station.nextStartsInMs || 0) : null;
   const countdown = scheduledStart === null ? null : Math.max(0, scheduledStart - clock);
 
-  const picker = (ids: string[], setter: (value: string[]) => void) => (
+  const picker = (ids: string[], setter: (value: string[]) => void, excludedIds: string[] = []) => (
     <div className="rounded-lg border border-white/10 bg-black/20 p-2">
       <div className="max-h-40 space-y-0.5 overflow-y-auto">
-        {filteredSongs.map((song) => (
+        {filteredSongs.filter((song) => !excludedIds.includes(song.id)).map((song) => (
           <label key={song.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[11px] text-slate-200 hover:bg-white/[0.06]">
             <input type="checkbox" checked={ids.includes(song.id)} onChange={() => setSelected(ids, setter, song.id)} className="accent-cyan-500" />
             <span className="min-w-0 flex-1 truncate">{song.title} <span className="text-slate-500">— {song.artist}</span></span>
           </label>
         ))}
-        {!filteredSongs.length && <p className="p-3 text-center text-[10px] text-slate-500">No matching songs.</p>}
+        {!filteredSongs.some((song) => !excludedIds.includes(song.id)) && <p className="p-3 text-center text-[10px] text-slate-500">No matching songs.</p>}
       </div>
       <p className="mt-2 text-[9px] text-slate-500">{ids.length} selected. The admin picker includes unpublished songs.</p>
     </div>
@@ -584,6 +601,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         {joined && <div className="mt-2 text-[10px] text-emerald-200">{syncing ? '◌ Buffering and synchronizing to the station clock…' : '● Tuned in — the broadcast continues when you change tabs.'}</div>}
       </div>
 
+      {station?.nextProgram && <section className="rounded-2xl border border-indigo-400/25 bg-indigo-500/[0.06] p-4">
+        <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-indigo-200"><CalendarClock className="h-4 w-4" /> Upcoming broadcast</div>
+        <div className="text-sm font-bold text-white">{station.nextProgram.name || 'Next broadcast'}</div>
+        {station.nextProgram.description && <p className="mt-1 text-xs text-slate-300">{station.nextProgram.description}</p>}
+        {station.nextProgram.startsAt && <p className="mt-2 text-[10px] text-indigo-200">{new Date(station.nextProgram.startsAt).toLocaleString()}</p>}
+        {countdown !== null && <p className="mt-1 text-[10px] font-semibold text-indigo-100">Starts in {timeLeft(countdown)}</p>}
+      </section>}
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           {isAdmin && <details className="rounded-2xl border border-amber-400/25 bg-slate-950 p-4 text-white" open>
@@ -596,6 +621,11 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                 <label className="text-[10px] text-slate-300">Program description<input value={programDescription} onChange={(e) => setProgramDescription(e.target.value)} maxLength={240} className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" /></label>
               </div>
               <div><div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase text-slate-300"><span>Current playlist · {currentIds.length} chosen</span><button type="button" onClick={() => setCurrentIds([])} className="font-normal normal-case text-slate-400">Clear</button></div><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search all songs, including unpublished…" className="mb-2 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" />{picker(currentIds, setCurrentIds)}</div>
+              {station?.enabled && <div className="rounded-xl border border-emerald-400/15 bg-emerald-500/[0.04] p-3">
+                <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase text-emerald-100"><span>Add songs to the live queue</span><span className="font-normal normal-case text-slate-400">{liveQueueAddIds.length} selected</span></div>
+                {picker(liveQueueAddIds, setLiveQueueAddIds, adminQueue.map((song) => song.id))}
+                <button type="button" onClick={addUpcomingQueueSongs} disabled={saving || !liveQueueAddIds.length} className="mt-2 rounded-lg border border-emerald-300/25 bg-emerald-400/15 px-3 py-2 text-[10px] font-bold text-emerald-100 disabled:opacity-40"><Plus className="mr-1 inline h-3 w-3" /> Add selected to queue</button>
+              </div>}
               <div className="rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] p-3">
                 <div className="mb-2 flex items-center justify-between gap-2 text-[10px] font-bold uppercase text-cyan-100">
                   <span>{station?.enabled ? 'Live queue · current song stays put' : 'Queue order · before starting'}</span>
@@ -626,6 +656,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
                         <button type="button" aria-label={'Move ' + song.title + ' up'} title="Move up" disabled={saving || upcomingIndex === 0} onClick={() => moveTrack(-1)} className="rounded border border-white/10 p-1 text-slate-300 hover:bg-white/10 disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
                         <button type="button" aria-label={'Move ' + song.title + ' down'} title="Move down" disabled={saving || (isLive ? upcomingIndex >= adminQueue.length - liveQueueIndex - 2 : index >= adminQueue.length - 1)} onClick={() => moveTrack(1)} className="rounded border border-white/10 p-1 text-slate-300 hover:bg-white/10 disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
                       </div>}
+                      {isLive && canMove && !isCurrent && !isPlayed && <button type="button" title="Remove from live queue" aria-label={'Remove ' + song.title + ' from queue'} disabled={saving} onClick={() => removeUpcomingQueueSong(song.id)} className="rounded border border-rose-400/20 p-1 text-rose-300 hover:bg-rose-500/10 disabled:opacity-25"><X className="h-3 w-3" /></button>}
                     </div>;
                   })}
                 </div> : <p className="text-[10px] text-slate-500">Choose songs above to build the queue. Its order here is the playback order.</p>}
