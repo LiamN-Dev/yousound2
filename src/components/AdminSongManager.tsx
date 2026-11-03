@@ -1588,14 +1588,14 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                   Spotlight starts at
                   <input type="datetime-local"
                     value={spotlightConfig.startsAt ? new Date(new Date(spotlightConfig.startsAt).getTime() - new Date(spotlightConfig.startsAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
-                    onChange={(e) => updateSpotlightConfig({ startsAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                    onChange={(e) => updateSpotlightConfig({ startsAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
                     className="mt-1 w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-white" />
                 </label>
                 <label className="block text-slate-300 font-semibold">
                   Spotlight ends at
                   <input type="datetime-local"
                     value={spotlightConfig.endsAt ? new Date(new Date(spotlightConfig.endsAt).getTime() - new Date(spotlightConfig.endsAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
-                    onChange={(e) => updateSpotlightConfig({ endsAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                    onChange={(e) => updateSpotlightConfig({ endsAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
                     className="mt-1 w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-white" />
                 </label>
                 <p className="sm:col-span-2 text-[10px] text-slate-400">Times use your device&apos;s local time. A start or end time is optional.</p>
