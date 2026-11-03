@@ -5370,7 +5370,8 @@ async function startServer() {
     });
   }
 
-  // Harmless deployment marker: confirms a new source commit reached this server.\n  app.listen(Number(PORT), '0.0.0.0', () => {
+  // Harmless deployment marker: confirms a new source commit reached this server.
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`YouSong Server running on port ${PORT} connected to Cloud SQL PostgreSQL`);
   });
 }
