@@ -70,6 +70,8 @@ export async function ensureTables(): Promise<void> {
     ['song_requests', 'description TEXT'],
     ['song_requests', 'is_dropping_soon BOOLEAN DEFAULT false'],
     ['song_requests', 'drop_date TEXT'],
+    ['song_requests', 'approved_at TEXT'],
+    ['song_requests', 'estimated_upload_at TEXT'],
     ['song_requests', 'drop_message TEXT'],
     ['song_requests', 'auto_release_on_drop BOOLEAN DEFAULT false'],
     ['song_requests', "hidden_from JSONB DEFAULT '[]'::jsonb"],
