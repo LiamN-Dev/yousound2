@@ -169,6 +169,7 @@ app.use('/api', attachUser, enforcePolicy);
 // filesystem or process memory. A new Render commit is required to clear it.
 type EmergencyShutdownRecord = {
   enabled: boolean;
+  activatedServiceId: string;
   activatedCommit: string;
   activatedAt: string;
   activatedBy: string;
@@ -187,11 +188,20 @@ async function getEmergencyShutdownRecord(): Promise<EmergencyShutdownRecord | n
   }
 
   const deployedCommit = String(process.env.RENDER_GIT_COMMIT || '').trim();
-  if (!deployedCommit) {
-    throw new Error('Render did not provide RENDER_GIT_COMMIT; emergency shutdown state cannot be safely verified.');
+  const deployedServiceId = String(process.env.RENDER_SERVICE_ID || '').trim();
+  if (!deployedCommit || !deployedServiceId) {
+    throw new Error('Render did not provide its documented service and commit identifiers; emergency shutdown state cannot be safely verified.');
   }
 
   const saved = await getPersistentSettingDb<EmergencyShutdownRecord>(EMERGENCY_SHUTDOWN_SETTING);
+
+  // Staging, preview, and production can share a database. A shutdown belongs
+  // only to the Render service that activated it; other services must ignore it.
+  if (saved?.enabled && saved.activatedServiceId !== deployedServiceId) {
+    emergencyShutdownCache = { checkedAt: now, record: null };
+    return null;
+  }
+
   if (saved?.enabled && saved.activatedCommit && saved.activatedCommit !== deployedCommit) {
     // A different code commit has been deployed. That is the only recovery path.
     await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, {
@@ -4177,12 +4187,14 @@ app.post('/api/admin/emergency-shutdown', async (req: Request, res: Response) =>
     }
 
     const deployedCommit = String(process.env.RENDER_GIT_COMMIT || '').trim();
-    if (process.env.RENDER === 'true' && !deployedCommit) {
+    const deployedServiceId = String(process.env.RENDER_SERVICE_ID || '').trim();
+    if (process.env.RENDER === 'true' && (!deployedCommit || !deployedServiceId)) {
       return res.status(503).json({ success: false, error: 'Render deployment identity is unavailable. Shutdown was not activated.' });
     }
 
     const record: EmergencyShutdownRecord = {
       enabled: true,
+      activatedServiceId: deployedServiceId || 'local-development',
       activatedCommit: deployedCommit || 'local-development',
       activatedAt: new Date().toISOString(),
       activatedBy: String(getAuthUser(req)?.username || 'admin').slice(0, 80),
