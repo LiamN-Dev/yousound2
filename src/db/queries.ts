@@ -1605,6 +1605,7 @@ export async function stageSongRequestMediaDb(
         ...requestUpdates,
         status: 'staging',
         mediaCode: media.code,
+        reviewedAt: now.toISOString(),
       }).where(eq(songRequests.id, requestId)).returning();
       if (!requestRows[0] || requestRows[0].status !== 'staging') {
         throw new Error('The request could not be moved into staging. The database rolled back the Media ID update.');
