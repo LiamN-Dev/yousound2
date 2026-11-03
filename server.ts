@@ -163,6 +163,83 @@ app.set('trust proxy', 1);
 // Every /api request: work out who is calling (from the signed cookie), then apply the route rules
 app.use('/api', attachUser, enforcePolicy);
 
+
+// ----------------- EMERGENCY DEPLOYMENT SHUTDOWN -----------------
+// The shutdown flag lives in PostgreSQL/Supabase, not in Render's temporary
+// filesystem or process memory. A new Render commit is required to clear it.
+type EmergencyShutdownRecord = {
+  enabled: boolean;
+  activatedCommit: string;
+  activatedAt: string;
+  activatedBy: string;
+};
+const EMERGENCY_SHUTDOWN_SETTING = 'emergency_shutdown';
+let emergencyShutdownCache: { checkedAt: number; record: EmergencyShutdownRecord | null } = {
+  checkedAt: 0,
+  record: null,
+};
+const EMERGENCY_SHUTDOWN_CACHE_MS = 1000;
+
+async function getEmergencyShutdownRecord(): Promise<EmergencyShutdownRecord | null> {
+  const now = Date.now();
+  if (now - emergencyShutdownCache.checkedAt < EMERGENCY_SHUTDOWN_CACHE_MS) {
+    return emergencyShutdownCache.record;
+  }
+
+  const deployedCommit = String(process.env.RENDER_GIT_COMMIT || '').trim();
+  if (!deployedCommit) {
+    throw new Error('Render did not provide RENDER_GIT_COMMIT; emergency shutdown state cannot be safely verified.');
+  }
+
+  const saved = await getPersistentSettingDb<EmergencyShutdownRecord>(EMERGENCY_SHUTDOWN_SETTING);
+  if (saved?.enabled && saved.activatedCommit && saved.activatedCommit !== deployedCommit) {
+    // A different code commit has been deployed. That is the only recovery path.
+    await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, {
+      enabled: false,
+      clearedAt: new Date().toISOString(),
+      clearedByCommit: deployedCommit,
+      previousShutdownCommit: saved.activatedCommit,
+    });
+    emergencyShutdownCache = { checkedAt: now, record: null };
+    console.warn('[Emergency Shutdown] Cleared after a new Render commit was deployed.');
+    return null;
+  }
+
+  const active = saved?.enabled ? saved : null;
+  emergencyShutdownCache = { checkedAt: now, record: active };
+  return active;
+}
+
+// This gate runs after authentication middleware but before API routes, assets,
+// and the frontend shell. Only the authenticated admin activation request passes.
+app.use(async (req: Request, res: Response, next: any) => {
+  if (
+    req.method === 'POST' &&
+    req.path === '/api/admin/emergency-shutdown'
+  ) {
+    return next();
+  }
+
+  if (process.env.RENDER !== 'true') return next();
+
+  try {
+    const shutdown = await getEmergencyShutdownRecord();
+    if (!shutdown) return next();
+    return res
+      .status(503)
+      .set('Cache-Control', 'no-store, no-cache, must-revalidate')
+      .type('html')
+      .send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>YouSong Offline</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080d19;color:#f8fafc;font:16px system-ui,sans-serif}.panel{max-width:560px;margin:24px;padding:36px;border:1px solid #713f46;border-radius:24px;background:#111827;box-shadow:0 24px 80px #0008}h1{margin:0 0 12px;color:#fca5a5;font-size:28px}p{color:#cbd5e1;line-height:1.65}.eyebrow{color:#f87171;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}</style></head><body><main class="panel"><div class="eyebrow">Emergency shutdown</div><h1>YouSong is offline</h1><p>An administrator has taken the site offline because it may be in an unsafe state.</p><p>The site's code and persistent database have not been deleted. Access will return only after a new Render deployment with a different code commit.</p></main></body></html>`);
+  } catch (error: any) {
+    console.error('[Emergency Shutdown] Could not verify the persistent shutdown state:', error?.message || error);
+    return res
+      .status(503)
+      .set('Cache-Control', 'no-store')
+      .type('html')
+      .send('<!doctype html><html><head><meta charset="utf-8"><title>YouSong unavailable</title></head><body><h1>YouSong temporarily unavailable</h1><p>The server cannot verify its emergency shutdown state. Please try again after the database connection is restored.</p></body></html>');
+  }
+});
+
 // Statically serve images and assets so covers never 404
 app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
 app.use('/assets', express.static(path.resolve(__dirname, 'src/assets')));
@@ -4090,6 +4167,44 @@ app.delete('/api/popups/:id', async (req: Request, res: Response) => {
 });
 
 // ----------------- BANNER & MAINTENANCE SETTINGS -----------------
+app.post('/api/admin/emergency-shutdown', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+
+    const confirmationText = String(req.body?.confirmationText || '').trim();
+    if (confirmationText !== 'SHUT DOWN YOU SONG' || req.body?.confirmDataRetained !== true) {
+      return res.status(400).json({ success: false, error: 'Both shutdown verification steps are required.' });
+    }
+
+    const deployedCommit = String(process.env.RENDER_GIT_COMMIT || '').trim();
+    if (process.env.RENDER === 'true' && !deployedCommit) {
+      return res.status(503).json({ success: false, error: 'Render deployment identity is unavailable. Shutdown was not activated.' });
+    }
+
+    const record: EmergencyShutdownRecord = {
+      enabled: true,
+      activatedCommit: deployedCommit || 'local-development',
+      activatedAt: new Date().toISOString(),
+      activatedBy: String(getAuthUser(req)?.username || 'admin').slice(0, 80),
+    };
+    await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, record);
+    emergencyShutdownCache = { checkedAt: Date.now(), record };
+
+    console.error(`[Emergency Shutdown] Activated by ${record.activatedBy} on commit ${record.activatedCommit}.`);
+    return res.json({
+      success: true,
+      message: 'Emergency shutdown activated. YouSong is now offline. A new Render deployment with a different commit is required to restore access.',
+    });
+  } catch (error: any) {
+    console.error('[Emergency Shutdown] Activation failed:', error);
+    return res.status(503).json({
+      success: false,
+      error: error?.message || 'Could not persist the emergency shutdown. The site was not taken offline.',
+    });
+  }
+});
+
+
 const getBannerHandler = async (_req: Request, res: Response) => {
   try {
     const banner = (await getSettingDb('banner')) || {
