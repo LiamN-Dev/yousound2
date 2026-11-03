@@ -131,6 +131,8 @@ CREATE TABLE IF NOT EXISTS song_requests (
   admin_note TEXT,
   request_type TEXT DEFAULT 'song',
   reviewed_at TEXT,
+  approved_at TEXT,
+  estimated_upload_at TEXT,
   audio_url TEXT,
   drive_file_id TEXT,
   drive_folder_id TEXT,
