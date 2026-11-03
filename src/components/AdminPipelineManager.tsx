@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
-import { formatCoverMediaUrl } from '../utils/mediaUrl';
+import { MediaCover } from './MediaCover';
+import { useAudio } from '../context/AudioContext';
 import { SongRequest } from '../types';
 import {
   AlertCircle, CheckCircle, Cloud, Loader2, Music2, RefreshCw, Send, Trash2, Upload, XCircle,
@@ -12,6 +13,15 @@ type RequestDraft = {
   artist: string;
   genre: string;
   adminNote: string;
+  tags: string;
+  description: string;
+  visibility: 'visible' | 'hidden_all' | 'specific';
+  hiddenUsers: string;
+  isDroppingSoon: boolean;
+  dropDate: string;
+  dropMessage: string;
+  autoReleaseOnDrop: boolean;
+  isChristmasEdition: boolean;
 };
 type QueueFilter = 'all' | 'pending' | 'approved' | 'staging' | 'published' | 'declined';
 
@@ -26,12 +36,23 @@ function getDraft(request: SongRequest): RequestDraft {
   return {
     songTitle: request.songTitle || '',
     artist: request.artist || '',
-    genre: request.genre || 'Vibe / Chill',
+    genre: request.genre || '',
     adminNote: request.adminNote || '',
+    tags: (request.tags || []).join(', '),
+    description: request.description || '',
+    visibility: request.hiddenFrom?.includes('all') ? 'hidden_all' : (request.hiddenFrom?.length ? 'specific' : 'visible'),
+    hiddenUsers: (request.hiddenFrom || []).filter((id) => id !== 'all').join(', '),
+    isDroppingSoon: Boolean(request.isDroppingSoon),
+    dropDate: toDateTimeLocal(request.dropDate),
+    dropMessage: request.dropMessage || '',
+    autoReleaseOnDrop: request.autoReleaseOnDrop !== false,
+    isChristmasEdition: Boolean(request.isChristmasEdition),
   };
 }
 
 export const AdminPipelineManager: React.FC = () => {
+  const { adminAllSongs } = useAudio();
+  const genreOptions = useMemo(() => Array.from(new Set(adminAllSongs.map((song) => String(song.genre || '').trim()).filter(Boolean))).sort(), [adminAllSongs]);
   const {
     songRequests, updateSongRequestStatus, deleteSongRequest, adminUpdateRequest,
     adminPublishRequest, refreshState,
@@ -185,8 +206,16 @@ export const AdminPipelineManager: React.FC = () => {
       const updated = await adminUpdateRequest(request.id, {
         songTitle: draft.songTitle.trim(),
         artist: draft.artist.trim() || 'Unknown Artist',
-        genre: draft.genre.trim() || 'Vibe / Chill',
+        genre: draft.genre.trim(),
         adminNote: draft.adminNote,
+        tags: Array.from(new Set(draft.tags.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean))),
+        description: draft.description.trim(),
+        isDroppingSoon: draft.isDroppingSoon,
+        dropDate: draft.isDroppingSoon && draft.dropDate ? new Date(draft.dropDate).toISOString() : null,
+        dropMessage: draft.dropMessage.trim(),
+        autoReleaseOnDrop: draft.autoReleaseOnDrop,
+        hiddenFrom: draft.visibility === 'hidden_all' ? ['all'] : draft.visibility === 'specific' ? draft.hiddenUsers.split(',').map((id) => id.trim()).filter(Boolean) : [],
+        isChristmasEdition: draft.isChristmasEdition,
       });
       if (!updated) throw new Error('The server did not save this request. Refresh and try again.');
       setFeedback({ type: 'success', message: `Saved request details for “${draft.songTitle.trim()}”.` });
@@ -203,22 +232,37 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: 'Song title is required.' });
       return;
     }
+    if (!draft.genre.trim()) {
+      setFeedback({ type: 'error', message: 'Choose or create a genre before approving this request.' });
+      return;
+    }
     const localEta = etaDrafts[request.id] || '';
-    const estimatedUploadAt = localEta
-      ? new Date(localEta).toISOString()
-      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const etaDate = localEta ? new Date(localEta) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    if (!Number.isFinite(etaDate.getTime())) {
+      setFeedback({ type: 'error', message: 'Enter a valid estimated upload date and time.' });
+      return;
+    }
     setWorkingId(request.id);
     try {
       const updated = await adminUpdateRequest(request.id, {
         songTitle: draft.songTitle.trim(),
         artist: draft.artist.trim() || 'Unknown Artist',
-        genre: draft.genre.trim() || 'Vibe / Chill',
+        genre: draft.genre.trim(),
+        tags: Array.from(new Set(draft.tags.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean))),
+        description: draft.description.trim(),
+        isDroppingSoon: draft.isDroppingSoon,
+        dropDate: draft.isDroppingSoon && draft.dropDate ? new Date(draft.dropDate).toISOString() : null,
+        dropMessage: draft.dropMessage.trim(),
+        autoReleaseOnDrop: draft.autoReleaseOnDrop,
+        hiddenFrom: draft.visibility === 'hidden_all' ? ['all'] : draft.visibility === 'specific' ? draft.hiddenUsers.split(',').map((id) => id.trim()).filter(Boolean) : [],
+        isChristmasEdition: draft.isChristmasEdition,
         adminNote: draft.adminNote,
         status: 'approved',
-        estimatedUploadAt,
+        estimatedUploadAt: etaDate.toISOString(),
       });
       if (!updated || updated.status !== 'approved') throw new Error('The server did not save approval. Refresh and try again.');
       setFeedback({ type: 'success', message: `“${updated.songTitle}” approved and placed in the upload waiting room.` });
+      await refreshState();
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.message || 'Could not approve request.' });
     } finally {
@@ -308,8 +352,25 @@ export const AdminPipelineManager: React.FC = () => {
     }
 
     setWorkingId(request.id);
-    setFeedback({ type: 'info', message: `Uploading “${request.songTitle}” and its cover directly to Google Drive…` });
+    setFeedback({ type: 'info', message: 'Saving the latest song details before uploading…' });
     try {
+      const draft = drafts[request.id] || getDraft(request);
+      const savedDraft = await adminUpdateRequest(request.id, {
+        songTitle: draft.songTitle.trim(),
+        artist: draft.artist.trim() || 'Unknown Artist',
+        genre: draft.genre.trim(),
+        adminNote: draft.adminNote,
+        tags: Array.from(new Set(draft.tags.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean))),
+        description: draft.description.trim(),
+        isDroppingSoon: draft.isDroppingSoon,
+        dropDate: draft.isDroppingSoon && draft.dropDate ? new Date(draft.dropDate).toISOString() : null,
+        dropMessage: draft.dropMessage.trim(),
+        autoReleaseOnDrop: draft.autoReleaseOnDrop,
+        hiddenFrom: draft.visibility === 'hidden_all' ? ['all'] : draft.visibility === 'specific' ? draft.hiddenUsers.split(',').map((id) => id.trim()).filter(Boolean) : [],
+        isChristmasEdition: draft.isChristmasEdition,
+      });
+      if (!savedDraft) throw new Error('The latest title and staging details did not save. Upload cancelled.');
+      setFeedback({ type: 'info', message: 'Uploading “' + draft.songTitle.trim() + '” and its cover directly to Google Drive…' });
       const form = new FormData();
       form.append('audio', audio);
       if (cover) form.append('cover', cover);
@@ -331,7 +392,7 @@ export const AdminPipelineManager: React.FC = () => {
       setUseSubmittedImage((current) => ({ ...current, [request.id]: false }));
       await storage.syncWithServer();
       refreshState();
-      setFeedback({ type: 'success', message: `“${request.songTitle}” and its artwork are in Drive. Preview it, then publish.` });
+      setFeedback({ type: 'success', message: '“' + ((drafts[request.id] || getDraft(request)).songTitle.trim()) + '” and its artwork are in Drive. Preview it, then publish.' });
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.message || 'Could not upload media to Google Drive.' });
     } finally {
@@ -343,9 +404,25 @@ export const AdminPipelineManager: React.FC = () => {
     setWorkingId(request.id);
     setFeedback(null);
     try {
+      const draft = drafts[request.id] || getDraft(request);
+      const savedDraft = await adminUpdateRequest(request.id, {
+        songTitle: draft.songTitle.trim(),
+        artist: draft.artist.trim() || 'Unknown Artist',
+        genre: draft.genre.trim(),
+        adminNote: draft.adminNote,
+        tags: Array.from(new Set(draft.tags.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean))),
+        description: draft.description.trim(),
+        isDroppingSoon: draft.isDroppingSoon,
+        dropDate: draft.isDroppingSoon && draft.dropDate ? new Date(draft.dropDate).toISOString() : null,
+        dropMessage: draft.dropMessage.trim(),
+        autoReleaseOnDrop: draft.autoReleaseOnDrop,
+        hiddenFrom: draft.visibility === 'hidden_all' ? ['all'] : draft.visibility === 'specific' ? draft.hiddenUsers.split(',').map((id) => id.trim()).filter(Boolean) : [],
+        isChristmasEdition: draft.isChristmasEdition,
+      });
+      if (!savedDraft) throw new Error('The latest title and staging details did not save. Publish cancelled.');
       const result = await adminPublishRequest(request.id, publish, false);
       if (!result.success) throw new Error(result.error || (publish ? 'Publish failed.' : 'Unpublish failed.'));
-      setFeedback({ type: 'success', message: publish ? `“${request.songTitle}” is published in the song library.` : `“${request.songTitle}” is unpublished and returned to staging.` });
+      setFeedback({ type: 'success', message: publish ? '“' + (drafts[request.id] || getDraft(request)).songTitle.trim() + '” is published in the song library.' : '“' + (drafts[request.id] || getDraft(request)).songTitle.trim() + '” is unpublished and returned to staging.' });
       await storage.syncWithServer();
       refreshState();
     } catch (error: any) {
@@ -518,8 +595,22 @@ export const AdminPipelineManager: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Song title</label><input className={inputClass} value={draft.songTitle} onChange={(event) => patchDraft(request.id, { songTitle: event.target.value })} disabled={busy} /></div>
                       <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Artist</label><input className={inputClass} value={draft.artist} onChange={(event) => patchDraft(request.id, { artist: event.target.value })} disabled={busy} /></div>
-                      <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Genre / Mood</label><input className={inputClass} value={draft.genre} onChange={(event) => patchDraft(request.id, { genre: event.target.value })} disabled={busy} /></div>
+                      <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Genre</label><input list="yousong-pipeline-genres" className={inputClass} value={draft.genre} onChange={(event) => patchDraft(request.id, { genre: event.target.value })} disabled={busy} placeholder="Choose an existing genre or type a new one" /><datalist id="yousong-pipeline-genres">{genreOptions.map((genre) => <option key={genre} value={genre} />)}</datalist></div>
+                      <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Tags (comma separated)</label><input className={inputClass} value={draft.tags} onChange={(event) => patchDraft(request.id, { tags: event.target.value })} disabled={busy} placeholder="christmas, piano, instrumental" /></div>
+                      <div className="md:col-span-2"><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Song description</label><textarea className={inputClass + ' min-h-14 resize-y'} value={draft.description} onChange={(event) => patchDraft(request.id, { description: event.target.value })} disabled={busy} /></div>
                     </div>
+                    {(request.status === 'staging' || request.status === 'approved') && <div className="mt-3 space-y-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.04] p-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-amber-200">Staging & release settings</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="text-[10px] text-slate-300">Visibility<select value={draft.visibility} onChange={(event) => patchDraft(request.id, { visibility: event.target.value as RequestDraft['visibility'] })} disabled={busy} className={inputClass}><option value="visible">Visible to everyone</option><option value="hidden_all">Hidden from everyone</option><option value="specific">Hide from specific users</option></select></label>
+                        {draft.visibility === 'specific' && <label className="text-[10px] text-slate-300">User IDs or usernames, comma separated<input className={inputClass} value={draft.hiddenUsers} onChange={(event) => patchDraft(request.id, { hiddenUsers: event.target.value })} disabled={busy} placeholder="username1, username2" /></label>}
+                        <label className="flex items-center gap-2 text-[10px] text-slate-300"><input type="checkbox" checked={draft.isDroppingSoon} onChange={(event) => patchDraft(request.id, { isDroppingSoon: event.target.checked })} disabled={busy} className="accent-amber-400" /> Mark as upcoming drop</label>
+                        {draft.isDroppingSoon && <label className="text-[10px] text-slate-300">Drop date & time<input type="datetime-local" value={draft.dropDate} onChange={(event) => patchDraft(request.id, { dropDate: event.target.value })} disabled={busy} className={inputClass} /></label>}
+                        <label className="text-[10px] text-slate-300">Custom drop message<input className={inputClass} value={draft.dropMessage} onChange={(event) => patchDraft(request.id, { dropMessage: event.target.value })} disabled={busy} placeholder="e.g. Available after broadcast" /></label>
+                        <label className="flex items-center gap-2 text-[10px] text-slate-300"><input type="checkbox" checked={draft.autoReleaseOnDrop} onChange={(event) => patchDraft(request.id, { autoReleaseOnDrop: event.target.checked })} disabled={busy || !draft.isDroppingSoon} className="accent-amber-400" /> Automatically release at drop time</label>
+                        <label className="flex items-center gap-2 text-[10px] text-slate-300 md:col-span-2"><input type="checkbox" checked={draft.isChristmasEdition} onChange={(event) => patchDraft(request.id, { isChristmasEdition: event.target.checked })} disabled={busy} className="accent-emerald-400" /> 🎄 Christmas edition — show the special “It's Time” banner and outline</label>
+                      </div>
+                    </div>}
                     <div className="mt-3"><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Admin note</label><textarea className={`${inputClass} min-h-16 resize-y`} value={draft.adminNote} onChange={(event) => patchDraft(request.id, { adminNote: event.target.value })} disabled={busy} placeholder="Internal review note or decline reason" /></div>
                     {request.processingProgress && <p className="mt-2 text-[11px] text-slate-400">{request.processingProgress}</p>}
                     {request.processingError && <p className="mt-1 text-[11px] text-rose-300">{request.processingError}</p>}
@@ -530,7 +621,8 @@ export const AdminPipelineManager: React.FC = () => {
                     {['pending', 'processing'].includes(request.status) && <button type="button" onClick={() => approveRequest(request)} disabled={busy} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />} Approve song for upload</button>}
                     {['pending', 'processing'].includes(request.status) && <button type="button" onClick={() => declineRequest(request)} disabled={busy} className={`${buttonClass} border-rose-400/25 bg-rose-500/10 text-rose-200`}><XCircle className="h-3.5 w-3.5" /> Decline</button>}
                     {request.status === 'staging' && <button type="button" onClick={() => publishRequest(request, true)} disabled={busy || !request.driveFileId || !request.coverUrl} className={`${buttonClass} border-emerald-400/30 bg-emerald-500/15 text-emerald-100`}><Send className="h-3.5 w-3.5" /> Publish</button>}
-                    {request.status === 'published' && <button type="button" onClick={() => publishRequest(request, false)} disabled={busy} className={`${buttonClass} border-amber-400/30 bg-amber-500/10 text-amber-100`}>Unpublish</button>}
+                    {['approved', 'declined'].includes(request.status) && <button type="button" onClick={async () => { setWorkingId(request.id); try { await adminUpdateRequest(request.id, { status: 'pending', adminNote: draft.adminNote }); await refreshState(); setFeedback({ type: 'success', message: 'Request returned to pending review.' }); } catch (error: any) { setFeedback({ type: 'error', message: error?.message || 'Could not return request to pending.' }); } finally { setWorkingId(null); } }} disabled={busy} className={buttonClass + ' border-amber-400/30 bg-amber-500/10 text-amber-100'}>Return to pending</button>}
+                    {request.status === 'published' && <button type="button" onClick={() => publishRequest(request, false)} disabled={busy} className={buttonClass + ' border-amber-400/30 bg-amber-500/10 text-amber-100'}>Unpublish</button>}
                     <button type="button" onClick={() => removeRequest(request)} disabled={busy} className={`${buttonClass} border-rose-400/20 bg-rose-500/[0.06] text-rose-300`} title="Remove request"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
@@ -566,7 +658,7 @@ export const AdminPipelineManager: React.FC = () => {
                   <div className="mt-4 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] p-3">
                     <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-cyan-100"><Music2 className="h-3.5 w-3.5" /> Drive-hosted media preview</div>
                     <div className="flex items-center gap-3 mb-3">
-                      {request.coverUrl && <img src={formatCoverMediaUrl(request.coverUrl)} alt="" className="h-16 w-16 rounded-lg border border-white/10 object-cover" />}
+                      {request.coverUrl && <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-white/10"><MediaCover src={request.coverUrl} alt={request.songTitle} fallbackTitle={request.songTitle} fallbackGenre={request.genre || 'Music'} /></div>}
                       <audio controls preload="none" src={stagedUrl} className="min-w-0 flex-1" />
                     </div>
                     <span className="text-[10px] text-emerald-200">Audio and artwork are stored in Google Drive; only their references are stored in the database.</span>

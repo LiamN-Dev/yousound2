@@ -821,6 +821,12 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
               <span>Spotlight</span>
             </button>
+            <button type="button" onClick={() => handleBulkSpotlight(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 font-semibold transition-all"
+              title="Remove all selected songs from Spotlight">
+              <Star className="w-3.5 h-3.5" />
+              <span>Remove Spotlight</span>
+            </button>
 
             {/* Bulk Change Genre */}
             <button
@@ -1577,6 +1583,23 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/10">
+                <label className="block text-slate-300 font-semibold">
+                  Spotlight starts at
+                  <input type="datetime-local"
+                    value={spotlightConfig.startsAt ? new Date(new Date(spotlightConfig.startsAt).getTime() - new Date(spotlightConfig.startsAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                    onChange={(e) => updateSpotlightConfig({ startsAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                    className="mt-1 w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-white" />
+                </label>
+                <label className="block text-slate-300 font-semibold">
+                  Spotlight ends at
+                  <input type="datetime-local"
+                    value={spotlightConfig.endsAt ? new Date(new Date(spotlightConfig.endsAt).getTime() - new Date(spotlightConfig.endsAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                    onChange={(e) => updateSpotlightConfig({ endsAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                    className="mt-1 w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-white" />
+                </label>
+                <p className="sm:col-span-2 text-[10px] text-slate-400">Times use your device&apos;s local time. A start or end time is optional.</p>
+              </div>
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">
                   Presentation Color Theme
