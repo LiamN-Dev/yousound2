@@ -54,7 +54,9 @@ export interface Song {
   isPinned?: boolean;
   isDroppingSoon?: boolean;
   dropDate?: string;
+  dropMessage?: string;
   autoReleaseOnDrop?: boolean;
+  isChristmasEdition?: boolean;
   // Admin Management Enhancements
   hiddenFrom?: string[]; // ['all'] to hide from everyone, or list of user IDs/usernames
   isSpotlight?: boolean; // Spotlighted track
@@ -79,6 +81,8 @@ export interface SpotlightConfig {
   bannerBadgeText?: string; // e.g. "SPOTLIGHT ONLY MODE ACTIVE"
   theme?: SpotlightTheme;
   hideAllOtherElements: boolean;
+  startsAt?: string;
+  endsAt?: string;
   updatedAt?: string;
 }
 
@@ -204,6 +208,14 @@ export interface SongRequest {
   driveFolderId?: string;
   duration?: number;
   genre?: string;
+  tags?: string[];
+  description?: string;
+  isDroppingSoon?: boolean;
+  dropDate?: string | null;
+  dropMessage?: string;
+  autoReleaseOnDrop?: boolean;
+  hiddenFrom?: string[];
+  isChristmasEdition?: boolean;
   stagingAudioUrl?: string;
   publishedSongId?: string;
   publishedAt?: string;
