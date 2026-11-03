@@ -85,6 +85,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const [isDroppingSoon, setIsDroppingSoon] = useState(false);
   const [dropDate, setDropDate] = useState('');
   const [autoReleaseOnDrop, setAutoReleaseOnDrop] = useState(false);
+  const [dropMessage, setDropMessage] = useState('');
+  const [isChristmasEdition, setIsChristmasEdition] = useState(false);
 
   // Plays, Listen reset & Scheduled for deletion state
   const [plays, setPlays] = useState<number>(0);
@@ -137,6 +139,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       setIsDroppingSoon(!!song.isDroppingSoon);
       setDropDate(song.dropDate ? new Date(song.dropDate).toISOString().slice(0, 16) : '');
       setAutoReleaseOnDrop(!!song.autoReleaseOnDrop);
+      setDropMessage(song.dropMessage || '');
+      setIsChristmasEdition(!!song.isChristmasEdition);
 
       setIsSpotlight(!!song.isSpotlight);
       setSpotlightOrder(song.spotlightOrder ?? 0);
@@ -321,6 +325,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         isDroppingSoon,
         dropDate: isDroppingSoon && dropDate ? new Date(dropDate).toISOString() : null as any,
         autoReleaseOnDrop: isDroppingSoon && autoReleaseOnDrop,
+        dropMessage: dropMessage.trim() || null as any,
+        isChristmasEdition,
         hiddenFrom: isScheduledForDeletion ? ['all'] : computedHiddenFrom,
         isSpotlight,
         spotlightOrder: Number(spotlightOrder) || 0,
@@ -961,8 +967,23 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                     />
                     <span>Auto-release and make playable as soon as countdown timer reaches zero</span>
                   </label>
+                  <div>
+                    <label className="block text-[11px] text-slate-700 dark:text-slate-300 mb-1">Custom drop message</label>
+                    <input type="text" value={dropMessage} onChange={(e) => setDropMessage(e.target.value)}
+                      placeholder="e.g. Available after broadcast" maxLength={200}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white" />
+                  </div>
                 </div>
               )}
+            </div>
+
+            <div className="sm:col-span-2 p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/25 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input type="checkbox" checked={isChristmasEdition} onChange={(e) => setIsChristmasEdition(e.target.checked)}
+                  className="rounded border-emerald-300 bg-white dark:bg-slate-900 text-emerald-600 focus:ring-0" />
+                <span className="font-bold text-emerald-700 dark:text-emerald-300">🎄 It&apos;s Time — Christmas Edition</span>
+              </label>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Adds a festive red-and-green outline and Christmas edition label to the song card.</p>
             </div>
 
             {/* Admin Spotlight VIP Track */}
