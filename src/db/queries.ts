@@ -422,7 +422,7 @@ const SONG_EDITABLE_COLUMNS = new Set([
   'duration', 'durationExact', 'plays', 'featured', 'description',
   'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
   'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate',
-  'autoReleaseOnDrop', 'hiddenFrom', 'isSpotlight', 'spotlightOrder',
+  'dropMessage', 'isChristmasEdition', 'autoReleaseOnDrop', 'hiddenFrom', 'isSpotlight', 'spotlightOrder',
   'spotlightNote', 'dailyPlays', 'dailyPlaysResetDate', 'weeklyPlays',
   'weeklyPlaysResetDate', 'isScheduledForDeletion', 'scheduledDeletionAt',
   'lastPlayedAt',
@@ -446,13 +446,13 @@ function normalizeSongUpdate(input: Record<string, any>) {
       if (value === null) updates[key] = null;
       else if (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 43200) throw new Error('durationExact must be between 0 and 43,200 seconds.');
       else updates[key] = Number(value);
-    } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
+    } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isChristmasEdition', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
       if (typeof value !== 'boolean') throw new Error(key + ' must be true or false.');
       updates[key] = value;
     } else if (key === 'audioUrl' || key === 'coverUrl') {
       if (typeof value !== 'string' || !value.trim()) throw new Error(key + ' cannot be empty. Choose a valid Drive media file.');
       updates[key] = value.trim();
-    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode'].includes(key)) {
+    } else if (['limitedUntil', 'dropDate', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'scheduledDeletionAt', 'lastPlayedAt', 'description', 'badgeMessage', 'dropMessage', 'spotlightNote', 'album', 'typeMood', 'mediaCode'].includes(key)) {
       if (value === null || value === '') updates[key] = null;
       else if (typeof value !== 'string') throw new Error(key + ' must be text.');
       else updates[key] = value.trim();
@@ -889,6 +889,14 @@ export async function updateRequestFullDb(
     driveFolderId?: string | null;
     duration?: number | null;
     genre?: string;
+    tags?: string[] | null;
+    description?: string | null;
+    isDroppingSoon?: boolean;
+    dropDate?: string | null;
+    dropMessage?: string | null;
+    autoReleaseOnDrop?: boolean;
+    hiddenFrom?: string[] | null;
+    isChristmasEdition?: boolean;
     stagingAudioUrl?: string | null;
     publishedSongId?: string | null;
     publishedAt?: string | null;
@@ -951,14 +959,17 @@ export async function publishStagedSongRequestDb(requestId: string) {
       const title = String(request.songTitle || '').trim();
       const artist = String(request.artist || 'Unknown Artist').trim() || 'Unknown Artist';
       if (!title) throw new Error('A song title is required before publishing.');
+      const genre = String(request.genre || '').trim();
+      if (!genre) throw new Error('Choose a genre in staging before publishing this song.');
       const addedAt = new Date().toISOString();
+      const requestTags = Array.isArray(request.tags) ? request.tags.map((tag: string) => String(tag).trim()).filter(Boolean) : [];
       const inserted = await tx.insert(songs).values({
         id: songId,
         title,
         artist,
         mediaCode,
         album: 'YouSong Community',
-        genre: String(request.genre || 'Vibe / Chill').trim() || 'Vibe / Chill',
+        genre,
         duration: Math.max(5, Number(request.duration) || 180),
         durationExact: null,
         audioUrl: String(request.audioUrl),
@@ -966,8 +977,14 @@ export async function publishStagedSongRequestDb(requestId: string) {
         addedAt,
         plays: 0,
         featured: false,
-        description: `Requested by ${request.requestedByUsername} via YouSong Pipeline.`,
-        tags: [String(request.genre || 'vibe').toLowerCase(), 'community', 'drive-mp3'],
+        description: String(request.description || '').trim() || `Requested by ${request.requestedByUsername} via YouSong Pipeline.`,
+        tags: Array.from(new Set([...requestTags, genre.toLowerCase(), 'community', 'drive-mp3'])),
+        isDroppingSoon: Boolean(request.isDroppingSoon),
+        dropDate: request.dropDate || null,
+        dropMessage: request.dropMessage || null,
+        autoReleaseOnDrop: Boolean(request.autoReleaseOnDrop),
+        hiddenFrom: Array.isArray(request.hiddenFrom) ? request.hiddenFrom : [],
+        isChristmasEdition: Boolean(request.isChristmasEdition),
       }).returning();
       if (!inserted[0]) throw new Error('The database did not confirm the new library song.');
 
