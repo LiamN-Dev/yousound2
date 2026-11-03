@@ -16,6 +16,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
   const { currentSong, isPlaying, playSong, togglePlay, userFavorites, toggleFavorite, allSongs } = useAudio();
   const { currentUser } = useAuth();
   const [showDropNotice, setShowDropNotice] = useState(false);
+  const [showTags, setShowTags] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
 
   // Real-time 1-second interval ticker for live countdown with seconds
@@ -97,7 +98,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
   return (
     <div
       onClick={handleCardClick}
-      className={`ys-song-card group relative liquid-glass-card rounded-2xl p-3.5 border transition-all duration-200 cursor-pointer overflow-hidden ${
+      className={`ys-song-card group relative liquid-glass-card rounded-2xl p-3.5 border transition-all duration-200 cursor-pointer overflow-hidden ${song.isChristmasEdition ? 'ys-christmas-song ' : ''}${
         isCurrent
           ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/25 shadow-md ring-1 ring-blue-500/20'
           : song.isDroppingSoon
@@ -277,24 +278,34 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
         </div>
       )}
 
-      {/* Compact metadata with high-contrast, easy-to-read tag chips. */}
+      {song.isChristmasEdition && (
+        <div className="ys-christmas-edition-pill">🎄 It&apos;s Time — Christmas Edition</div>
+      )}
+
+      {song.dropMessage && song.isDroppingSoon && (
+        <div className="mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-200">{song.dropMessage}</div>
+      )}
+
+      {/* Tags expand inline so the song card does not clip the open list. */}
       <div className="ys-song-meta">
         <span className="ys-genre-pill">{song.genre}</span>
         {song.tags && song.tags.length > 0 && (
-          <details className="ys-tags-details" onClick={(event) => event.stopPropagation()}>
-            <summary className="ys-tags-summary">
+          <div className="ys-tags-details">
+            <button type="button" className="ys-tags-summary ys-tags-toggle" aria-expanded={showTags}
+              onClick={(event) => { event.stopPropagation(); setShowTags((value) => !value); }}>
               <Tag className="h-3.5 w-3.5" />
               Tags <span className="ys-tag-count">{song.tags.length}</span>
-            </summary>
-            <div className="ys-tag-list">
+              <span aria-hidden="true">{showTags ? '▴' : '▾'}</span>
+            </button>
+            {showTags && <div className="ys-tag-list ys-tag-list-expanded">
               {song.tags.map((tag) => (
                 <span key={tag} className="ys-tag-chip">
                   <Tag className="h-3 w-3 shrink-0" />
                   <span>#{tag.replace(/^#/, '')}</span>
                 </span>
               ))}
-            </div>
-          </details>
+            </div>}
+          </div>
         )}
       </div>
 
