@@ -1580,8 +1580,15 @@ app.get('/api/settings/spotlight', async (_req: Request, res: Response) => {
 });
 
 app.post('/api/settings/spotlight', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   try {
-    const { config } = req.body;
+    const incoming = req.body?.config || {};
+    const startsAt = incoming.startsAt ? new Date(incoming.startsAt) : null;
+    const endsAt = incoming.endsAt ? new Date(incoming.endsAt) : null;
+    if (startsAt && !Number.isFinite(startsAt.getTime())) return res.status(400).json({ success: false, error: 'Spotlight start time is invalid.' });
+    if (endsAt && !Number.isFinite(endsAt.getTime())) return res.status(400).json({ success: false, error: 'Spotlight end time is invalid.' });
+    if (startsAt && endsAt && endsAt.getTime() <= startsAt.getTime()) return res.status(400).json({ success: false, error: 'Spotlight end must be after its start.' });
+    const config = { ...incoming, enabled: incoming.enabled === true, startsAt: startsAt ? startsAt.toISOString() : null, endsAt: endsAt ? endsAt.toISOString() : null };
     await setSettingDb('spotlight_config', config);
     res.json({ success: true, config });
   } catch (error: any) {
@@ -1759,13 +1766,13 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
     const state = await resolveRadioState();
-    // Regular listeners receive only the currently playing track, never the station lineup or schedule.
+    // Listeners can see upcoming program details, but never the station playlist or
+    // the current program's private song lineup.
     if (!isAdminReq(req)) {
       delete (state as any).playlist;
-      delete (state as any).nextProgram;
-      delete (state as any).nextStartsInMs;
       delete (state as any).currentIndex;
       if (state.currentProgram) state.currentProgram = { name: state.currentProgram.name, description: state.currentProgram.description, songIds: [] };
+      if (state.nextProgram) state.nextProgram = { ...state.nextProgram, songIds: [] };
     }
     // Bracket a PostgreSQL clock read with app-server timestamps so the
     // browser clock can be translated to the authoritative database clock.
@@ -1976,19 +1983,14 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
         return res.status(409).json({ success: false, error: 'The live queue changed while you were editing it. Refresh the radio control room and try again.' });
       }
       const existingUpcoming = playlist.slice(currentIndex + 1).map((song: any) => String(song.id));
-      const requestedUpcoming = Array.isArray(req.body?.songIds)
-        ? req.body.songIds.map((id: unknown) => String(id))
-        : [];
+      const requestedUpcoming = Array.isArray(req.body?.songIds) ? req.body.songIds.map((id: unknown) => String(id)).filter(Boolean) : [];
       const uniqueRequested = new Set(requestedUpcoming);
-      if (
-        requestedUpcoming.length !== existingUpcoming.length ||
-        uniqueRequested.size !== requestedUpcoming.length ||
-        requestedUpcoming.some((id: string) => !existingUpcoming.includes(id))
-      ) {
-        return res.status(400).json({ success: false, error: 'Queue order must contain each upcoming song exactly once. Refresh the queue and retry.' });
-      }
-
       const playedAndCurrent = playlist.slice(0, currentIndex + 1).map((song: any) => String(song.id));
+      const librarySongs = await getSongsPersistentDb();
+      const validLibraryIds = new Set(librarySongs.map((song: any) => String(song.id)));
+      if (requestedUpcoming.length > 100 || uniqueRequested.size !== requestedUpcoming.length || requestedUpcoming.some((id: string) => !validLibraryIds.has(id) || playedAndCurrent.includes(id))) {
+        return res.status(400).json({ success: false, error: 'Queue changes must contain unique library songs that have not already played. Refresh the queue and retry.' });
+      }
       config.currentProgram = {
         ...config.currentProgram,
         songIds: [...playedAndCurrent, ...requestedUpcoming],
@@ -2355,7 +2357,7 @@ app.put('/api/admin/song-requests/settings', async (req: Request, res: Response)
 
 app.post('/api/requests', async (req: Request, res: Response) => {
   try {
-    const { songTitle, artist, notes, genre } = req.body || {};
+    const { songTitle, artist, notes } = req.body || {};
     const requestSettings = await getPersistentSettingDb<SongRequestSettings>(SONG_REQUEST_SETTINGS) || DEFAULT_SONG_REQUEST_SETTINGS;
     if (!requestSettings.enabled) {
       return res.status(403).json({ success: false, error: requestSettings.notice || 'Song requests are temporarily closed.', requestClosed: true, icon: requestSettings.icon });
@@ -2365,11 +2367,46 @@ app.post('/api/requests', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'An image link is required with every song request.' });
     }
     if (submittedImageLink) {
+      const blockedHost = (rawHost: string) => {
+        const host = rawHost.toLowerCase().replace(/^\[|\]$/g, '');
+        return host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')
+          || host === '::1' || host === '0.0.0.0'
+          || /^(10\.|127\.|169\.254\.|192\.168\.)/.test(host)
+          || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+      };
       try {
         const parsed = new URL(submittedImageLink);
-        if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) throw new Error('invalid');
+        if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password || blockedHost(parsed.hostname)) throw new Error('invalid');
+        const driveId = extractGoogleDriveFileId(submittedImageLink);
+        const candidates = driveId
+          ? ['https://drive.usercontent.google.com/download?id=' + encodeURIComponent(driveId) + '&export=download&confirm=t', 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(driveId)]
+          : [parsed.toString()];
+        let validImage = false;
+        for (const candidateUrl of candidates) {
+          const response = await fetch(candidateUrl, { headers: { Range: 'bytes=0-31' }, redirect: 'follow', signal: AbortSignal.timeout(12_000) }).catch(() => null);
+          if (!response) continue;
+          const finalUrl = response.url ? new URL(response.url) : new URL(candidateUrl);
+          const mime = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+          if (!response.ok || finalUrl.protocol !== 'https:' || blockedHost(finalUrl.hostname) || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mime)) {
+            await response.body?.cancel().catch(() => undefined);
+            continue;
+          }
+          const reader = response.body?.getReader();
+          const first = reader ? await reader.read().catch(() => ({ value: undefined, done: true })) : { value: undefined, done: true };
+          await reader?.cancel().catch(() => undefined);
+          const bytes = first.value ? Buffer.from(first.value) : Buffer.alloc(0);
+          const signatureOk = mime === 'image/jpeg'
+            ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+            : mime === 'image/png'
+              ? bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+              : mime === 'image/gif'
+                ? bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'))
+                : bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+          if (signatureOk) { validImage = true; break; }
+        }
+        if (!validImage) return res.status(400).json({ success: false, error: 'That link does not return a valid JPG, PNG, WEBP, or GIF image. Use a direct, publicly accessible image link.' });
       } catch {
-        return res.status(400).json({ success: false, error: 'Enter a valid HTTPS image link.' });
+        return res.status(400).json({ success: false, error: 'Enter a valid public HTTPS image link.' });
       }
     }
     const authUser = getAuthUser(req);
@@ -2389,7 +2426,8 @@ app.post('/api/requests', async (req: Request, res: Response) => {
       createdAt: new Date().toISOString(),
       status: 'pending',
       requestType: 'song',
-      genre: String(genre || 'Vibe / Chill').trim().slice(0, 80),
+      // Administrators assign a single category during review; requesters do not select genre.
+      genre: '',
     });
 
     console.log(`[SongPipeline] New Google Drive-only song request: "${newReq.songTitle}" by ${newReq.requestedByUsername}`);
@@ -2416,6 +2454,14 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       adminNote,
       duration,
       estimatedUploadAt,
+      tags,
+      description,
+      isDroppingSoon,
+      dropDate,
+      dropMessage,
+      autoReleaseOnDrop,
+      hiddenFrom,
+      isChristmasEdition,
     } = req.body;
 
     const existingReq = await getRequestByIdPersistentDb(id);
@@ -2442,6 +2488,27 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
     }
     if (notes !== undefined) updates.notes = String(notes || '').trim().slice(0, 1000);
     if (genre !== undefined) updates.genre = String(genre || '').trim().slice(0, 80);
+    if (tags !== undefined) {
+      if (!Array.isArray(tags) || tags.length > 40 || tags.some((tag: unknown) => typeof tag !== 'string')) return res.status(400).json({ success: false, error: 'Tags must be a list of up to 40 text values.' });
+      updates.tags = Array.from(new Set(tags.map((tag: string) => tag.trim().replace(/^#/, '').slice(0, 40)).filter(Boolean)));
+    }
+    if (description !== undefined) updates.description = String(description || '').trim().slice(0, 1000);
+    if (typeof isDroppingSoon === 'boolean') updates.isDroppingSoon = isDroppingSoon;
+    if (dropDate !== undefined) {
+      if (!dropDate) updates.dropDate = null;
+      else {
+        const parsedDropDate = new Date(dropDate);
+        if (!Number.isFinite(parsedDropDate.getTime())) return res.status(400).json({ success: false, error: 'Drop date and time are invalid.' });
+        updates.dropDate = parsedDropDate.toISOString();
+      }
+    }
+    if (dropMessage !== undefined) updates.dropMessage = String(dropMessage || '').trim().slice(0, 200);
+    if (typeof autoReleaseOnDrop === 'boolean') updates.autoReleaseOnDrop = autoReleaseOnDrop;
+    if (hiddenFrom !== undefined) {
+      if (!Array.isArray(hiddenFrom) || hiddenFrom.length > 100 || hiddenFrom.some((id: unknown) => typeof id !== 'string')) return res.status(400).json({ success: false, error: 'Visibility must be a list of user IDs or usernames.' });
+      updates.hiddenFrom = Array.from(new Set(hiddenFrom.map((id: string) => id.trim()).filter(Boolean)));
+    }
+    if (typeof isChristmasEdition === 'boolean') updates.isChristmasEdition = isChristmasEdition;
     if (adminNote !== undefined) updates.adminNote = String(adminNote || '').trim().slice(0, 1000);
     if (estimatedUploadAt !== undefined) {
       const parsedEta = estimatedUploadAt ? new Date(estimatedUploadAt) : null;
@@ -2449,14 +2516,20 @@ app.patch('/api/admin/requests/:id', async (req: Request, res: Response) => {
       updates.estimatedUploadAt = parsedEta ? parsedEta.toISOString() : null;
     }
     if (status !== undefined) {
-      if (!['approved', 'declined'].includes(String(status))) return res.status(400).json({ success: false, error: 'Use the dedicated upload and publish actions for staging or publishing. Direct status changes are limited to approve or decline.' });
+      if (!['approved', 'declined', 'pending'].includes(String(status))) return res.status(400).json({ success: false, error: 'Allowed review statuses are pending, approved, and declined.' });
       const eligible = status === 'approved'
         ? ['pending', 'processing', 'approved'].includes(existingReq.status)
-        : ['pending', 'processing', 'approved', 'declined'].includes(existingReq.status);
-      if (!eligible) return res.status(409).json({ success: false, error: 'This request has already moved beyond review. Refresh the pipeline before trying again.' });
+        : status === 'declined'
+          ? ['pending', 'processing', 'approved', 'declined'].includes(existingReq.status)
+          : ['approved', 'declined'].includes(existingReq.status);
+      if (!eligible) return res.status(409).json({ success: false, error: 'This request cannot move to that status. Refresh the pipeline and try again.' });
       updates.status = status;
       updates.reviewedAt = new Date().toISOString();
-      if (status === 'approved') {
+      if (status === 'pending') {
+        updates.approvedAt = null;
+        updates.processingProgress = 'Returned to the pending review queue by an administrator.';
+        updates.processingError = null;
+      } else if (status === 'approved') {
         updates.approvedAt = new Date().toISOString();
         updates.reviewedAt = new Date().toISOString();
         updates.processingProgress = 'Approved and waiting for an administrator to upload the audio file.';
@@ -2573,10 +2646,15 @@ async function isRegisteredSongArtwork(fileId: string): Promise<boolean> {
   }
   if (!registeredSongArtworkIdsLoad) {
     // Match the same catalogue source used by GET /api/songs, including its local fallback during a DB outage.
-    registeredSongArtworkIdsLoad = getSongsDb().then((songs) => {
+    registeredSongArtworkIdsLoad = Promise.all([getSongsDb(), getRequestsDb()]).then(([songs, requests]) => {
       const ids = new Set<string>();
       for (const song of songs as any[]) {
         const id = extractDriveFileId(String(song.coverUrl || ''));
+        if (id) ids.add(id);
+      }
+      for (const request of requests as any[]) {
+        if (!['staging', 'published'].includes(String(request.status || ''))) continue;
+        const id = extractDriveFileId(String(request.coverUrl || ''));
         if (id) ids.add(id);
       }
       registeredSongArtworkIds = ids;
@@ -3113,6 +3191,8 @@ app.post('/api/admin/requests/:id/upload-media', async (req: Request, res: Respo
       });
       if (!updated || updated.status !== 'staging') throw new Error('Media uploaded, but the request could not be moved into staging.');
       mediaStaged = true;
+      registeredSongArtworkIds = null;
+      registeredSongArtworkIdsExpiresAt = 0;
       console.log(`[SongPipeline] Uploaded request media to Drive: ${driveAudio.fileId}, ${driveCover.fileId}`);
       return res.json({ success: true, request: updated, audioFileId: driveAudio.fileId, coverFileId: driveCover.fileId });
     } catch (error: any) {
