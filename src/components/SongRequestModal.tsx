@@ -305,7 +305,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
   // Song details supplied by the requester; artwork is added by an administrator during Drive upload.
   const [songTitle, setSongTitle] = useState('');
   const [artist, setArtist] = useState('');
-  const [genre, setGenre] = useState('Vibe / Chill');
   const [notes, setNotes] = useState('');
   const [imageLink, setImageLink] = useState('');
   const [requestSettings, setRequestSettings] = useState({ enabled: true, notice: '', icon: '🎵', showImageLink: true, requireImageLink: true });
@@ -361,7 +360,6 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
         songTitle: songTitle.trim(),
         artist: artist.trim() || 'Unknown Artist',
         webLink: imageLink.trim() || undefined,
-        genre: genre.trim(),
         notes: notes.trim() || undefined,
         requestType: 'song',
       });
@@ -538,22 +536,8 @@ export const SongRequestModal: React.FC<SongRequestModalProps> = ({
               <p className="mt-1 text-[10px] leading-4 text-slate-500">Use a direct, publicly accessible HTTPS image link. The administrator can upload this image into the site's Google Drive with the MP3.</p>
             </div>}
 
-            {/* Genre & Notes */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Genre / Mood
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Lo-fi hip-hop, ambient, synthwave, worship..."
-                  value={genre}
-                  onChange={(e) => setGenre(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-                  maxLength={80}
-                />
-              </div>
-
+            {/* Listener notes only; genre is assigned by an administrator during review. */}
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Listener Notes (Optional)
