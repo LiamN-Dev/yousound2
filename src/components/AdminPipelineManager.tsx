@@ -232,22 +232,37 @@ export const AdminPipelineManager: React.FC = () => {
       setFeedback({ type: 'error', message: 'Song title is required.' });
       return;
     }
+    if (!draft.genre.trim()) {
+      setFeedback({ type: 'error', message: 'Choose or create a genre before approving this request.' });
+      return;
+    }
     const localEta = etaDrafts[request.id] || '';
-    const estimatedUploadAt = localEta
-      ? new Date(localEta).toISOString()
-      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const etaDate = localEta ? new Date(localEta) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    if (!Number.isFinite(etaDate.getTime())) {
+      setFeedback({ type: 'error', message: 'Enter a valid estimated upload date and time.' });
+      return;
+    }
     setWorkingId(request.id);
     try {
       const updated = await adminUpdateRequest(request.id, {
         songTitle: draft.songTitle.trim(),
         artist: draft.artist.trim() || 'Unknown Artist',
-        genre: draft.genre.trim() || 'Vibe / Chill',
+        genre: draft.genre.trim(),
+        tags: Array.from(new Set(draft.tags.split(',').map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean))),
+        description: draft.description.trim(),
+        isDroppingSoon: draft.isDroppingSoon,
+        dropDate: draft.isDroppingSoon && draft.dropDate ? new Date(draft.dropDate).toISOString() : null,
+        dropMessage: draft.dropMessage.trim(),
+        autoReleaseOnDrop: draft.autoReleaseOnDrop,
+        hiddenFrom: draft.visibility === 'hidden_all' ? ['all'] : draft.visibility === 'specific' ? draft.hiddenUsers.split(',').map((id) => id.trim()).filter(Boolean) : [],
+        isChristmasEdition: draft.isChristmasEdition,
         adminNote: draft.adminNote,
         status: 'approved',
-        estimatedUploadAt,
+        estimatedUploadAt: etaDate.toISOString(),
       });
       if (!updated || updated.status !== 'approved') throw new Error('The server did not save approval. Refresh and try again.');
       setFeedback({ type: 'success', message: `“${updated.songTitle}” approved and placed in the upload waiting room.` });
+      await refreshState();
     } catch (error: any) {
       setFeedback({ type: 'error', message: error?.message || 'Could not approve request.' });
     } finally {
