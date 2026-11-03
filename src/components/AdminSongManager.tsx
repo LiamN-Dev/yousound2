@@ -99,6 +99,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
   const [massApplyBadge, setMassApplyBadge] = useState(false);
   const [massDropEnabled, setMassDropEnabled] = useState(false);
   const [massDropDate, setMassDropDate] = useState('');
+  const [massDropMessage, setMassDropMessage] = useState('');
   const [massAutoRelease, setMassAutoRelease] = useState(true);
   const [massApplyDrop, setMassApplyDrop] = useState(false);
   const [massLimitedEnabled, setMassLimitedEnabled] = useState(false);
@@ -408,6 +409,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
     if (massApplyDrop) {
       updates.isDroppingSoon = massDropEnabled;
       updates.dropDate = massDropEnabled && massDropDate ? new Date(massDropDate).toISOString() : undefined;
+      if (massDropMessage.trim()) updates.dropMessage = massDropMessage.trim();
       updates.autoReleaseOnDrop = massAutoRelease;
     }
     if (massApplyLimited) {
@@ -848,14 +850,24 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
               <span>Drops / Removals</span>
             </button>
 
-            {/* Bulk Pin */}
+            {/* Bulk Pin / Unpin */}
             <button
               type="button"
               onClick={() => handleBulkPin(true)}
-              className="p-1.5 px-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold border border-white/15 transition-all"
-              title="Pin to top of library"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold border border-white/15 transition-all"
+              title="Pin selected songs to the top of the library"
             >
               <Pin className="w-3.5 h-3.5" />
+              <span>Pin</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkPin(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 font-semibold border border-white/15 transition-all"
+              title="Remove the pinned status from every selected song"
+            >
+              <Pin className="w-3.5 h-3.5 rotate-45" />
+              <span>Mass Unpin</span>
             </button>
 
             {/* Bulk Delete */}
@@ -1957,6 +1969,18 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                               onChange={(e) => setMassDropDate(e.target.value)}
                               className="w-full px-3 py-1.5 text-xs rounded-xl bg-white/[0.05] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
                             />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">Optional teaser message (replaces the countdown)</label>
+                            <input
+                              type="text"
+                              value={massDropMessage}
+                              onChange={(e) => setMassDropMessage(e.target.value)}
+                              maxLength={200}
+                              placeholder="e.g. Unlocks after tonight's broadcast"
+                              className="w-full px-3 py-1.5 text-xs rounded-xl bg-white/[0.05] border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                            />
+                            <p className="mt-1 text-[10px] text-slate-500">Leave blank to keep the countdown for these songs.</p>
                           </div>
                           <label className="flex items-center gap-2 cursor-pointer text-slate-300 text-[11px]">
                             <input
