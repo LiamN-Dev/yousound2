@@ -282,7 +282,7 @@ export const SongCard: React.FC<SongCardProps> = ({ song, onOpenPlaylistModal, o
         <div className="ys-christmas-edition-pill">🎄 It&apos;s Time — Christmas Edition</div>
       )}
 
-      {song.dropMessage && song.isDroppingSoon && (
+      {song.dropMessage && (
         <div className="mt-1 text-[10px] font-semibold text-amber-700 dark:text-amber-200">{song.dropMessage}</div>
       )}
 
