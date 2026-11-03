@@ -533,7 +533,7 @@ class StorageService {
       createdAt: new Date().toISOString(),
       status: 'pending',
       requestType: data.requestType || 'song',
-      genre: (data.genre || 'Vibe / Chill').trim(),
+      genre: '',
     };
 
     const res = await fetch('/api/requests', {
