@@ -100,6 +100,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
   const [massDropEnabled, setMassDropEnabled] = useState(false);
   const [massDropDate, setMassDropDate] = useState('');
   const [massDropMessage, setMassDropMessage] = useState('');
+  const [massClearDropMessage, setMassClearDropMessage] = useState(false);
   const [massAutoRelease, setMassAutoRelease] = useState(true);
   const [massApplyDrop, setMassApplyDrop] = useState(false);
   const [massLimitedEnabled, setMassLimitedEnabled] = useState(false);
@@ -410,6 +411,7 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
       updates.isDroppingSoon = massDropEnabled;
       updates.dropDate = massDropEnabled && massDropDate ? new Date(massDropDate).toISOString() : undefined;
       if (massDropMessage.trim()) updates.dropMessage = massDropMessage.trim();
+      else if (massClearDropMessage) updates.dropMessage = null as any;
       updates.autoReleaseOnDrop = massAutoRelease;
     }
     if (massApplyLimited) {
@@ -1980,8 +1982,17 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
                               placeholder="e.g. Unlocks after tonight's broadcast"
                               className="w-full px-3 py-1.5 text-xs rounded-xl bg-white/[0.05] border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                             />
-                            <p className="mt-1 text-[10px] text-slate-500">Leave blank to keep the countdown for these songs.</p>
+                            <p className="mt-1 text-[10px] text-slate-500">A message replaces the countdown on each teaser card.</p>
                           </div>
+                          <label className="flex items-start gap-2 cursor-pointer text-slate-300 text-[11px]">
+                            <input
+                              type="checkbox"
+                              checked={massClearDropMessage}
+                              onChange={(e) => setMassClearDropMessage(e.target.checked)}
+                              className="mt-0.5 rounded border-white/20 bg-slate-900 text-cyan-400"
+                            />
+                            <span>Clear existing teaser messages and show countdowns (ignored when a new message is entered)</span>
+                          </label>
                           <label className="flex items-center gap-2 cursor-pointer text-slate-300 text-[11px]">
                             <input
                               type="checkbox"
