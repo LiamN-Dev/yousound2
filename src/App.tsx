@@ -25,7 +25,7 @@ import { AccountLockScreen } from './components/AccountLockScreen';
 import { ChatHub } from './components/ChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
-import { FeedbackNotifier } from './components/FeedbackNotifier';
+import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
 import { Music, ListPlus, KeyRound } from 'lucide-react';
@@ -368,8 +368,8 @@ const MainAppContent: React.FC = () => {
         }}
       />
 
-      {/* Pop-up when an admin updates one of the person's feature requests / bug reports */}
-      <FeedbackNotifier />
+      {/* One bundled catch-up alert for song, chat, feature and bug updates after login */}
+      <LoginActivityDigest />
 
       {/* Edit Song Modal from Uploader */}
       {uploaderEditSong && (
