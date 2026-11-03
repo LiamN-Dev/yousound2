@@ -64,6 +64,16 @@ export async function ensureTables(): Promise<void> {
   // 2. Columns that older databases may be missing
   const columns: Array<[string, string]> = [
     ['songs', 'duration_exact DOUBLE PRECISION'],
+    ['songs', 'drop_message TEXT'],
+    ['songs', 'is_christmas_edition BOOLEAN DEFAULT false'],
+    ['song_requests', "tags JSONB DEFAULT '[]'::jsonb"],
+    ['song_requests', 'description TEXT'],
+    ['song_requests', 'is_dropping_soon BOOLEAN DEFAULT false'],
+    ['song_requests', 'drop_date TEXT'],
+    ['song_requests', 'drop_message TEXT'],
+    ['song_requests', 'auto_release_on_drop BOOLEAN DEFAULT false'],
+    ['song_requests', "hidden_from JSONB DEFAULT '[]'::jsonb"],
+    ['song_requests', 'is_christmas_edition BOOLEAN DEFAULT false'],
     ['users', 'chat_blocked BOOLEAN DEFAULT false'],
     ['users', 'is_suspended BOOLEAN DEFAULT false'],
     ['users', 'daily_listen_limit INTEGER'],
