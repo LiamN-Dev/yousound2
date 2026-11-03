@@ -39,6 +39,11 @@ const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
   const { allSongs, adminAllSongs, spotlightConfig } = useAudio();
   const christmasMode = !!currentUser?.christmasMode;
+  const [spotlightClock, setSpotlightClock] = useState(Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setSpotlightClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
+  const spotlightActive = spotlightConfig.enabled
+    && (!spotlightConfig.startsAt || new Date(spotlightConfig.startsAt).getTime() <= spotlightClock)
+    && (!spotlightConfig.endsAt || new Date(spotlightConfig.endsAt).getTime() > spotlightClock);
 
   const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
@@ -144,14 +149,14 @@ const MainAppContent: React.FC = () => {
   }, [allSongs, searchQuery, selectedGenre]);
 
   useEffect(() => {
-    if (spotlightConfig.enabled && !isAdmin && (activeTab === 'playlists' || activeTab === 'favorites')) {
+    if (spotlightActive && !isAdmin && (activeTab === 'playlists' || activeTab === 'favorites')) {
       setActiveTab('library');
       setIsPlaylistModalOpen(false);
     }
-  }, [spotlightConfig.enabled, isAdmin, activeTab]);
+  }, [spotlightActive, isAdmin, activeTab]);
 
   const handleOpenPlaylistModal = (song: Song | null) => {
-    if (spotlightConfig.enabled && !isAdmin) return;
+    if (spotlightActive && !isAdmin) return;
     if (maintenanceState.tabMaintenance?.playlists?.enabled && !isAdmin) {
       setActiveTab('playlists');
       return;
@@ -206,7 +211,7 @@ const MainAppContent: React.FC = () => {
           <>
         {activeTab === 'library' && (
           <div className="space-y-6 pb-28">
-            {spotlightConfig.enabled ? (
+            {spotlightActive ? (
               /* When Spotlight is active, ONLY spotlight songs appear and all other bars/things are hidden */
               <SpotlightShowcase
                 spotlightSongs={spotlightSongs}
