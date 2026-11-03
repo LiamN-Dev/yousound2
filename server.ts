@@ -1982,7 +1982,6 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       ) {
         return res.status(409).json({ success: false, error: 'The live queue changed while you were editing it. Refresh the radio control room and try again.' });
       }
-      const existingUpcoming = playlist.slice(currentIndex + 1).map((song: any) => String(song.id));
       const requestedUpcoming = Array.isArray(req.body?.songIds) ? req.body.songIds.map((id: unknown) => String(id)).filter(Boolean) : [];
       const uniqueRequested = new Set(requestedUpcoming);
       const playedAndCurrent = playlist.slice(0, currentIndex + 1).map((song: any) => String(song.id));
