@@ -81,8 +81,8 @@ export interface SpotlightConfig {
   bannerBadgeText?: string; // e.g. "SPOTLIGHT ONLY MODE ACTIVE"
   theme?: SpotlightTheme;
   hideAllOtherElements: boolean;
-  startsAt?: string;
-  endsAt?: string;
+  startsAt?: string | null;
+  endsAt?: string | null;
   updatedAt?: string;
 }
 
