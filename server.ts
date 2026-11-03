@@ -160,10 +160,6 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Render sits behind a proxy; this lets us see real IPs and detect https
 app.set('trust proxy', 1);
-// Every /api request: work out who is calling (from the signed cookie), then apply the route rules
-app.use('/api', attachUser, enforcePolicy);
-
-
 // ----------------- EMERGENCY DEPLOYMENT SHUTDOWN -----------------
 // The shutdown flag lives in PostgreSQL/Supabase, not in Render's temporary
 // filesystem or process memory. A new Render commit is required to clear it.
@@ -220,8 +216,8 @@ async function getEmergencyShutdownRecord(): Promise<EmergencyShutdownRecord | n
   return active;
 }
 
-// This gate runs after authentication middleware but before API routes, assets,
-// and the frontend shell. Only the authenticated admin activation request passes.
+// This gate runs before authentication, API routes, assets, and the frontend shell.
+// The activation endpoint passes through here, then still goes through normal admin authentication.
 app.use(async (req: Request, res: Response, next: any) => {
   if (
     req.method === 'POST' &&
@@ -249,6 +245,9 @@ app.use(async (req: Request, res: Response, next: any) => {
       .send('<!doctype html><html><head><meta charset="utf-8"><title>YouSong unavailable</title></head><body><h1>YouSong temporarily unavailable</h1><p>The server cannot verify its emergency shutdown state. Please try again after the database connection is restored.</p></body></html>');
   }
 });
+
+// Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
+app.use('/api', attachUser, enforcePolicy);
 
 // Statically serve images and assets so covers never 404
 app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
