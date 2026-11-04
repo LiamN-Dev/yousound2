@@ -82,6 +82,7 @@ export async function ensureTables(): Promise<void> {
     ['users', 'is_locked BOOLEAN NOT NULL DEFAULT false'],
     ['users', 'session_version INTEGER NOT NULL DEFAULT 0'],
     ['users', 'christmas_mode BOOLEAN NOT NULL DEFAULT false'],
+    ['users', 'games_enabled BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'is_approved BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'is_terminated BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'terminated_reason TEXT'],
@@ -122,6 +123,27 @@ export async function ensureTables(): Promise<void> {
   await run(
     'idx_radio_chat_messages_created_at',
     'CREATE INDEX IF NOT EXISTS idx_radio_chat_messages_created_at ON radio_chat_messages(created_at)'
+  );
+
+  await run(
+    'song_guess_sessions',
+    `CREATE TABLE IF NOT EXISTS song_guess_sessions (
+       id TEXT PRIMARY KEY,
+       user_id TEXT NOT NULL,
+       username TEXT NOT NULL,
+       rounds JSONB NOT NULL,
+       current_round INTEGER NOT NULL DEFAULT 0,
+       round_attempts INTEGER NOT NULL DEFAULT 0,
+       round_solved BOOLEAN NOT NULL DEFAULT false,
+       score INTEGER NOT NULL DEFAULT 0,
+       completed BOOLEAN NOT NULL DEFAULT false,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       completed_at TIMESTAMPTZ
+     )`
+  );
+  await run(
+    'idx_song_guess_sessions_leaderboard',
+    'CREATE INDEX IF NOT EXISTS idx_song_guess_sessions_leaderboard ON song_guess_sessions(completed, score DESC)'
   );
 
   await run(
