@@ -30,7 +30,7 @@ function playableUrl(raw: string) {
 }
 
 /** Estimates BPM from transient energy in the first 30 seconds of a song. */
-async function detectBpm(audioUrl: string): Promise<number> {
+async function detectBpm(audioUrl: string): Promise<{ bpm: number; beatOffsetMs: number }> {
   const response = await fetch(playableUrl(audioUrl), { credentials: 'same-origin', cache: 'no-store' });
   if (!response.ok) throw new Error('Audio download failed (' + response.status + ').');
   const bytes = await response.arrayBuffer();
@@ -63,7 +63,17 @@ async function detectBpm(audioUrl: string): Promise<number> {
       if (score > bestScore) { bestScore = score; bestLag = lag; }
     }
     if (!bestLag || bestScore <= 0) throw new Error('No reliable beat pattern was found.');
-    return Math.max(60, Math.min(200, Math.round(framesPerSecond * 60 / bestLag)));
+    let bestPhase = 0;
+    let phaseScore = -Infinity;
+    for (let phase = 0; phase < bestLag; phase++) {
+      let score = 0;
+      for (let i = phase; i < onset.length; i += bestLag) score += onset[i];
+      if (score > phaseScore) { phaseScore = score; bestPhase = phase; }
+    }
+    return {
+      bpm: Math.max(60, Math.min(200, Math.round(framesPerSecond * 60 / bestLag))),
+      beatOffsetMs: Math.max(0, Math.min(2000, Math.round(bestPhase * hop / decoded.sampleRate * 1000))),
+    };
   } finally {
     await context.close().catch(() => undefined);
   }
@@ -114,9 +124,9 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
       for (const song of pending) {
         if (cancelled) break;
         try {
-          const bpm = await detectBpm(song.audioUrl);
+          const detected = await detectBpm(song.audioUrl);
           if (cancelled) break;
-          await updateSong(song.id, { gameBpm: bpm, gameBpmDetected: true });
+          await updateSong(song.id, { gameBpm: detected.bpm, gameBeatOffsetMs: detected.beatOffsetMs, gameBpmDetected: true });
         } catch (error) {
           failed += 1;
           console.warn('[Games] Automatic BPM analysis failed for ' + song.title, error);
