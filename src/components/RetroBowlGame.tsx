@@ -55,7 +55,7 @@ function roundedRect(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:n
 function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false,facing:1|-1=1,running=false,hasBall=false){
   // Side-profile football sprite with a shell helmet, cage, pads, jersey, gloves and cleats.
   ctx.save();ctx.translate(x,y);ctx.scale(facing,1);
-  const shadowY=role==='carrier'?PLAYER_GROUND-y:y;
+  const shadowY=role==='carrier'?PLAYER_GROUND-y:0;
   ctx.fillStyle='rgba(0,0,0,.32)';ctx.beginPath();ctx.ellipse(2,shadowY+18,19,7,0,0,Math.PI*2);ctx.fill();
   const pants=role==='defender'?'#eee0de':'#e8edf1';
   const stride=running?Math.sin(performance.now()/65+number)*3:0;
