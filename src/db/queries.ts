@@ -426,7 +426,7 @@ const SONG_EDITABLE_COLUMNS = new Set([
   'dropMessage', 'isChristmasEdition', 'autoReleaseOnDrop', 'hiddenFrom', 'isSpotlight', 'spotlightOrder',
   'spotlightNote', 'dailyPlays', 'dailyPlaysResetDate', 'weeklyPlays',
   'weeklyPlaysResetDate', 'isScheduledForDeletion', 'scheduledDeletionAt',
-  'lastPlayedAt', 'gameApproved', 'gameBpm', 'gameBpmDetected',
+  'lastPlayedAt', 'gameApproved', 'gameBpm', 'gameBpmDetected', 'gameBeatOffsetMs',
 ]);
 
 function normalizeSongUpdate(input: Record<string, any>) {
@@ -440,6 +440,10 @@ function normalizeSongUpdate(input: Record<string, any>) {
       else if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
         throw new Error(key + ' must be a list of text values.');
       } else updates[key] = value.map((item: string) => item.trim()).filter(Boolean);
+    } else if (key === 'gameBeatOffsetMs') {
+      const offset = Math.round(Number(value));
+      if (!Number.isFinite(offset) || offset < 0 || offset > 2000) throw new Error('gameBeatOffsetMs must be between 0 and 2000.');
+      updates[key] = offset;
     } else if (key === 'gameBpm') {
       const bpm = Math.round(Number(value));
       if (!Number.isFinite(bpm) || bpm < 60 || bpm > 240) throw new Error('gameBpm must be between 60 and 240.');
@@ -502,7 +506,7 @@ export async function bulkUpdateSongsDb(
     'title', 'artist', 'mediaCode', 'album', 'genre', 'typeMood', 'duration', 'durationExact', 'plays',
     'dailyPlays', 'weeklyPlays', 'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
     'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'dropMessage', 'autoReleaseOnDrop',
-    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote', 'gameApproved', 'gameBpm', 'gameBpmDetected', 'isChristmasEdition',
+    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote', 'gameApproved', 'gameBpm', 'gameBpmDetected', 'gameBeatOffsetMs', 'isChristmasEdition',
     'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);
   const cleanUpdates: Record<string, any> = {};
