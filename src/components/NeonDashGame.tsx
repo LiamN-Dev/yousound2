@@ -51,7 +51,7 @@ function createSongLevel(song: Song, difficulty: Difficulty, beatEnergy: number[
   const speed = Math.max(245, Math.min(500, bpm * 2.05)) * mode.multiplier;
   const random = seeded(stableHash(song.id + ':' + difficulty));
   const totalBeats = Math.floor((song.duration - 1) / beatSeconds);
-  const startBeat = 3;
+  const startBeat = 2;
   const obstacles: Obstacle[] = [];
   const basePattern: (ObstacleType | 'none')[] = mode.pattern === 0
     ? ['spike', 'none', 'block', 'none', 'spike', 'none', 'orb', 'none']
@@ -330,7 +330,9 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         catch (analysisError) { console.warn('[SongDash] Beat energy analysis fallback:', analysisError); beatEnergy = []; }
       }
       setLoadingMessage('Building a level from the beat map…');
-      const level = createSongLevel(selectedSong, difficulty, beatEnergy);
+      let level = createSongLevel(selectedSong, difficulty, beatEnergy);
+      // Sparse quiet sections should not accidentally produce an unplayable empty chart.
+      if (level.obstacles.length < 4 && beatEnergy.length) level = createSongLevel(selectedSong, difficulty, []);
       if (level.obstacles.length < 4) throw new Error('This track is too short to make a complete level. Choose a longer song.');
       stopAudio();
       const audio = new Audio(apiAudioUrl(selectedSong.audioUrl));
