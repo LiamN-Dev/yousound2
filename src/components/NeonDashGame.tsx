@@ -46,37 +46,40 @@ function seeded(seed: number) {
 }
 function createSongLevel(song: Song, difficulty: Difficulty, beatEnergy: number[] = []): { obstacles: Obstacle[]; speed: number; bpm: number; beatSeconds: number } {
   const mode = DIFFICULTIES.find(item => item.id === difficulty)!;
-  const bpm = Math.max(60, Math.min(240, Number(song.gameBpm) || 120));
+  const bpm = clamp(Number(song.gameBpm) || 120, 60, 200);
   const beatSeconds = 60 / bpm;
-  const speed = Math.max(245, Math.min(500, bpm * 2.05)) * mode.multiplier;
+  const offsetMs = Math.max(0, Number(song.gameBeatOffsetMs) || 0);
+  // Every obstacle lands exactly on the saved beat grid. The stride keeps
+  // enough physical runway for a complete jump and landing before the next one.
+  const minRunway = mode.pattern === 0 ? 1.8 : mode.pattern === 1 ? 1.55 : 1.38;
+  const beatStride = Math.max(2, Math.ceil(minRunway / beatSeconds));
+  const speed = clamp(bpm * 1.45, 190, 350) * (mode.pattern === 0 ? .9 : mode.pattern === 1 ? .96 : 1.02);
   const random = seeded(stableHash(song.id + ':' + difficulty));
-  const totalBeats = Math.floor((song.duration - 1) / beatSeconds);
-  const startBeat = 2;
+  const totalBeats = Math.floor((song.duration - offsetMs / 1000 - .25) / beatSeconds);
+  const startBeat = 4;
   const obstacles: Obstacle[] = [];
-  const basePattern: (ObstacleType | 'none')[] = mode.pattern === 0
-    ? ['spike', 'none', 'block', 'none', 'spike', 'none', 'orb', 'none']
-    : mode.pattern === 1
-      ? ['spike', 'none', 'block', 'spike', 'double', 'none', 'orb', 'block']
-      : ['spike', 'double', 'none', 'block', 'spike', 'orb', 'gap', 'block'];
   let id = 0;
-  for (let beat = startBeat; beat < totalBeats; beat++) {
-    const patternIndex = (beat - startBeat) % basePattern.length;
-    let type = basePattern[patternIndex];
-    const energy = beatEnergy[beat] ?? (0.42 + random() * 0.38);
-    const dynamicThreshold = mode.pattern === 0 ? .66 : mode.pattern === 1 ? .48 : .32;
-    if (type === 'none' && energy > dynamicThreshold && random() > (mode.pattern === 0 ? .72 : .35)) type = energy > .82 ? 'double' : 'spike';
-    if (type !== 'none' && energy < (mode.pattern === 0 ? .18 : .1) && random() > .16) type = 'none';
-    if (type === 'none') continue;
-    const time = Math.max(0, Number(song.gameBeatOffsetMs) / 1000) + beat * beatSeconds;
-    if (time >= song.duration - .25) continue;
-    const width = type === 'double' ? 82 : type === 'block' ? 48 : type === 'gap' ? 92 : type === 'orb' ? 34 : 40;
-    const height = type === 'block' ? 57 : type === 'orb' ? 34 : 43;
+  let eventIndex = 0;
+
+  for (let beat = startBeat; beat < totalBeats; beat += beatStride) {
+    const energy = beatEnergy[beat] ?? .55;
+    const threshold = mode.pattern === 0 ? .3 : mode.pattern === 1 ? .22 : .14;
+    const chance = mode.pattern === 0 ? .56 : mode.pattern === 1 ? .76 : .9;
+    if (beatEnergy.length && energy < threshold) continue;
+    if (random() > chance) continue;
+
+    let type: ObstacleType = 'spike';
+    if (mode.pattern === 1 && eventIndex % 5 === 3 && energy > .62) type = 'block';
+    if (mode.pattern === 2 && eventIndex % 4 === 2 && energy > .72) type = 'double';
+
+    const time = offsetMs / 1000 + beat * beatSeconds;
+    if (time >= song.duration - .25) break;
+    const width = type === 'double' ? 78 : type === 'block' ? 42 : 40;
+    const height = type === 'block' ? 46 : 38;
     obstacles.push({ id: id++, time, type, width, height });
-    if (mode.pattern === 2 && beat % 8 === 5 && random() > .6) {
-      const extraTime = time + beatSeconds * .48;
-      if (extraTime < song.duration - .2) obstacles.push({ id: id++, time: extraTime, type: 'spike', width: 38, height: 42 });
-    }
+    eventIndex += 1;
   }
+
   return { obstacles, speed, bpm, beatSeconds };
 }
 async function analyzeSongRhythm(song: Song): Promise<number[]> {
@@ -295,29 +298,40 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
   };
 
+  const jumpBufferUntilRef = useRef(0);
+  const lastGroundedAtRef = useRef(0);
+
   const jump = useCallback(() => {
     if (phaseRef.current !== 'playing' || hitRef.current) return;
+    const now = performance.now();
+    jumpBufferUntilRef.current = now + 180;
     const player = playerRef.current;
-    if (player.grounded) {
-      player.vy = -735; player.grounded = false; playSound(710); return;
+    if (player.grounded || now - lastGroundedAtRef.current <= 115) {
+      player.vy = -860;
+      player.grounded = false;
+      jumpBufferUntilRef.current = 0;
+      playSound(710);
     }
-    const now = playheadRef.current;
-    const nearbyOrb = obstaclesRef.current.find(o => o.type === 'orb' && Math.abs(PLAYER_X + (o.time - now) * speedRef.current - (PLAYER_X + CUBE / 2)) < 55 && Math.abs(player.y - (GROUND - 75)) < 95);
-    if (nearbyOrb && player.lastBeat !== nearbyOrb.id) { player.vy = -690; player.lastBeat = nearbyOrb.id; playSound(1000); }
   }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (event.code === 'Space' || event.code === 'ArrowUp' || event.code === 'KeyW') {
+        event.preventDefault();
+        if (!event.repeat) jump();
+        return;
+      }
       const key = event.key.toLowerCase();
-      if (key === ' ' || key === 'arrowup' || key === 'w') { event.preventDefault(); jump(); }
       if (key === 'p') {
         if (phaseRef.current === 'playing') { audioRef.current?.pause(); setPhase('paused'); }
         else if (phaseRef.current === 'paused') { void audioRef.current?.play().then(() => setPhase('playing')).catch(() => setGameError('Audio could not resume.')); }
       }
       if (key === 'escape' && phaseRef.current !== 'catalogue') { stopAudio(); setPhase('catalogue'); }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [jump]);
 
   const startLevel = async () => {
@@ -340,6 +354,8 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       await audio.play();
       obstaclesRef.current = level.obstacles; speedRef.current = level.speed;
       playerRef.current = { y: GROUND - CUBE, vy: 0, rotation: 0, grounded: true, lastBeat: -1 };
+      lastGroundedAtRef.current = performance.now();
+      jumpBufferUntilRef.current = 0;
       playheadRef.current = 0;
       setPhase('playing');
       audio.onended = () => {
@@ -375,9 +391,24 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         progressRef.current = progressNow;
         if (Math.floor(progressNow * 100) !== previousPct) setProgress(progressNow);
         const player = playerRef.current;
-        player.vy += 2050 * dt; player.y += player.vy * dt;
-        if (player.y >= GROUND - CUBE) { player.y = GROUND - CUBE; player.vy = 0; player.grounded = true; player.rotation = Math.round(player.rotation / (Math.PI / 2)) * (Math.PI / 2); }
-        else { player.grounded = false; player.rotation += dt * 5.8; }
+        player.vy += 1900 * dt;
+        player.y += player.vy * dt;
+        if (player.y >= GROUND - CUBE) {
+          player.y = GROUND - CUBE;
+          player.vy = 0;
+          player.grounded = true;
+          lastGroundedAtRef.current = now;
+          player.rotation = Math.round(player.rotation / (Math.PI / 2)) * (Math.PI / 2);
+        } else {
+          player.grounded = false;
+          player.rotation += dt * 5.8;
+        }
+        if (jumpBufferUntilRef.current >= now && now - lastGroundedAtRef.current <= 115 && player.grounded) {
+          player.vy = -860;
+          player.grounded = false;
+          jumpBufferUntilRef.current = 0;
+          playSound(710);
+        }
         for (const obstacle of obstaclesRef.current) {
           const x = PLAYER_X + (obstacle.time - playhead) * speedRef.current;
           const playerLeft = PLAYER_X + 5;
@@ -385,10 +416,21 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           const obstacleRight = x + obstacle.width;
           // Test the whole obstacle footprint, not only its leading edge.
           if (playerRight <= x || playerLeft >= obstacleRight) continue;
-          if (obstacle.type === 'orb') continue;
           let collision = false;
-          if (obstacle.type === 'gap') collision = player.grounded;
-          else collision = player.y + CUBE > GROUND - obstacle.height + 7;
+          if (obstacle.type === 'spike' || obstacle.type === 'double') {
+            const segments = obstacle.type === 'double' ? 2 : 1;
+            const centerX = PLAYER_X + CUBE / 2;
+            let surfaceHeight = 0;
+            for (let segment = 0; segment < segments; segment++) {
+              const segmentStart = x + segment * 40;
+              const closestX = clamp(centerX, segmentStart, segmentStart + 40);
+              const triangleHeight = obstacle.height * (1 - Math.abs(closestX - (segmentStart + 20)) / 20);
+              surfaceHeight = Math.max(surfaceHeight, triangleHeight);
+            }
+            collision = player.y + CUBE > GROUND - surfaceHeight + 3;
+          } else {
+            collision = player.y + CUBE > GROUND - obstacle.height + 4;
+          }
           if (collision) {
             hitRef.current = true; audio.pause(); setPhase('dead');
             const percent = Math.max(0, Math.floor(progressNow * 100)); setProgress(percent);
@@ -412,7 +454,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   }, [selectedSongId]);
 
   const filteredSongs = songs.filter(song => (song.title + ' ' + song.artist).toLowerCase().includes(search.toLowerCase()));
-  const onCanvasPointer = () => jump();
+  const onCanvasPointer = (event: React.PointerEvent<HTMLCanvasElement>) => { event.preventDefault(); jump(); };
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 pb-24">
@@ -426,7 +468,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <button onClick={()=>setSoundOn(v=>!v)} className="rounded-xl border border-white/10 p-2 text-slate-300" title="Toggle game sound effects">{soundOn?<Volume2 className="h-4 w-4"/>:<VolumeX className="h-4 w-4"/>}</button>
         </div>
         <div className="p-2 sm:p-4">
-          <canvas ref={canvasRef} width={W} height={H} onPointerDown={onCanvasPointer} className="block w-full rounded-2xl border border-white/10" style={{aspectRatio:'25 / 13',touchAction:'manipulation'}}/>
+          <canvas ref={canvasRef} width={W} height={H} tabIndex={0} onPointerDown={onCanvasPointer} className="block w-full rounded-2xl border border-white/10" style={{aspectRatio:'25 / 13',touchAction:'manipulation'}}/>
         </div>
         {phase === 'catalogue' || phase === 'loading' ? (
           <div className="border-t border-white/10 bg-black/20 p-4 sm:p-5">
@@ -441,6 +483,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><div className="text-sm font-black text-white">{phase==='dead'?'CRASHED':phase==='complete'?'LEVEL COMPLETE':phase==='paused'?'PAUSED':'LEVEL IN PROGRESS'}</div><p className="mt-1 text-[10px] text-slate-400">{selectedSong?.title} · {selectedSong?.gameBpm} BPM · {difficulty.toUpperCase()} · {Math.floor(progress*100)}% complete</p></div>
               <div className="flex flex-wrap gap-2">
+                {phase==='playing'&&<button onClick={jump} className="rounded-xl bg-cyan-300 px-4 py-2 text-xs font-black text-slate-950">JUMP · SPACE</button>}
                 {phase==='playing'&&<button onClick={()=>{audioRef.current?.pause();setPhase('paused');}} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-200"><Pause className="mr-1 inline h-3.5 w-3.5"/> Pause</button>}
                 {phase==='paused'&&<button onClick={()=>{void audioRef.current?.play().then(()=>setPhase('playing')).catch(()=>setGameError('Audio could not resume.'));}} className="rounded-xl bg-cyan-300 px-3 py-2 text-xs font-black text-slate-950"><Play className="mr-1 inline h-3.5 w-3.5"/> Resume</button>}
                 {(phase==='dead'||phase==='complete')&&<button onClick={restartLevel} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-950"><RotateCcw className="mr-1 inline h-3.5 w-3.5"/> Retry level</button>}
