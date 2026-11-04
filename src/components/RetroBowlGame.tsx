@@ -7,7 +7,7 @@ type MatchPhase = 'ready' | 'live' | 'ball' | 'catch' | 'result';
 type Defender = { x:number; y:number; speed:number; number:number; blocked:number; };
 type Blocker = { x:number; y:number; number:number; target:number; };
 type Receiver = { x:number; y:number; number:number; route:number; speed:number; };
-type Carrier = { x:number; y:number; vx:number; vy:number; number:number; };
+type Carrier = { x:number; y:number; vx:number; vy:number; number:number; grounded:boolean; };
 type BallFlight = { x:number; y:number; fromX:number; fromY:number; toX:number; toY:number; progress:number; receiver:number; };
 type LivePlay = {
   phase:MatchPhase; type:PlayType; startX:number; startY:number; qb:{x:number;y:number}; carrier:Carrier;
@@ -208,14 +208,14 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     const wr2Rating=roster.find(player=>player.id==='wr2')?.rating||3;
     const rbRating=roster.find(player=>player.id==='rb')?.rating||3;
     const receivers:Receiver[]=[
-      {x:startX+(type==='screen'?-88:-12),y:type==='screen'?270:145,number:8,route:type==='screen'?0:-1,speed:(type==='screen'?112:type==='deep'?180:132)+(type==='screen'?rbRating:wr1Rating)*5},
-      {x:startX-8,y:270,number:11,route:0,speed:(type==='deep'?172:138)+wr2Rating*5},
-      {x:startX-12,y:395,number:18,route:1,speed:128+(roster.find(player=>player.id==='te')?.rating||3)*5},
+      {x:startX+(type==='screen'?-88:-12),y:type==='screen'?PLAYER_GROUND:PLAYER_GROUND-12,number:8,route:type==='screen'?0:-1,speed:(type==='screen'?112:type==='deep'?180:132)+(type==='screen'?rbRating:wr1Rating)*5},
+      {x:startX-8,y:PLAYER_GROUND,number:11,route:0,speed:(type==='deep'?172:138)+wr2Rating*5},
+      {x:startX-12,y:PLAYER_GROUND+12,number:18,route:1,speed:128+(roster.find(player=>player.id==='te')?.rating||3)*5},
     ];
-    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:clamp(100+Math.floor(i*1.25)*48+rand()*12,FIELD_TOP+28,FIELD_BOTTOM-28),speed:80+rand()*34+franchise.defense*5+(roster.find(player=>player.id==='lb')?.rating||3)*2,number:20+i,blocked:0}));
-    const blockers:Blocker[]=Array.from({length:5},(_,i)=>({x:startX-2+(i%2)*6,y:174+i*47,number:60+i,target:i%defenders.length}));
-    const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:type==='run'?270:270,vx:0,vy:0,number:type==='screen'?24:22};
-    const play:LivePlay={phase:'live',type,startX,startY:270,qb:{x:startX-48,y:270},carrier,receivers,defenders,blockers,ball:null,target:targetReceiver-1,ballThrown:false,turnover:false,message:type==='run'?'RUN · Follow your blockers and find the gap.':type==='screen'?'SCREEN · Hit the running back behind the line, then turn upfield.':'PASS · Select a receiver (1–3), then throw with SPACE.',elapsed:0};
+    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:clamp(PLAYER_GROUND-22+Math.floor(i*1.1)*8+rand()*5,PLAYER_GROUND-28,PLAYER_GROUND+22),speed:80+rand()*34+franchise.defense*5+(roster.find(player=>player.id==='lb')?.rating||3)*2,number:20+i,blocked:0}));
+    const blockers:Blocker[]=Array.from({length:5},(_,i)=>({x:startX-2+(i%2)*6,y:PLAYER_GROUND-25+i*12,number:60+i,target:i%defenders.length}));
+    const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:PLAYER_GROUND,vx:0,vy:0,number:type==='screen'?24:22,grounded:true};
+    const play:LivePlay={phase:'live',type,startX,startY:PLAYER_GROUND,qb:{x:startX-48,y:PLAYER_GROUND},carrier,receivers,defenders,blockers,ball:null,target:targetReceiver-1,ballThrown:false,turnover:false,message:type==='run'?'RUN · Follow your blockers and find the gap.':type==='screen'?'SCREEN · Hit the running back behind the line, then turn upfield.':'PASS · Select a receiver (1–3), then throw with SPACE.',elapsed:0};
     playRef.current=play;setPhase('live');setPlayPhaseState('live');setMessage(play.message);setLastPlay('');setShowPlaybook(false);
   },[possession,gameOver,paused,ballYard,franchise,down,homeScore,targetReceiver]);
 
@@ -334,23 +334,22 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         const runPhase=play.phase==='live'&&play.type==='run'||play.phase==='catch';
         if(runPhase){
           const carrier=play.carrier;
-          const accel=720*dt;
+          const accel=850*dt;
           if(keysRef.current.arrowleft||keysRef.current.a)carrier.vx-=accel;
           if(keysRef.current.arrowright||keysRef.current.d)carrier.vx+=accel;
-          if(keysRef.current.arrowup||keysRef.current.w)carrier.vy-=accel;
-          if(keysRef.current.arrowdown||keysRef.current.s)carrier.vy+=accel;
+          if((keysRef.current.arrowup||keysRef.current.w)&&carrier.grounded){carrier.vy=-575;carrier.grounded=false;}
           const sprint=!!keysRef.current.shift;
-          const max=sprint?320+franchise.speed*18+getRating('rb')*12:220+franchise.speed*14+getRating('rb')*8;
-          carrier.vx=clamp(carrier.vx,-95,max);carrier.vy=clamp(carrier.vy,-160,160);
-          carrier.vx*=Math.pow(.86,dt*60);carrier.vy*=Math.pow(.84,dt*60);
-          carrier.x=clamp(carrier.x+carrier.vx*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
-          carrier.y=clamp(carrier.y+carrier.vy*dt,FIELD_TOP+30,FIELD_BOTTOM-25);
+          const max=sprint?235+franchise.speed*14+getRating('rb')*9:155+franchise.speed*12+getRating('rb')*7;
+          carrier.vx=clamp(carrier.vx,-110,max);carrier.vx*=Math.pow(.88,dt*60);
+          carrier.x=clamp(carrier.x+(82+carrier.vx)*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
+          if(!carrier.grounded){carrier.vy+=1580*dt;carrier.y+=carrier.vy*dt;if(carrier.y>=PLAYER_GROUND){carrier.y=PLAYER_GROUND;carrier.vy=0;carrier.grounded=true;}}
+          else carrier.y=PLAYER_GROUND;
         }
         if((play.phase==='live'||play.phase==='ball')&&play.type!=='run'){
           play.receivers.forEach((receiver,index)=>{
             receiver.x+=receiver.speed*dt;
-            const direction=receiver.route===0?Math.sin(play.elapsed*2.7)*55:receiver.route*Math.min(135,play.elapsed*44);
-            receiver.y=clamp((index===0?145:index===1?270:395)+direction,FIELD_TOP+35,FIELD_BOTTOM-35);
+            const direction=receiver.route===0?Math.sin(play.elapsed*2.7)*8:receiver.route*Math.min(16,play.elapsed*8);
+            receiver.y=clamp(PLAYER_GROUND+(index===0?-12:index===1?0:12)+direction,PLAYER_GROUND-20,PLAYER_GROUND+20);
           });
         }
         const target=play.phase==='ball'||play.phase==='live'&&play.type!=='run'?play.qb:play.carrier;
@@ -393,7 +392,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
             }else if(Math.random()>catchChance){
               finishPlay(0,'INCOMPLETE · THE PASS FELL INCOMPLETE.');
             }else{
-              play.carrier={x:receiver.x,y:receiver.y,vx:0,vy:0,number:receiver.number};play.phase='catch';setPhase('catch');setMessage('CATCH! NOW TURN UPFIELD · WASD / ARROWS TO RUN.');
+              play.carrier={x:receiver.x,y:PLAYER_GROUND,vx:0,vy:0,number:receiver.number,grounded:true};play.phase='catch';setPhase('catch');setMessage('CATCH! NOW TURN UPFIELD · WASD / ARROWS TO RUN.');
               setPlayStats(s=>({...s,completions:s.completions+1}));
             }
           }
@@ -414,12 +413,12 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
       if(possession==='away'){
         const line=yardX(visitorBallYard), qx=line+44, mid=270;
         // Visitor offense lines up facing left; our defenders line up across from them.
-        for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,174+i*52,DEFENSE_RED,60+i,'blocker');
-        drawPlayer(ctx,qx-camera,mid,DEFENSE_RED,12,'quarterback');
-        drawPlayer(ctx,qx+25-camera,mid+65,DEFENSE_RED,24,'carrier');
-        for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,135+i*132,DEFENSE_RED,8+i*3,'receiver');
-        for(let i=0;i<7;i++)drawPlayer(ctx,line-65-(i%3)*55-camera,112+Math.floor(i*1.3)*48,PLAYER_BLUE,20+i,'defender');
-        drawBall(ctx,qx-camera,mid-16);
+        for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,PLAYER_GROUND-25+i*12,DEFENSE_RED,60+i,'blocker');
+        drawPlayer(ctx,qx-camera,PLAYER_GROUND,DEFENSE_RED,12,'quarterback');
+        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier');
+        for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,PLAYER_GROUND-12+i*12,DEFENSE_RED,8+i*3,'receiver');
+        for(let i=0;i<7;i++)drawPlayer(ctx,line-65-(i%3)*55-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,PLAYER_BLUE,20+i,'defender');
+        drawBall(ctx,qx-camera,PLAYER_GROUND-16);
         ctx.fillStyle='rgba(255,255,255,.82)';ctx.font='bold 11px monospace';ctx.fillText('VISITOR OFFENSE · '+selectedDefense.toUpperCase(),24,84);
       }else if(play){
         // Route art appears before the ball is thrown.
@@ -438,10 +437,10 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         }
         if(play.ball)drawBall(ctx,play.ball.x-camera,play.ball.y);
       }else{
-        drawPlayer(ctx,startX-52-camera,270,PLAYER_BLUE,12,'quarterback');
-        drawPlayer(ctx,startX-14-camera,270,PLAYER_BLUE,22,'carrier',true);
-        for(let i=0;i<5;i++)drawPlayer(ctx,startX+5-camera,174+i*54,PLAYER_BLUE,60+i,'blocker');
-        for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,115+Math.floor(i*1.35)*48,DEFENSE_RED,20+i,'defender');
+        drawPlayer(ctx,startX-52-camera,PLAYER_GROUND,PLAYER_BLUE,12,'quarterback');
+        drawPlayer(ctx,startX-14-camera,PLAYER_GROUND,PLAYER_BLUE,22,'carrier',true);
+        for(let i=0;i<5;i++)drawPlayer(ctx,startX+5-camera,PLAYER_GROUND-25+i*12,PLAYER_BLUE,60+i,'blocker');
+        for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,DEFENSE_RED,20+i,'defender');
       }
       // Match scoreboard embedded on the field.
       ctx.fillStyle='rgba(6,18,28,.82)';roundedRect(ctx,16,14,968,42,10);ctx.fill();
