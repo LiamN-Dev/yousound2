@@ -25,7 +25,7 @@ import { AccountLockScreen } from './components/AccountLockScreen';
 import { ChatHub } from './components/ChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
-import { GuessTrackGame } from './components/GuessTrackGame';
+import { GamesHub } from './components/GamesHub';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
@@ -328,7 +328,7 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
-        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && <GuessTrackGame />}
+        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && <GamesHub />}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}

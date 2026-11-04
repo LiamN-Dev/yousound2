@@ -1483,7 +1483,8 @@ app.post('/api/games/guess-track/start', async (req: Request, res: Response) => 
       const hiddenForThisUser = hiddenFrom.includes('all')
         || hiddenFrom.includes(account.uid)
         || hiddenFrom.includes(account.username);
-      return !!song.id
+      return song.gameApproved === true
+        && !!song.id
         && !!song.title
         && !!song.artist
         && !!audioUrl
@@ -1496,7 +1497,7 @@ app.post('/api/games/guess-track/start', async (req: Request, res: Response) => 
     if (playableSongs.length < 4) {
       return res.status(409).json({
         success: false,
-        error: 'The game needs at least four playable tracks in your YouSong library.',
+        error: 'Guess the Track needs at least four visible, Game Approved songs with playable audio.',
       });
     }
 
@@ -1695,6 +1696,258 @@ app.post('/api/games/guess-track/next', async (req: Request, res: Response) => {
   }
 });
 
+// ----------------- GAMES: RHYTHM BATTLE -----------------
+type RhythmDifficulty = 'easy' | 'normal' | 'hard';
+type RhythmNote = { id: string; lane: number; timeMs: number };
+type RhythmChart = { notes: RhythmNote[]; durationMs: number; bpm: number; difficulty: RhythmDifficulty };
+
+function rhythmRandom(seed: number) {
+  let value = seed >>> 0;
+  return () => {
+    value = (value * 1664525 + 1013904223) >>> 0;
+    return value / 4294967296;
+  };
+}
+
+function buildRhythmChart(songId: string, bpm: number, durationSeconds: number, difficulty: RhythmDifficulty): RhythmChart {
+  const safeBpm = Math.max(60, Math.min(240, Math.round(Number(bpm) || 120)));
+  const safeDuration = Math.max(10, Math.min(240, Number(durationSeconds) || 90));
+  const durationMs = Math.round(safeDuration * 1000);
+  const beatMs = 60000 / safeBpm;
+  const stepMs = difficulty === 'easy' ? beatMs * 2 : difficulty === 'hard' ? beatMs / 2 : beatMs;
+  const hash = Array.from(songId).reduce((acc, char) => ((acc * 31) + char.charCodeAt(0)) >>> 0, 2166136261);
+  const random = rhythmRandom(hash ^ Math.round(safeBpm * 7919) ^ (difficulty === 'easy' ? 17 : difficulty === 'hard' ? 97 : 43));
+  const notes: RhythmNote[] = [];
+  let noteNumber = 0;
+
+  // Leave an intro count-in, then generate a four-lane chart across the song.
+  for (let timeMs = 2200; timeMs < durationMs - 400 && notes.length < 1000; timeMs += stepMs) {
+    const lane = Math.floor(random() * 4);
+    notes.push({ id: 'n' + noteNumber++, lane, timeMs: Math.round(timeMs) });
+
+    // Higher difficulties occasionally add a second simultaneous lane.
+    const chordChance = difficulty === 'hard' ? 0.25 : difficulty === 'normal' ? 0.07 : 0;
+    if (random() < chordChance) {
+      let secondLane = Math.floor(random() * 3);
+      if (secondLane >= lane) secondLane += 1;
+      notes.push({ id: 'n' + noteNumber++, lane: secondLane, timeMs: Math.round(timeMs) });
+    }
+  }
+  return { notes, durationMs, bpm: safeBpm, difficulty };
+}
+
+async function getApprovedRhythmSongs(account: { uid: string; username: string; isAdmin: boolean }) {
+  const storedSongs = await getSongsPersistentDb();
+  return (storedSongs as any[]).filter((song) => {
+    const audioUrl = typeof song.audioUrl === 'string' ? song.audioUrl.trim() : '';
+    const hiddenFrom = Array.isArray(song.hiddenFrom) ? song.hiddenFrom : [];
+    const hiddenForThisUser = hiddenFrom.includes('all')
+      || hiddenFrom.includes(account.uid)
+      || hiddenFrom.includes(account.username);
+    return song.gameApproved === true
+      && !!song.id
+      && !!song.title
+      && !!song.artist
+      && !!audioUrl
+      && !audioUrl.startsWith('data:')
+      && !song.isScheduledForDeletion
+      && !song.isDroppingSoon
+      && (account.isAdmin || !hiddenForThisUser);
+  });
+}
+
+app.get('/api/games/rhythm/songs', async (req: Request, res: Response) => {
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent game database is unavailable.' });
+    }
+    const approvedSongs = await getApprovedRhythmSongs(account);
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({
+      success: true,
+      songs: approvedSongs.map((song: any) => ({
+        id: String(song.id),
+        title: String(song.title),
+        artist: String(song.artist),
+        audioUrl: String(song.audioUrl),
+        coverUrl: String(song.coverUrl || ''),
+        duration: Math.max(10, Math.min(240, Number(song.durationExact) || Number(song.duration) || 90)),
+        gameBpm: Math.max(60, Math.min(240, Math.round(Number(song.gameBpm) || 120))),
+      })),
+    });
+  } catch (error: any) {
+    console.error('[RhythmGame] Song catalogue error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load Game Approved tracks.' });
+  }
+});
+
+app.get('/api/games/rhythm/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent game database is unavailable.' });
+    }
+    const result = await createPool().query(
+      'SELECT user_id, MAX(username) AS username, MAX(score)::int AS best_score, ' +
+      'MAX(accuracy)::float8 AS best_accuracy, MAX(max_combo)::int AS best_combo, COUNT(*)::int AS games_played ' +
+      'FROM rhythm_game_sessions WHERE completed = true GROUP BY user_id ' +
+      'ORDER BY MAX(score) DESC, MAX(accuracy) DESC, LOWER(MAX(username)) ASC LIMIT 20'
+    );
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({
+      success: true,
+      leaderboard: result.rows.map((row: any, index: number) => ({
+        rank: index + 1,
+        userId: row.user_id,
+        username: row.username,
+        bestScore: Number(row.best_score) || 0,
+        bestAccuracy: Number(row.best_accuracy) || 0,
+        bestCombo: Number(row.best_combo) || 0,
+        gamesPlayed: Number(row.games_played) || 0,
+      })),
+    });
+  } catch (error: any) {
+    console.error('[RhythmGame] Leaderboard error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load the rhythm leaderboard.' });
+  }
+});
+
+app.post('/api/games/rhythm/start', async (req: Request, res: Response) => {
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent game database is unavailable.' });
+    }
+    const songId = String(req.body?.songId || '').trim();
+    const difficulty = String(req.body?.difficulty || 'normal') as RhythmDifficulty;
+    if (!songId || !['easy', 'normal', 'hard'].includes(difficulty)) {
+      return res.status(400).json({ success: false, error: 'Choose a Game Approved song and a valid difficulty.' });
+    }
+
+    const approvedSongs = await getApprovedRhythmSongs(account);
+    const song = approvedSongs.find((item: any) => String(item.id) === songId);
+    if (!song) {
+      return res.status(404).json({ success: false, error: 'That track is not Game Approved or is not available to this account.' });
+    }
+
+    const duration = Math.max(10, Math.min(240, Number(song.durationExact) || Number(song.duration) || 90));
+    const bpm = Math.max(60, Math.min(240, Math.round(Number(song.gameBpm) || 120)));
+    const chart = buildRhythmChart(song.id, bpm, duration, difficulty);
+    if (chart.notes.length < 8) {
+      return res.status(409).json({ success: false, error: 'This track is too short to create a rhythm chart.' });
+    }
+
+    const sessionId = randomBytes(18).toString('hex');
+    await createPool().query(
+      'INSERT INTO rhythm_game_sessions (id, user_id, username, song_id, song_title, artist, difficulty, note_chart) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)',
+      [sessionId, account.uid, account.username, song.id, song.title, song.artist, difficulty, JSON.stringify(chart)]
+    );
+
+    return res.json({
+      success: true,
+      sessionId,
+      song: {
+        id: String(song.id),
+        title: String(song.title),
+        artist: String(song.artist),
+        audioUrl: String(song.audioUrl),
+        coverUrl: String(song.coverUrl || ''),
+      },
+      chart,
+    });
+  } catch (error: any) {
+    console.error('[RhythmGame] Start error:', error);
+    return res.status(500).json({ success: false, error: 'Could not prepare this rhythm game.' });
+  }
+});
+
+app.post('/api/games/rhythm/finish', async (req: Request, res: Response) => {
+  let client: any;
+  let transactionOpen = false;
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    const sessionId = String(req.body?.sessionId || '').trim();
+    const submittedHits = Array.isArray(req.body?.hits) ? req.body.hits : [];
+    if (!sessionId || submittedHits.length > 1000) {
+      return res.status(400).json({ success: false, error: 'The rhythm game result is invalid.' });
+    }
+
+    client = await createPool().connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const found = await client.query('SELECT * FROM rhythm_game_sessions WHERE id = $1 FOR UPDATE', [sessionId]);
+    const session = found.rows[0];
+    if (!session || session.user_id !== account.uid) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ success: false, error: 'Rhythm game session not found.' });
+    }
+    if (session.completed) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(409).json({ success: false, error: 'This rhythm game has already been submitted.' });
+    }
+
+    const chart: RhythmChart = typeof session.note_chart === 'string' ? JSON.parse(session.note_chart) : session.note_chart;
+    const notes = Array.isArray(chart?.notes) ? chart.notes : [];
+    const requiredMs = Math.max(0, Number(chart?.durationMs) - 1800);
+    const createdMs = new Date(session.created_at).getTime();
+    if (!Number.isFinite(createdMs) || Date.now() - createdMs < requiredMs) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(409).json({ success: false, error: 'Finish listening to the track before submitting the score.' });
+    }
+
+    const noteById = new Map<string, RhythmNote>(notes.map((note): [string, RhythmNote] => [String(note.id), note]));
+    const accepted = new Map<string, number>();
+    for (const raw of submittedHits) {
+      const noteId = String(raw?.noteId || '');
+      const offsetMs = Number(raw?.offsetMs);
+      if (!noteById.has(noteId) || accepted.has(noteId) || !Number.isFinite(offsetMs) || Math.abs(offsetMs) > 180) continue;
+      accepted.set(noteId, offsetMs);
+    }
+
+    let score = 0;
+    let combo = 0;
+    let maxCombo = 0;
+    for (const note of notes) {
+      const offset = accepted.get(String(note.id));
+      if (offset === undefined) {
+        combo = 0;
+        continue;
+      }
+      const absolute = Math.abs(offset);
+      const points = absolute <= 45 ? 350 : absolute <= 90 ? 200 : absolute <= 140 ? 100 : 50;
+      score += points;
+      combo += 1;
+      maxCombo = Math.max(maxCombo, combo);
+    }
+    const accuracy = notes.length ? Math.round((score / (notes.length * 350)) * 10000) / 100 : 0;
+
+    await client.query(
+      'UPDATE rhythm_game_sessions SET score = $2, accuracy = $3, max_combo = $4, completed = true, completed_at = NOW() WHERE id = $1',
+      [sessionId, score, accuracy, maxCombo]
+    );
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return res.json({ success: true, score, accuracy, maxCombo, totalNotes: notes.length, hits: accepted.size });
+  } catch (error: any) {
+    if (client && transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch {}
+    }
+    console.error('[RhythmGame] Finish error:', error);
+    return res.status(500).json({ success: false, error: 'Could not save the rhythm game result.' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // ----------------- SONGS -----------------
 app.get('/api/songs', async (req: Request, res: Response) => {
   try {
@@ -1758,6 +2011,8 @@ app.post('/api/songs', async (req: Request, res: Response) => {
       badgeType: songData.badgeType || null,
       badgeMessage: songData.badgeMessage || songData.badgeCustomText || null,
       isPinned: !!songData.isPinned,
+      gameApproved: false,
+      gameBpm: 120,
       isDroppingSoon: !!songData.isDroppingSoon,
       dropDate: songData.dropDate || null,
       autoReleaseOnDrop: !!songData.autoReleaseOnDrop,
@@ -1802,6 +2057,17 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
     const existingSong = await getSongByIdDb(id);
     if (!existingSong) return res.status(404).json({ success: false, error: 'Song not found. Refresh the library and try again.' });
     const updates = { ...(req.body || {}) };
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'gameApproved') && typeof updates.gameApproved !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Game Approved must be a true/false value.' });
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'gameBpm')) {
+      const gameBpm = Math.round(Number(updates.gameBpm));
+      if (!Number.isFinite(gameBpm) || gameBpm < 60 || gameBpm > 240) {
+        return res.status(400).json({ success: false, error: 'Rhythm Game BPM must be between 60 and 240.' });
+      }
+      updates.gameBpm = gameBpm;
+    }
 
     if (Object.prototype.hasOwnProperty.call(updates, 'audioUrl')) {
       const value = String(updates.audioUrl || '').trim();

@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS songs (
   drop_message TEXT,
   auto_release_on_drop BOOLEAN DEFAULT false,
   is_christmas_edition BOOLEAN DEFAULT false,
+  game_approved BOOLEAN NOT NULL DEFAULT false,
+  game_bpm INTEGER NOT NULL DEFAULT 120,
   hidden_from JSONB DEFAULT '[]'::jsonb,
   is_spotlight BOOLEAN DEFAULT false,
   spotlight_order INTEGER DEFAULT 0,
@@ -113,6 +115,30 @@ CREATE TABLE IF NOT EXISTS media_ids (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_media_ids_status ON media_ids(status);
+
+-- Existing song rows default to not approved; admins must opt tracks into games.
+ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS game_approved BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS game_bpm INTEGER NOT NULL DEFAULT 120;
+
+-- Persistent rhythm-game sessions and leaderboard records.
+CREATE TABLE IF NOT EXISTS rhythm_game_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  song_id TEXT NOT NULL,
+  song_title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  difficulty TEXT NOT NULL,
+  note_chart JSONB NOT NULL,
+  score INTEGER NOT NULL DEFAULT 0,
+  accuracy DOUBLE PRECISION NOT NULL DEFAULT 0,
+  max_combo INTEGER NOT NULL DEFAULT 0,
+  completed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_rhythm_game_sessions_leaderboard
+  ON rhythm_game_sessions(completed, score DESC);
 
 -- 3. Playlists Table
 CREATE TABLE IF NOT EXISTS playlists (

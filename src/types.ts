@@ -59,6 +59,10 @@ export interface Song {
   dropMessage?: string;
   autoReleaseOnDrop?: boolean;
   isChristmasEdition?: boolean;
+  /** Explicit administrator approval for use in YouSong Games. */
+  gameApproved?: boolean;
+  /** Beats per minute used by the rhythm game; defaults to 120. */
+  gameBpm?: number;
   // Admin Management Enhancements
   hiddenFrom?: string[]; // ['all'] to hide from everyone, or list of user IDs/usernames
   isSpotlight?: boolean; // Spotlighted track

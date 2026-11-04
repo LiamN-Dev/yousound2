@@ -66,6 +66,8 @@ export async function ensureTables(): Promise<void> {
     ['songs', 'duration_exact DOUBLE PRECISION'],
     ['songs', 'drop_message TEXT'],
     ['songs', 'is_christmas_edition BOOLEAN DEFAULT false'],
+    ['songs', 'game_approved BOOLEAN NOT NULL DEFAULT false'],
+    ['songs', 'game_bpm INTEGER NOT NULL DEFAULT 120'],
     ['song_requests', "tags JSONB DEFAULT '[]'::jsonb"],
     ['song_requests', 'description TEXT'],
     ['song_requests', 'is_dropping_soon BOOLEAN DEFAULT false'],
@@ -144,6 +146,30 @@ export async function ensureTables(): Promise<void> {
   await run(
     'idx_song_guess_sessions_leaderboard',
     'CREATE INDEX IF NOT EXISTS idx_song_guess_sessions_leaderboard ON song_guess_sessions(completed, score DESC)'
+  );
+
+  await run(
+    'rhythm_game_sessions',
+    `CREATE TABLE IF NOT EXISTS rhythm_game_sessions (
+       id TEXT PRIMARY KEY,
+       user_id TEXT NOT NULL,
+       username TEXT NOT NULL,
+       song_id TEXT NOT NULL,
+       song_title TEXT NOT NULL,
+       artist TEXT NOT NULL,
+       difficulty TEXT NOT NULL,
+       note_chart JSONB NOT NULL,
+       score INTEGER NOT NULL DEFAULT 0,
+       accuracy DOUBLE PRECISION NOT NULL DEFAULT 0,
+       max_combo INTEGER NOT NULL DEFAULT 0,
+       completed BOOLEAN NOT NULL DEFAULT false,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       completed_at TIMESTAMPTZ
+     )`
+  );
+  await run(
+    'idx_rhythm_game_sessions_leaderboard',
+    'CREATE INDEX IF NOT EXISTS idx_rhythm_game_sessions_leaderboard ON rhythm_game_sessions(completed, score DESC)'
   );
 
   await run(
