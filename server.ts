@@ -924,6 +924,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         lastSongListenedAt: toIsoString(user.lastSongListenedAt),
         chatBlocked: user.chatBlocked || false,
         christmasMode: !!user.christmasMode,
+        gamesEnabled: !!user.gamesEnabled,
       },
     });
   } catch (error: any) {
@@ -965,6 +966,7 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
       lastSongListenedAt: toIsoString(user.lastSongListenedAt),
       chatBlocked: user.chatBlocked || false,
       christmasMode: !!user.christmasMode,
+      gamesEnabled: !!user.gamesEnabled,
     },
   });
 });
@@ -998,6 +1000,7 @@ app.get('/api/auth/me/:userId', async (req: Request, res: Response) => {
         lastSongListenedAt: toIsoString(user.lastSongListenedAt),
         chatBlocked: user.chatBlocked || false,
         christmasMode: !!user.christmasMode,
+        gamesEnabled: !!user.gamesEnabled,
       },
     });
   } catch (error: any) {
@@ -1127,6 +1130,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
       dailyListenLimit: u.dailyListenLimit ?? null,
       dailyListensToday: dailyListenCounts[u.uid] || 0,
       christmasMode: !!u.christmasMode,
+      gamesEnabled: !!u.gamesEnabled,
     }));
     res.json({ users: formatted });
   } catch (error: any) {
@@ -1188,6 +1192,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
       dailyListenLimit,
       isLocked,
       christmasMode,
+      gamesEnabled,
     } = req.body;
     const updates: any = {};
 
@@ -1238,6 +1243,10 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
       updates.christmasMode = christmasMode;
     }
 
+    if (typeof gamesEnabled === 'boolean') {
+      updates.gamesEnabled = gamesEnabled;
+    }
+
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'dailyListenLimit')) {
       if (dailyListenLimit === null || dailyListenLimit === '') {
         updates.dailyListenLimit = null; // blank means unlimited
@@ -1270,6 +1279,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
             colorAccent: updated.colorAccent || 'cyan',
             dailyListenLimit: updated.dailyListenLimit ?? null,
             christmasMode: !!updated.christmasMode,
+            gamesEnabled: !!updated.gamesEnabled,
           }
         : null,
     });
