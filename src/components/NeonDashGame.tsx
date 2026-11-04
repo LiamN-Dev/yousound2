@@ -188,8 +188,9 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [best, setBest] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
   const selectedSong = songs.find(song => song.id === selectedSongId) || null;
-  const [paletteIndex, setPaletteIndex] = useState(0);
   const soundRef = useRef<AudioContext | null>(null);
+  const soundOnRef = useRef(false);
+  soundOnRef.current = soundOn;
   const palettes = [
     { main: '#42dcff', glow: '#15bfff' },
     { main: '#ef76dc', glow: '#ff4fa9' },
@@ -197,11 +198,11 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     { main: '#ffcf68', glow: '#ff9c48' },
     { main: '#b1a0ff', glow: '#8d6dff' },
   ];
-  const palette = palettes[paletteIndex % palettes.length];
+  const palette = palettes[stableHash(selectedSong?.id || 'yousong') % palettes.length];
 
   const setPhase = (next: Phase) => { phaseRef.current = next; setPhaseState(next); };
   const playSound = (frequency: number) => {
-    if (!soundOn) return;
+    if (!soundOnRef.current) return;
     try {
       const AC = window.AudioContext || (window as any).webkitAudioContext;
       if (!soundRef.current) soundRef.current = new AC();
@@ -277,7 +278,6 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       obstaclesRef.current = level.obstacles; speedRef.current = level.speed;
       playerRef.current = { y: GROUND - CUBE, vy: 0, rotation: 0, grounded: true, lastBeat: -1 };
       playheadRef.current = 0;
-      setPaletteIndex(stableHash(selectedSong.id) % palettes.length);
       setPhase('playing');
       audio.onended = () => {
         if (phaseRef.current === 'playing') {
@@ -308,8 +308,9 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         const playhead = audio.currentTime;
         playheadRef.current = playhead;
         const progressNow = Math.max(0, Math.min(1, playhead / Math.max(1, selectedSong.duration)));
+        const previousPct = Math.floor(progressRef.current * 100);
         progressRef.current = progressNow;
-        if (Math.floor(progressNow * 100) !== Math.floor(progress * 100)) setProgress(progressNow);
+        if (Math.floor(progressNow * 100) !== previousPct) setProgress(progressNow);
         const player = playerRef.current;
         player.vy += 2050 * dt; player.y += player.vy * dt;
         if (player.y >= GROUND - CUBE) { player.y = GROUND - CUBE; player.vy = 0; player.grounded = true; player.rotation = Math.round(player.rotation / (Math.PI / 2)) * (Math.PI / 2); }
@@ -331,7 +332,6 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           }
         }
       }
-      const level = createSongLevel(selectedSong, difficulty);
       drawScene(ctx, selectedSong, playheadRef.current, progressRef.current, playerRef.current, obstaclesRef.current, speedRef.current, palette, phaseRef.current, now / 1000);
       // Render the start / result states with a cinematic title band.
       if (phaseRef.current === 'catalogue' || phaseRef.current === 'loading') {
