@@ -12,7 +12,7 @@ type LeaderboardEntry = { rank: number; userId: string; username: string; bestSc
 const LANE_LABELS = ['←', '↓', '↑', '→'];
 const LEAD_MS = 1800;
 const PIXELS_PER_SECOND = 205;
-const HIT_LINE_BOTTOM = 58;
+const HIT_LINE_BOTTOM = 44;
 const JUDGE_WINDOW_MS = 180;
 
 async function rhythmRequest(url: string, body?: Record<string, unknown>) {
@@ -516,7 +516,7 @@ export const RhythmGame: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                       <div className={'mb-[42px] flex h-10 w-[76%] items-center justify-center rounded-xl border-2 text-2xl font-black ' + noteClasses[lane]}>{label}</div>
                     </div>
                   ))}
-                  <div className="pointer-events-none absolute bottom-[57px] left-0 right-0 border-t border-dashed border-white/40" />
+                  <div className="pointer-events-none absolute bottom-[62px] left-0 right-0 border-t border-dashed border-white/40" />
                   {judgement && <div className="pointer-events-none absolute left-0 right-0 top-5 z-20 text-center text-xl font-black tracking-widest text-white drop-shadow-lg">{judgement}</div>}
                   {combo >= 5 && <div className="pointer-events-none absolute bottom-28 left-0 right-0 z-20 text-center text-2xl font-black text-white/70">{combo} COMBO</div>}
                 </div>
