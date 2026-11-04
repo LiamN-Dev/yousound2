@@ -52,36 +52,32 @@ function seededRandom(seed:number){let state=seed>>>0;return()=>{state=(state*16
 function roundedRect(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,r:number){
   const radius=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+radius,y);ctx.arcTo(x+w,y,x+w,y+h,radius);ctx.arcTo(x+w,y+h,x,y+h,radius);ctx.arcTo(x,y+h,x,y,radius);ctx.arcTo(x,y,x+w,y,radius);ctx.closePath();
 }
-function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false){
-  // Compact pixel-athlete sprite: helmet/facemask, shoulder pads, jersey, pants, legs and gloves.
-  ctx.fillStyle='rgba(0,0,0,.32)';ctx.beginPath();ctx.ellipse(x+2,y+18,19,8,0,0,Math.PI*2);ctx.fill();
-  const light=role==='defender'?'#f4b8b8':role==='receiver'?'#b9e9ff':'#d9e7f2';
-  const pants=role==='defender'?'#f1e1e1':'#e8edf1';
-  // Cleats and lower legs.
-  ctx.fillStyle='#17212b';ctx.fillRect(x-10,y+10,8,12);ctx.fillRect(x+3,y+10,8,12);
-  ctx.fillStyle=pants;ctx.fillRect(x-10,y+5,8,12);ctx.fillRect(x+3,y+5,8,12);
-  ctx.fillStyle='#aab8c3';ctx.fillRect(x-10,y+14,8,3);ctx.fillRect(x+3,y+14,8,3);
-  // Shoulder pads, jersey and arm sleeves.
-  ctx.fillStyle='#101c27';ctx.fillRect(x-17,y-14,34,28);
-  ctx.fillStyle=color;ctx.fillRect(x-15,y-13,30,23);ctx.fillRect(x-19,y-11,7,17);ctx.fillRect(x+12,y-11,7,17);
-  ctx.fillStyle='rgba(255,255,255,.30)';ctx.fillRect(x-12,y-10,24,3);ctx.fillRect(x-16,y-8,4,9);ctx.fillRect(x+12,y-8,4,9);
-  ctx.fillStyle=light;ctx.fillRect(x-20,y+3,7,6);ctx.fillRect(x+13,y+3,7,6);
-  // Waist, jersey stripe and number.
-  ctx.fillStyle='#f4f0e6';ctx.fillRect(x-13,y+7,26,3);
-  ctx.fillStyle='#172331';ctx.font='900 10px monospace';ctx.textAlign='center';ctx.fillText(String(number),x,y+3);
-  ctx.fillStyle='rgba(255,255,255,.72)';ctx.fillRect(x-12,y+10,5,2);ctx.fillRect(x+7,y+10,5,2);
-  // Helmet shell and face opening.
-  ctx.fillStyle='#111b26';ctx.fillRect(x-13,y-31,26,18);ctx.fillRect(x-16,y-25,7,10);ctx.fillRect(x+9,y-24,7,9);
-  ctx.fillStyle=role==='defender'?'#f1d7d7':'#f5e4c4';ctx.fillRect(x-10,y-28,20,12);
-  ctx.fillStyle=color;ctx.fillRect(x-13,y-32,26,9);ctx.fillRect(x-8,y-35,17,4);
-  ctx.fillStyle='#0c1721';ctx.fillRect(x+4,y-25,7,4);ctx.fillRect(x+8,y-21,3,8);ctx.fillRect(x+1,y-17,11,2);
-  ctx.fillStyle='#fff';ctx.fillRect(x-6,y-22,3,3);
-  // Small team stripe on the helmet.
-  ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillRect(x-2,y-33,3,8);
-  if(selected){ctx.strokeStyle='#ffe07a';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x,y-5,23,39,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffe07a';ctx.beginPath();ctx.moveTo(x,y-50);ctx.lineTo(x-5,y-58);ctx.lineTo(x+5,y-58);ctx.closePath();ctx.fill();}
-  ctx.textAlign='left';
+function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false,facing:1|-1=1){
+  // Side-profile football sprite with a shell helmet, cage, pads, jersey, gloves and cleats.
+  ctx.save();ctx.translate(x,y);ctx.scale(facing,1);
+  const shadowY=role==='carrier'?PLAYER_GROUND-y:y;
+  ctx.fillStyle='rgba(0,0,0,.32)';ctx.beginPath();ctx.ellipse(2,shadowY+18,19,7,0,0,Math.PI*2);ctx.fill();
+  const pants=role==='defender'?'#eee0de':'#e8edf1';
+  ctx.fillStyle=pants;ctx.fillRect(-5,5,8,15);ctx.fillRect(5,5,8,13);
+  ctx.fillStyle='#16202a';ctx.fillRect(-7,18,13,5);ctx.fillRect(5,16,13,5);
+  ctx.fillStyle='rgba(255,255,255,.42)';ctx.fillRect(-3,7,3,7);ctx.fillRect(8,7,3,6);
+  ctx.fillStyle='#101b27';roundedRect(ctx,-13,-15,29,29,6);ctx.fill();
+  ctx.fillStyle=color;roundedRect(ctx,-11,-13,25,25,5);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.32)';ctx.fillRect(-8,-10,19,3);ctx.fillRect(-9,-7,3,14);
+  ctx.fillStyle=color;ctx.fillRect(-17,-9,8,14);ctx.fillRect(11,-8,9,13);
+  ctx.fillStyle=role==='defender'?'#f0c5bf':'#c9e8f5';ctx.fillRect(-18,3,8,6);ctx.fillRect(16,3,8,6);
+  ctx.fillStyle='#f4f0e6';ctx.fillRect(-10,9,23,3);
+  ctx.fillStyle='#172331';ctx.font='900 10px monospace';ctx.textAlign='center';ctx.fillText(String(number),2,4);
+  // Helmet profile and facemask.
+  ctx.fillStyle='#0c1721';roundedRect(ctx,-6,-34,29,22,8);ctx.fill();
+  ctx.fillStyle=color;roundedRect(ctx,-10,-36,29,18,8);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.76)';ctx.fillRect(-5,-34,3,11);
+  ctx.fillStyle=role==='defender'?'#efd2c9':'#f4d8b4';ctx.fillRect(10,-27,9,10);ctx.fillRect(7,-20,12,3);
+  ctx.strokeStyle='#101b27';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(15,-25);ctx.lineTo(28,-25);ctx.moveTo(17,-20);ctx.lineTo(27,-20);ctx.moveTo(25,-29);ctx.lineTo(25,-15);ctx.stroke();
+  ctx.fillStyle='#fff';ctx.fillRect(12,-26,2,2);
+  if(selected){ctx.strokeStyle='#ffe07a';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(2,1,25,34,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffe07a';ctx.beginPath();ctx.moveTo(2,-45);ctx.lineTo(-3,-53);ctx.lineTo(7,-53);ctx.closePath();ctx.fill();}
+  ctx.restore();
 }
-
 function drawBall(ctx:CanvasRenderingContext2D,x:number,y:number){
   ctx.fillStyle='#8b4c25';ctx.beginPath();ctx.ellipse(x,y,10,5,-.28,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='#f6e7cd';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.stroke();
@@ -415,10 +411,10 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
       if(possession==='away'){
         const line=yardX(visitorBallYard), qx=line+44, mid=270;
         // Visitor offense lines up facing left; our defenders line up across from them.
-        for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,PLAYER_GROUND-25+i*12,DEFENSE_RED,60+i,'blocker');
-        drawPlayer(ctx,qx-camera,PLAYER_GROUND,DEFENSE_RED,12,'quarterback');
-        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier');
-        for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,PLAYER_GROUND-12+i*12,DEFENSE_RED,8+i*3,'receiver');
+        for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,PLAYER_GROUND-25+i*12,DEFENSE_RED,60+i,'blocker',false,-1);
+        drawPlayer(ctx,qx-camera,PLAYER_GROUND,DEFENSE_RED,12,'quarterback',false,-1);
+        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier',false,-1);
+        for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,PLAYER_GROUND-12+i*12,DEFENSE_RED,8+i*3,'receiver',false,-1);
         for(let i=0;i<7;i++)drawPlayer(ctx,line-65-(i%3)*55-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,PLAYER_BLUE,20+i,'defender');
         drawBall(ctx,qx-camera,PLAYER_GROUND-16);
         ctx.fillStyle='rgba(255,255,255,.82)';ctx.font='bold 11px monospace';ctx.fillText('VISITOR OFFENSE · '+selectedDefense.toUpperCase(),24,84);
@@ -430,7 +426,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           ctx.setLineDash([]);
         }
         play.blockers.forEach(blocker=>drawPlayer(ctx,blocker.x-camera,blocker.y,PLAYER_BLUE,blocker.number,'blocker'));
-        play.defenders.forEach(defender=>drawPlayer(ctx,defender.x-camera,defender.y,DEFENSE_RED,defender.number,'defender'));
+        play.defenders.forEach(defender=>drawPlayer(ctx,defender.x-camera,defender.y,DEFENSE_RED,defender.number,'defender',false,-1));
         if(play.phase==='live'&&play.type!=='run'){
           play.receivers.forEach((r,i)=>drawPlayer(ctx,r.x-camera,r.y,PLAYER_BLUE,r.number,'receiver',i===play.target));
           drawPlayer(ctx,play.qb.x-camera,play.qb.y,PLAYER_BLUE,12,'quarterback');
@@ -442,7 +438,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         drawPlayer(ctx,startX-52-camera,PLAYER_GROUND,PLAYER_BLUE,12,'quarterback');
         drawPlayer(ctx,startX-14-camera,PLAYER_GROUND,PLAYER_BLUE,22,'carrier',true);
         for(let i=0;i<5;i++)drawPlayer(ctx,startX+5-camera,PLAYER_GROUND-25+i*12,PLAYER_BLUE,60+i,'blocker');
-        for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,DEFENSE_RED,20+i,'defender');
+        for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,DEFENSE_RED,20+i,'defender',false,-1);
       }
       // Match scoreboard embedded on the field.
       ctx.fillStyle='rgba(6,18,28,.82)';roundedRect(ctx,16,14,968,42,10);ctx.fill();
