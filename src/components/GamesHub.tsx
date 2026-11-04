@@ -3,11 +3,10 @@ import { ArrowLeft, ArrowRight, AudioLines, Crown, Gamepad2, Headphones, Music2,
 import { Song } from '../types';
 import { GuessTrackGame } from './GuessTrackGame';
 import { RhythmGame } from './RhythmGame';
-import { RetroBowlGame } from './RetroBowlGame';
 import { NeonDashGame } from './NeonDashGame';
-import { LaneHopperGame } from './LaneHopperGame';
+import { ExternalGameEmbed } from './ExternalGameEmbed';
 
-type SelectedGame = 'menu' | 'guess' | 'rhythm' | 'gridiron' | 'dash' | 'crossing';
+type SelectedGame = 'menu' | 'guess' | 'rhythm' | 'retro' | 'dash' | 'crossy';
 type Props = {
   isAdmin: boolean;
   songs: Song[];
@@ -141,14 +140,14 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
   const returnToMenu = () => setSelectedGame('menu');
   if (selectedGame === 'guess') return <div className="space-y-4">{backButton(returnToMenu)}<GuessTrackGame/></div>;
   if (selectedGame === 'rhythm') return <div className="space-y-4">{backButton(returnToMenu)}<RhythmGame/></div>;
-  if (selectedGame === 'gridiron') return <RetroBowlGame onBack={returnToMenu}/>;
+  if (selectedGame === 'retro') return <ExternalGameEmbed title="Retro Bowl" url="https://poki.com/en/g/retro-bowl" controls="Drag to aim and release to throw. Use W/S to dodge and A to dive." onBack={returnToMenu}/>;
   if (selectedGame === 'dash') return <NeonDashGame onBack={returnToMenu}/>;
-  if (selectedGame === 'crossing') return <LaneHopperGame onBack={returnToMenu}/>;
+  if (selectedGame === 'crossy') return <ExternalGameEmbed title="Crossy Road" url="https://poki.com/en/g/crossy-road" controls="Use arrow keys or WASD to move. On touchscreens, tap or swipe to hop." onBack={returnToMenu}/>;
 
   const cards = [
-    { id:'gridiron' as const, title:'Retro Bowl', subtitle:'GRIDIRON DYNASTY', genre:'FRANCHISE FOOTBALL', desc:'Build your team, upgrade your offense and defense, call run and pass plays, and drive the field for a championship season.', color:'amber', keys:'MANAGER + ON-FIELD PLAY', icon:<Trophy className="h-6 w-6"/> },
+    { id:'retro' as const, title:'Retro Bowl', subtitle:'HOSTED ON POKI', genre:'FOOTBALL · NEW STAR GAMES', desc:'Play the established browser version of Retro Bowl, including its original team management and on-field gameplay.', color:'amber', keys:'EXTERNAL HOSTED GAME', icon:<Trophy className="h-6 w-6"/> },
     { id:'dash' as const, title:'Geometry Dash', subtitle:'NEON DASH', genre:'PRECISION PLATFORMER', desc:'A fast one-button platform challenge. Jump spikes, clear blocks, use aerial boosts, and master three escalating stages.', color:'fuchsia', keys:'TIMING + REACTION', icon:<Zap className="h-6 w-6"/> },
-    { id:'crossing' as const, title:'Crossy Road', subtitle:'LANE HOPPER', genre:'ENDLESS CROSSING', desc:'Hop through traffic, ride moving logs, dodge express trains, collect coins, and push your high score farther.', color:'lime', keys:'ARCADE SURVIVAL', icon:<ArrowRight className="h-6 w-6"/> },
+    { id:'crossy' as const, title:'Crossy Road', subtitle:'HOSTED ON POKI', genre:'ARCADE · HIPSTER WHALE', desc:'Play the established Crossy Road browser game with its original traffic-crossing gameplay.', color:'lime', keys:'EXTERNAL HOSTED GAME', icon:<ArrowRight className="h-6 w-6"/> },
     { id:'guess' as const, title:'Guess the Track', subtitle:'YOUSONG MUSIC QUIZ', genre:'MUSIC TRIVIA', desc:'Hear short clips from approved YouSong tracks, identify the song, and compete for the highest score.', color:'silver', keys:'10 ROUNDS · LEADERBOARD', icon:<Headphones className="h-6 w-6"/> },
     { id:'rhythm' as const, title:'Rhythm Battle', subtitle:'FOUR-LANE RHYTHM', genre:'MUSIC ACTION', desc:'Play falling-note charts synced to the detected beat of Game Approved songs. Choose Easy, Normal, or Hard.', color:'gold', keys:'BPM-SYNCED GAMEPLAY', icon:<AudioLines className="h-6 w-6"/> },
   ];
@@ -168,7 +167,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
         <div className="relative max-w-2xl">
           <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/30 bg-gradient-to-r from-amber-300/15 to-slate-100/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.2em] text-amber-100"><Crown className="h-3.5 w-3.5"/> VIP ARCADE <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[8px] text-slate-950">BETA</span></div>
           <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">The VIP <span className="bg-gradient-to-r from-amber-200 via-white to-slate-300 bg-clip-text text-transparent">Arcade.</span></h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">A growing collection of original YouSong arcade games. Access is reserved for accounts with VIP Games access.</p>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">A curated mix of hosted browser games and original YouSong music challenges. Access is reserved for accounts with VIP Games access.</p>
           <div className="mt-5 flex flex-wrap gap-2"><span className="rounded-lg border border-amber-200/20 bg-amber-100/10 px-3 py-2 text-[10px] font-bold text-amber-100">5 PLAYABLE GAMES</span><span className="rounded-lg border border-slate-200/20 bg-slate-100/10 px-3 py-2 text-[10px] font-bold text-slate-200">EXCLUSIVE BUILD</span><span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">MORE GAMES IN DEVELOPMENT</span></div>
         </div>
         <div className="pointer-events-none absolute bottom-0 right-0 h-1 w-full bg-gradient-to-r from-transparent via-amber-200/70 to-slate-100/70"/>
@@ -204,7 +203,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
           <p className="text-[10px] leading-relaxed text-slate-500">Beat analysis runs one track at a time in your browser. Unusual timing may still need a manual BPM correction.</p>
         </div>
       </section>}
-      <p className="text-center text-[9px] text-slate-500">YouSong original arcade experiences · VIP Beta</p>
+      <p className="text-center text-[9px] text-slate-500">YouSong VIP Arcade · Hosted browser games + original music challenges · Beta</p>
     </div>
   );
 };
