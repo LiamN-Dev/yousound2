@@ -10,9 +10,19 @@ function getPlayableGameAudioUrl(rawUrl: string): string {
   const value = String(rawUrl || '').trim();
   if (!value) return value;
 
-  const localProxy = value.match(/^\\/api\\/media\\/drive-stream\\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
-  if (localProxy) return `/api/drive/stream/${encodeURIComponent(localProxy[1])}`;
-  if (/^\\/api\\/drive\\/stream\\/[a-zA-Z0-9_-]{10,200}(?:[?#].*)?$/.test(value)) return value;
+  const localPrefix = '/api/media/drive-stream/';
+  if (value.startsWith(localPrefix)) {
+    const fileId = value.slice(localPrefix.length).split(/[?#]/, 1)[0];
+    if (/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) {
+      return '/api/drive/stream/' + encodeURIComponent(fileId);
+    }
+  }
+
+  const streamPrefix = '/api/drive/stream/';
+  if (value.startsWith(streamPrefix)) {
+    const fileId = value.slice(streamPrefix.length).split(/[?#]/, 1)[0];
+    if (/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return value;
+  }
 
   try {
     const url = new URL(value);
@@ -21,7 +31,7 @@ function getPlayableGameAudioUrl(rawUrl: string): string {
     const dIndex = segments.indexOf('d');
     const fileId = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
     if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return value;
-    return `/api/drive/stream/${encodeURIComponent(fileId)}`;
+    return '/api/drive/stream/' + encodeURIComponent(fileId);
   } catch {
     return value;
   }
