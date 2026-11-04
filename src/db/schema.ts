@@ -22,6 +22,7 @@ export const users = pgTable('users', {
   isLocked: boolean('is_locked').notNull().default(false),
   sessionVersion: integer('session_version').notNull().default(0),
   christmasMode: boolean('christmas_mode').notNull().default(false),
+  gamesEnabled: boolean('games_enabled').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -227,6 +228,20 @@ export const radioChatBans = pgTable('radio_chat_bans', {
   bannedBy: text('banned_by').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const songGuessSessions = pgTable('song_guess_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  username: text('username').notNull(),
+  rounds: jsonb('rounds').notNull(),
+  currentRound: integer('current_round').notNull().default(0),
+  roundAttempts: integer('round_attempts').notNull().default(0),
+  roundSolved: boolean('round_solved').notNull().default(false),
+  score: integer('score').notNull().default(0),
+  completed: boolean('completed').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  completedAt: timestamp('completed_at'),
 });
 
 export const chatPairingBlocks = pgTable('chat_pairing_blocks', {
