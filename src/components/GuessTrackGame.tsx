@@ -200,7 +200,7 @@ export const GuessTrackGame: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
-              <span className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2">10 rounds per game</span>
+              <span className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2">Up to 10 rounds per game</span>
               <span className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2">4 YouSong choices</span>
               <span className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2">Up to 1,000 points per round</span>
             </div>
