@@ -88,7 +88,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const [dropMessage, setDropMessage] = useState('');
   const [isChristmasEdition, setIsChristmasEdition] = useState(false);
   const [gameApproved, setGameApproved] = useState(false);
-  const [gameBpm, setGameBpm] = useState(120);
+  const [gameBpm, setGameBpm] = useState('120');
 
   // Plays, Listen reset & Scheduled for deletion state
   const [plays, setPlays] = useState<number>(0);
@@ -144,7 +144,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       setDropMessage(song.dropMessage || '');
       setIsChristmasEdition(!!song.isChristmasEdition);
       setGameApproved(!!song.gameApproved);
-      setGameBpm(Math.min(240, Math.max(60, Number(song.gameBpm) || 120)));
+      setGameBpm(String(Math.min(240, Math.max(60, Number(song.gameBpm) || 120))));
 
       setIsSpotlight(!!song.isSpotlight);
       setSpotlightOrder(song.spotlightOrder ?? 0);
@@ -254,6 +254,10 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
     }
     if (song.mediaCode && !nextMediaCode) {
       setFeedback('This song already has a Media ID. Enter another three-digit number instead of removing it.');
+      return;
+    }
+    if (gameApproved && (!/^\d{2,3}$/.test(gameBpm.trim()) || Number(gameBpm) < 60 || Number(gameBpm) > 240)) {
+      setFeedback('Rhythm Game BPM must be a whole number between 60 and 240.');
       return;
     }
 
@@ -1025,7 +1029,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                     max="240"
                     step="1"
                     value={gameBpm}
-                    onChange={(e) => setGameBpm(Math.min(240, Math.max(60, Number(e.target.value) || 120)))}
+                    onChange={(e) => setGameBpm(e.target.value)}
                     className="w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono text-slate-900 focus:border-violet-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
                   />
                   <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Set the track&apos;s tempo for note timing. Use 120 BPM when you do not know the tempo.</p>
