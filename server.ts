@@ -160,16 +160,24 @@ app.set('trust proxy', 1);
 // Do not expose the Express framework signature in HTTP responses.
 app.disable('x-powered-by');
 // ----------------- EMERGENCY DEPLOYMENT SHUTDOWN -----------------
-// The shutdown flag lives in PostgreSQL/Supabase, not in Render's temporary
-// filesystem or process memory. A new Render commit is required to clear it.
+// The shutdown flag lives in PostgreSQL/Supabase. Recovery is controlled by
+// changing EMERGENCY_RECOVERY.txt in GitHub and deploying that new commit.
 type EmergencyShutdownRecord = {
   enabled: boolean;
   activatedServiceId: string;
   activatedCommit: string;
+  recoveryFileHash?: string;
   activatedAt: string;
   activatedBy: string;
 };
 const EMERGENCY_SHUTDOWN_SETTING = 'emergency_shutdown';
+const EMERGENCY_RECOVERY_FILE = path.resolve(process.cwd(), 'EMERGENCY_RECOVERY.txt');
+
+function getEmergencyRecoveryFileHash(): string {
+  const contents = fs.readFileSync(EMERGENCY_RECOVERY_FILE, 'utf8');
+  return createHash('sha256').update(contents).digest('hex');
+}
+
 let emergencyShutdownCache: { checkedAt: number; record: EmergencyShutdownRecord | null } = {
   checkedAt: 0,
   record: null,
@@ -197,17 +205,26 @@ async function getEmergencyShutdownRecord(): Promise<EmergencyShutdownRecord | n
     return null;
   }
 
-  if (saved?.enabled && saved.activatedCommit && saved.activatedCommit !== deployedCommit) {
-    // A different code commit has been deployed. That is the only recovery path.
-    await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, {
-      enabled: false,
-      clearedAt: new Date().toISOString(),
-      clearedByCommit: deployedCommit,
-      previousShutdownCommit: saved.activatedCommit,
-    });
-    emergencyShutdownCache = { checkedAt: now, record: null };
-    console.warn('[Emergency Shutdown] Cleared after a new Render commit was deployed.');
-    return null;
+  if (saved?.enabled) {
+    // New-style shutdowns clear only when the dedicated recovery file changes.
+    // This prevents an ordinary restart or unrelated code deployment from reopening the site.
+    // Older records are supported once: they retain the previous new-commit recovery behavior.
+    const recoveryFileChanged = saved.recoveryFileHash
+      ? getEmergencyRecoveryFileHash() !== saved.recoveryFileHash
+      : Boolean(saved.activatedCommit && saved.activatedCommit !== deployedCommit);
+
+    if (recoveryFileChanged) {
+      await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, {
+        enabled: false,
+        clearedAt: new Date().toISOString(),
+        clearedByCommit: deployedCommit,
+        previousShutdownCommit: saved.activatedCommit,
+        recoveryMethod: saved.recoveryFileHash ? 'recovery-file-change' : 'legacy-new-commit',
+      });
+      emergencyShutdownCache = { checkedAt: now, record: null };
+      console.warn('[Emergency Shutdown] Cleared after the recovery file changed and a new commit was deployed.');
+      return null;
+    }
   }
 
   const active = saved?.enabled ? saved : null;
@@ -4202,10 +4219,12 @@ app.post('/api/admin/emergency-shutdown', async (req: Request, res: Response) =>
       return res.status(503).json({ success: false, error: 'Render deployment identity is unavailable. Shutdown was not activated.' });
     }
 
+    const recoveryFileHash = getEmergencyRecoveryFileHash();
     const record: EmergencyShutdownRecord = {
       enabled: true,
       activatedServiceId: deployedServiceId || 'local-development',
       activatedCommit: deployedCommit || 'local-development',
+      recoveryFileHash,
       activatedAt: new Date().toISOString(),
       activatedBy: String(getAuthUser(req)?.username || 'admin').slice(0, 80),
     };
@@ -4215,7 +4234,7 @@ app.post('/api/admin/emergency-shutdown', async (req: Request, res: Response) =>
     console.error(`[Emergency Shutdown] Activated by ${record.activatedBy} on commit ${record.activatedCommit}.`);
     return res.json({
       success: true,
-      message: 'Emergency shutdown activated. YouSong is now offline. A new Render deployment with a different commit is required to restore access.',
+      message: 'Emergency shutdown activated. The site is offline. To restore it, change EMERGENCY_RECOVERY.txt in GitHub and deploy that new commit.',
     });
   } catch (error: any) {
     console.error('[Emergency Shutdown] Activation failed:', error);
