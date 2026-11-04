@@ -415,7 +415,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         // Visitor offense lines up facing left; our defenders line up across from them.
         for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,PLAYER_GROUND-25+i*12,DEFENSE_RED,60+i,'blocker',false,-1);
         drawPlayer(ctx,qx-camera,PLAYER_GROUND,DEFENSE_RED,12,'quarterback',false,-1,false,true);
-        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier',false,-1,true,true);
+        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier',false,-1,true,false);
         for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,PLAYER_GROUND-12+i*12,DEFENSE_RED,8+i*3,'receiver',false,-1);
         for(let i=0;i<7;i++)drawPlayer(ctx,line-65-(i%3)*55-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,PLAYER_BLUE,20+i,'defender');
         drawBall(ctx,qx-camera,PLAYER_GROUND-16);
@@ -438,7 +438,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         if(play.ball)drawBall(ctx,play.ball.x-camera,play.ball.y);
       }else{
         drawPlayer(ctx,startX-52-camera,PLAYER_GROUND,PLAYER_BLUE,12,'quarterback',false,1,false,true);
-        drawPlayer(ctx,startX-14-camera,PLAYER_GROUND,PLAYER_BLUE,22,'carrier',true,1,true,true);
+        drawPlayer(ctx,startX-14-camera,PLAYER_GROUND,PLAYER_BLUE,22,'carrier',true,1,true,false);
         for(let i=0;i<5;i++)drawPlayer(ctx,startX+5-camera,PLAYER_GROUND-25+i*12,PLAYER_BLUE,60+i,'blocker');
         for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,DEFENSE_RED,20+i,'defender',false,-1);
       }
