@@ -7,7 +7,7 @@ type MatchPhase = 'ready' | 'live' | 'ball' | 'catch' | 'result';
 type Defender = { x:number; y:number; speed:number; number:number; blocked:number; };
 type Blocker = { x:number; y:number; number:number; target:number; };
 type Receiver = { x:number; y:number; number:number; route:number; speed:number; };
-type Carrier = { x:number; y:number; vx:number; vy:number; number:number; grounded:boolean; };
+type Carrier = { x:number; y:number; vx:number; vy:number; number:number; grounded:boolean; duckTimer:number; };
 type BallFlight = { x:number; y:number; fromX:number; fromY:number; toX:number; toY:number; progress:number; receiver:number; };
 type LivePlay = {
   phase:MatchPhase; type:PlayType; startX:number; startY:number; qb:{x:number;y:number}; carrier:Carrier;
@@ -214,7 +214,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     ];
     const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:clamp(PLAYER_GROUND-22+Math.floor(i*1.1)*8+rand()*5,PLAYER_GROUND-28,PLAYER_GROUND+22),speed:80+rand()*34+franchise.defense*5+(roster.find(player=>player.id==='lb')?.rating||3)*2,number:20+i,blocked:0}));
     const blockers:Blocker[]=Array.from({length:5},(_,i)=>({x:startX-2+(i%2)*6,y:PLAYER_GROUND-25+i*12,number:60+i,target:i%defenders.length}));
-    const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:PLAYER_GROUND,vx:0,vy:0,number:type==='screen'?24:22,grounded:true};
+    const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:PLAYER_GROUND,vx:0,vy:0,number:type==='screen'?24:22,grounded:true,duckTimer:0};
     const play:LivePlay={phase:'live',type,startX,startY:PLAYER_GROUND,qb:{x:startX-48,y:PLAYER_GROUND},carrier,receivers,defenders,blockers,ball:null,target:targetReceiver-1,ballThrown:false,turnover:false,message:type==='run'?'RUN · Follow your blockers and find the gap.':type==='screen'?'SCREEN · Hit the running back behind the line, then turn upfield.':'PASS · Select a receiver (1–3), then throw with SPACE.',elapsed:0};
     playRef.current=play;setPhase('live');setPlayPhaseState('live');setMessage(play.message);setLastPlay('');setShowPlaybook(false);
   },[possession,gameOver,paused,ballYard,franchise,down,homeScore,targetReceiver]);
@@ -338,12 +338,14 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           if(keysRef.current.arrowleft||keysRef.current.a)carrier.vx-=accel;
           if(keysRef.current.arrowright||keysRef.current.d)carrier.vx+=accel;
           if((keysRef.current.arrowup||keysRef.current.w)&&carrier.grounded){carrier.vy=-575;carrier.grounded=false;}
+          if((keysRef.current.arrowdown||keysRef.current.s)&&carrier.grounded)carrier.duckTimer=.28;
+          carrier.duckTimer=Math.max(0,carrier.duckTimer-dt);
           const sprint=!!keysRef.current.shift;
           const max=sprint?235+franchise.speed*14+getRating('rb')*9:155+franchise.speed*12+getRating('rb')*7;
           carrier.vx=clamp(carrier.vx,-110,max);carrier.vx*=Math.pow(.88,dt*60);
           carrier.x=clamp(carrier.x+(82+carrier.vx)*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
           if(!carrier.grounded){carrier.vy+=1580*dt;carrier.y+=carrier.vy*dt;if(carrier.y>=PLAYER_GROUND){carrier.y=PLAYER_GROUND;carrier.vy=0;carrier.grounded=true;}}
-          else carrier.y=PLAYER_GROUND;
+          else carrier.y=PLAYER_GROUND+(carrier.duckTimer>0?8:0);
         }
         if((play.phase==='live'||play.phase==='ball')&&play.type!=='run'){
           play.receivers.forEach((receiver,index)=>{
@@ -392,7 +394,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
             }else if(Math.random()>catchChance){
               finishPlay(0,'INCOMPLETE · THE PASS FELL INCOMPLETE.');
             }else{
-              play.carrier={x:receiver.x,y:PLAYER_GROUND,vx:0,vy:0,number:receiver.number,grounded:true};play.phase='catch';setPhase('catch');setMessage('CATCH! NOW TURN UPFIELD · WASD / ARROWS TO RUN.');
+              play.carrier={x:receiver.x,y:PLAYER_GROUND,vx:0,vy:0,number:receiver.number,grounded:true,duckTimer:0};play.phase='catch';setPhase('catch');setMessage('CATCH! NOW TURN UPFIELD · WASD / ARROWS TO RUN.');
               setPlayStats(s=>({...s,completions:s.completions+1}));
             }
           }
@@ -458,7 +460,10 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
 
   const tapMove=(dx:number,dy:number)=>{
     const play=playRef.current;if(!play||!['live','catch'].includes(play.phase))return;
-    const carrier=play.carrier;carrier.vx+=dx*90;carrier.vy+=dy*90;
+    const carrier=play.carrier;
+    if(dx)carrier.vx+=dx*110;
+    if(dy<0&&carrier.grounded){carrier.vy=-575;carrier.grounded=false;}
+    if(dy>0&&carrier.grounded)carrier.duckTimer=.28;
   };
   const defensivePanel=possession==='away';
   const canPickPlay=!gameOver&&!paused&&!defensivePanel&&(!playRef.current||!['live','ball','catch'].includes(playRef.current.phase));
@@ -507,7 +512,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
               </div>)}
             </div>
           </section>
-          <div className="rounded-2xl border border-white/10 bg-[#101a29] p-4 text-[10px] leading-5 text-slate-400">MATCH CONTROLS: WASD / ARROWS to move after the snap. Select a receiver with 1, 2, or 3, then SPACE to throw. SHIFT to sprint. Use defensive calls when the visitors have the ball.</div>
+          <div className="rounded-2xl border border-white/10 bg-[#101a29] p-4 text-[10px] leading-5 text-slate-400">MATCH CONTROLS: LEFT/RIGHT steer. UP jumps over tackles. DOWN ducks. Select a receiver with 1, 2, or 3, then SPACE to throw. SHIFT to sprint. Use defensive calls when the visitors have the ball.</div>
         </div>
       )}
       {view==='match'&&(
@@ -528,7 +533,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><button disabled={!canPickPlay} onClick={()=>beginPlay('run')} className="rounded-xl border border-amber-200/25 bg-amber-300/15 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-amber-100">POWER RUN</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Follow blocks. Cut through a gap.</p></button><button disabled={!canPickPlay} onClick={()=>beginPlay('pass')} className="rounded-xl border border-cyan-200/25 bg-cyan-300/10 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-cyan-100">SHORT PASS</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Quick routes. Catch and run.</p></button><button disabled={!canPickPlay} onClick={()=>beginPlay('deep')} className="rounded-xl border border-fuchsia-200/25 bg-fuchsia-300/10 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-fuchsia-100">DEEP PASS</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Long throw. Higher risk, more yards.</p></button><button disabled={!canPickPlay} onClick={()=>beginPlay('screen')} className="rounded-xl border border-emerald-200/25 bg-emerald-300/10 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-emerald-100">SCREEN</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Quick toss to the running back.</p></button></div>
                   <div className="mt-3 flex flex-wrap gap-2">{[1,2,3].map(n=><button key={n} onClick={()=>{setTargetReceiver(n);if(playRef.current)playRef.current.target=n-1;}} className={'rounded-lg border px-3 py-2 text-[10px] font-black '+(targetReceiver===n?'border-amber-200/50 bg-amber-200/15 text-amber-100':'border-white/10 bg-white/5 text-slate-400')}>TARGET {n}</button>)}<button disabled={phaseRef.current!=='live'||playRef.current?.type==='run'} onClick={throwPass} className="rounded-lg bg-cyan-300 px-4 py-2 text-[10px] font-black text-slate-950 disabled:opacity-30">THROW · SPACE</button><button disabled={ballYard<57||!canPickPlay} onClick={kickFieldGoal} className="rounded-lg border border-amber-200/25 px-3 py-2 text-[10px] font-black text-amber-100 disabled:opacity-30">FIELD GOAL</button><button disabled={!canPickPlay} onClick={punt} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] font-black text-slate-300 disabled:opacity-30">PUNT</button></div>
                 </div>
-                <aside className="rounded-2xl border border-white/10 bg-[#101b2a] p-3"><div className="text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Ball carrier controls</div><div className="mt-3 grid grid-cols-3 gap-1"><span/><button onClick={()=>tapMove(0,-1)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowUp className="mx-auto h-4 w-4"/></button><span/><button onClick={()=>tapMove(-1,0)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowLeft className="mx-auto h-4 w-4"/></button><button onClick={()=>tapMove(0,1)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowDown className="mx-auto h-4 w-4"/></button><button onClick={()=>tapMove(1,0)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowRight className="mx-auto h-4 w-4"/></button></div><p className="mt-3 text-[9px] leading-4 text-slate-500">WASD / arrows move the runner. Hold SHIFT to sprint. Pick a receiver, then throw before the rush gets home.</p></aside>
+                <aside className="rounded-2xl border border-white/10 bg-[#101b2a] p-3"><div className="text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Ball carrier controls</div><div className="mt-3 grid grid-cols-3 gap-1"><span/><button onClick={()=>tapMove(0,-1)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowUp className="mx-auto h-4 w-4"/></button><span/><button onClick={()=>tapMove(-1,0)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowLeft className="mx-auto h-4 w-4"/></button><button onClick={()=>tapMove(0,1)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowDown className="mx-auto h-4 w-4"/></button><button onClick={()=>tapMove(1,0)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowRight className="mx-auto h-4 w-4"/></button></div><p className="mt-3 text-[9px] leading-4 text-slate-500">LEFT/RIGHT steer, UP jumps, DOWN ducks. Hold SHIFT to sprint. Pick a receiver, then throw before the rush gets home.</p></aside>
               </div>
             )}
             {possession==='away'&&!gameOver&&(
