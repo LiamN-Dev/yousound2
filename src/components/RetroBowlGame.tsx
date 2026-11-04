@@ -15,7 +15,7 @@ type LivePlay = {
   target:number; ballThrown:boolean; turnover:boolean; message:string; elapsed:number;
 };
 
-const W=1000,H=540, FIELD_TOP=62, FIELD_BOTTOM=478, GOAL_LEFT=80, GOAL_RIGHT=920, YARD_PX=(GOAL_RIGHT-GOAL_LEFT)/100;
+const W=1000,H=540, FIELD_TOP=292, FIELD_BOTTOM=482, PLAYER_GROUND=FIELD_BOTTOM-49, GOAL_LEFT=80, GOAL_RIGHT=920, YARD_PX=(GOAL_RIGHT-GOAL_LEFT)/100;
 const SAVE_KEY='ys-gridiron-dynasty-v3';
 const FIELD_GREEN=['#397b4c','#347447'];
 const PLAYER_BLUE='#3185da';
@@ -88,7 +88,18 @@ function drawBall(ctx:CanvasRenderingContext2D,x:number,y:number){
 }
 function drawField(ctx:CanvasRenderingContext2D,camera:number,ballYard:number,yardsToGo:number,direction:1|-1=1){
   ctx.clearRect(0,0,W,H);
-  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#153e2e');bg.addColorStop(1,'#0d3025');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#17263e');bg.addColorStop(.48,'#23364b');bg.addColorStop(1,'#0d3025');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  // Stadium bowl, crowd blocks, fascia and sideline light show.
+  ctx.fillStyle='#101a2d';ctx.fillRect(0,58,W,FIELD_TOP-58);
+  for(let row=0;row<6;row++){
+    const seatY=77+row*31;ctx.fillStyle=row%2?'#27384b':'#1e3044';ctx.fillRect(0,seatY,W,25);
+    for(let seat=0;seat<104;seat++){
+      const seatX=seat*10+((row%2)*4);const colors=['#d6d9d9','#e0a65f','#8dc7d5','#a8a4d7','#c87572','#88b88b'];
+      ctx.fillStyle=colors[(seat*7+row*11)%colors.length];ctx.fillRect(seatX,seatY+5+(seat%3),4,8);ctx.fillStyle='rgba(255,255,255,.18)';ctx.fillRect(seatX,seatY+4+(seat%3),4,2);
+    }
+  }
+  const ribbon=ctx.createLinearGradient(0,0,W,0);ribbon.addColorStop(0,'#1c4b72');ribbon.addColorStop(.5,'#9b7331');ribbon.addColorStop(1,'#64384a');ctx.fillStyle=ribbon;ctx.fillRect(0,257,W,17);
+  ctx.fillStyle='rgba(255,255,255,.85)';ctx.font='900 10px monospace';ctx.textAlign='center';ctx.fillText('YOUSONG FOOTBALL LEAGUE  ·  FRIDAY NIGHT LIGHTS',W/2,269);ctx.textAlign='left';
   // Sidelines and end zones.
   ctx.fillStyle='#b58a52';ctx.fillRect(GOAL_LEFT-camera,FIELD_TOP-22,GOAL_RIGHT-GOAL_LEFT,FIELD_BOTTOM-FIELD_TOP+44);
   ctx.fillStyle='#173e7b';ctx.fillRect(GOAL_LEFT-camera-80,FIELD_TOP-22,80,FIELD_BOTTOM-FIELD_TOP+44);
@@ -96,6 +107,10 @@ function drawField(ctx:CanvasRenderingContext2D,camera:number,ballYard:number,ya
   ctx.save();ctx.translate(GOAL_LEFT-camera-40,(FIELD_TOP+FIELD_BOTTOM)/2);ctx.rotate(-Math.PI/2);ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='900 20px system-ui';ctx.textAlign='center';ctx.fillText('YOUSONG',0,6);ctx.restore();
   ctx.save();ctx.translate(GOAL_RIGHT-camera+40,(FIELD_TOP+FIELD_BOTTOM)/2);ctx.rotate(Math.PI/2);ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='900 18px system-ui';ctx.textAlign='center';ctx.fillText('GRIDIRON',0,6);ctx.restore();
   ctx.fillStyle='#2f7846';ctx.fillRect(GOAL_LEFT-camera,FIELD_TOP,GOAL_RIGHT-GOAL_LEFT,FIELD_BOTTOM-FIELD_TOP);
+  ctx.fillStyle='rgba(255,255,255,.12)';ctx.fillRect(GOAL_LEFT-camera,FIELD_BOTTOM-18,GOAL_RIGHT-GOAL_LEFT,3);
+  // Goal uprights at both end zones.
+  ctx.fillStyle='#f0cf62';ctx.fillRect(GOAL_LEFT-camera-8,FIELD_TOP-76,5,78);ctx.fillRect(GOAL_LEFT-camera-8,FIELD_TOP-76,47,5);ctx.fillRect(GOAL_LEFT-camera+34,FIELD_TOP-76,5,78);
+  ctx.fillRect(GOAL_RIGHT-camera+3,FIELD_TOP-76,5,78);ctx.fillRect(GOAL_RIGHT-camera+3,FIELD_TOP-76,47,5);ctx.fillRect(GOAL_RIGHT-camera+45,FIELD_TOP-76,5,78);
   for(let i=0;i<10;i++){ctx.fillStyle=i%2?'rgba(255,255,255,.035)':'rgba(0,0,0,.035)';ctx.fillRect(GOAL_LEFT-camera+i*84,FIELD_TOP,84,FIELD_BOTTOM-FIELD_TOP);}
   ctx.strokeStyle='rgba(255,255,255,.72)';ctx.lineWidth=2;
   for(let y=0;y<=100;y+=5){
