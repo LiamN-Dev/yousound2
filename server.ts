@@ -1407,11 +1407,15 @@ async function getSongGameAccount(req: Request, res: Response) {
     return null;
   }
   const user = await getUserByUid(authUser.uid);
-  if (!user || !user.isApproved || user.isSuspended || user.isLocked) {
+  if (!user) {
     res.status(403).json({ success: false, error: 'This account is not allowed to play games.' });
     return null;
   }
   const isAdmin = user.role === 'admin';
+  if (!isAdmin && (!user.isApproved || user.isSuspended || user.isLocked)) {
+    res.status(403).json({ success: false, error: 'This account is not allowed to play games.' });
+    return null;
+  }
   if (!isAdmin && user.gamesEnabled !== true) {
     res.status(403).json({ success: false, error: 'An administrator has not enabled Games for this account.' });
     return null;
