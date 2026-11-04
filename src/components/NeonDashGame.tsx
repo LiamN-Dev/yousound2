@@ -43,7 +43,7 @@ function seeded(seed: number) {
   let value = seed >>> 0;
   return () => { value = (value * 1664525 + 1013904223) >>> 0; return value / 4294967296; };
 }
-function createSongLevel(song: Song, difficulty: Difficulty): { obstacles: Obstacle[]; speed: number; bpm: number; beatSeconds: number } {
+function createSongLevel(song: Song, difficulty: Difficulty, beatEnergy: number[] = []): { obstacles: Obstacle[]; speed: number; bpm: number; beatSeconds: number } {
   const mode = DIFFICULTIES.find(item => item.id === difficulty)!;
   const bpm = Math.max(60, Math.min(240, Number(song.gameBpm) || 120));
   const beatSeconds = 60 / bpm;
@@ -61,7 +61,10 @@ function createSongLevel(song: Song, difficulty: Difficulty): { obstacles: Obsta
   for (let beat = startBeat; beat < totalBeats; beat++) {
     const patternIndex = (beat - startBeat) % basePattern.length;
     let type = basePattern[patternIndex];
-    if (type === 'none' && mode.pattern > 0 && random() > (mode.pattern === 1 ? .82 : .58)) type = 'spike';
+    const energy = beatEnergy[beat] ?? (0.42 + random() * 0.38);
+    const dynamicThreshold = mode.pattern === 0 ? .66 : mode.pattern === 1 ? .48 : .32;
+    if (type === 'none' && energy > dynamicThreshold && random() > (mode.pattern === 0 ? .72 : .35)) type = energy > .82 ? 'double' : 'spike';
+    if (type !== 'none' && energy < (mode.pattern === 0 ? .18 : .1) && random() > .16) type = 'none';
     if (type === 'none') continue;
     const time = Math.max(0, Number(song.gameBeatOffsetMs) / 1000) + beat * beatSeconds;
     if (time >= song.duration - .25) continue;
@@ -74,6 +77,48 @@ function createSongLevel(song: Song, difficulty: Difficulty): { obstacles: Obsta
     }
   }
   return { obstacles, speed, bpm, beatSeconds };
+}
+async function analyzeSongRhythm(song: Song): Promise<number[]> {
+  const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextCtor) return [];
+  const response = await fetch(apiAudioUrl(song.audioUrl), { credentials: 'same-origin', cache: 'no-store' });
+  if (!response.ok) throw new Error('Could not read the track for rhythm mapping (' + response.status + ').');
+  const bytes = await response.arrayBuffer();
+  const context: AudioContext = new AudioContextCtor();
+  try {
+    const decoded = await context.decodeAudioData(bytes.slice(0));
+    const samples = decoded.getChannelData(0);
+    const hop = 512, windowSize = 1024;
+    const maxSamples = Math.min(samples.length, decoded.sampleRate * Math.min(180, song.duration));
+    const energy: number[] = [];
+    for (let start = 0; start + windowSize < maxSamples; start += hop) {
+      let sum = 0;
+      for (let i = start; i < start + windowSize; i += 4) sum += samples[i] * samples[i];
+      energy.push(Math.sqrt(sum / (windowSize / 4)));
+    }
+    const onset = energy.map((value, index) => index ? Math.max(0, value - energy[index - 1]) : 0);
+    const average = onset.reduce((sum, value) => sum + value, 0) / Math.max(1, onset.length);
+    for (let i = 0; i < onset.length; i++) onset[i] = Math.max(0, onset[i] - average * .55);
+    const framesPerSecond = decoded.sampleRate / hop;
+    const beatSeconds = 60 / clamp(Number(song.gameBpm) || 120, 60, 240);
+    const offsetSeconds = clamp(Number(song.gameBeatOffsetMs) || 0, 0, 2000) / 1000;
+    const beatCount = Math.ceil(Math.min(180, song.duration) / beatSeconds);
+    const raw: number[] = [];
+    for (let beat = 0; beat < beatCount; beat++) {
+      const frame = Math.round((offsetSeconds + beat * beatSeconds) * framesPerSecond);
+      let peak = 0;
+      for (let sample = Math.max(0, frame - 3); sample <= Math.min(onset.length - 1, frame + 3); sample++) peak = Math.max(peak, onset[sample] || 0);
+      // Include a half-beat accent so syncopated tracks generate syncopated hazards.
+      const offbeatFrame = Math.round((offsetSeconds + (beat + .5) * beatSeconds) * framesPerSecond);
+      for (let sample = Math.max(0, offbeatFrame - 2); sample <= Math.min(onset.length - 1, offbeatFrame + 2); sample++) peak = Math.max(peak, (onset[sample] || 0) * .72);
+      raw.push(peak);
+    }
+    const sorted = [...raw].sort((a, b) => a - b);
+    const scale = sorted[Math.floor(sorted.length * .88)] || Math.max(...raw, 1);
+    return raw.map(value => clamp(value / Math.max(scale, .00001), 0, 1));
+  } finally {
+    await context.close().catch(() => undefined);
+  }
 }
 function bestKey(songId: string, difficulty: Difficulty) { return BEST_PREFIX + ':' + songId + ':' + difficulty; }
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radius: number) {
@@ -184,6 +229,8 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [loadingSongs, setLoadingSongs] = useState(true);
   const [catalogueError, setCatalogueError] = useState('');
   const [gameError, setGameError] = useState('');
+  const [loadingMessage, setLoadingMessage] = useState('Preparing level…');
+  const rhythmCache = useRef<Record<string, number[]>>({});
   const [progress, setProgress] = useState(0);
   const [best, setBest] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
@@ -267,9 +314,15 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const startLevel = async () => {
     if (!selectedSong) return;
-    setGameError(''); setPhase('loading'); hitRef.current = false; setProgress(0); progressRef.current = 0;
+    setGameError(''); setLoadingMessage('Analyzing the song rhythm…'); setPhase('loading'); hitRef.current = false; setProgress(0); progressRef.current = 0;
     try {
-      const level = createSongLevel(selectedSong, difficulty);
+      let beatEnergy = rhythmCache.current[selectedSong.id];
+      if (!beatEnergy) {
+        try { beatEnergy = await analyzeSongRhythm(selectedSong); rhythmCache.current[selectedSong.id] = beatEnergy; }
+        catch (analysisError) { console.warn('[SongDash] Beat energy analysis fallback:', analysisError); beatEnergy = []; }
+      }
+      setLoadingMessage('Building a level from the beat map…');
+      const level = createSongLevel(selectedSong, difficulty, beatEnergy);
       if (level.obstacles.length < 4) throw new Error('This track is too short to make a complete level. Choose a longer song.');
       stopAudio();
       const audio = new Audio(apiAudioUrl(selectedSong.audioUrl));
@@ -365,7 +418,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <div className="border-t border-white/10 bg-black/20 p-4 sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-black text-white">Choose a YouSong level</div><p className="mt-1 text-[10px] text-slate-400">Only Game Approved tracks appear here. Each song generates a different beat-mapped obstacle course.</p></div><span className="rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-[10px] font-bold text-cyan-100">{songs.length} approved tracks</span></div>
             <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search approved songs…" className="w-full rounded-xl border border-white/10 bg-[#0b1228] py-2.5 pl-9 pr-3 text-xs text-white outline-none focus:border-cyan-300/50"/></div>
-            {loadingSongs ? <div className="p-7 text-center text-xs text-slate-400">Loading approved songs…</div> : !filteredSongs.length ? <div className="p-7 text-center text-xs text-slate-400">{catalogueError || 'No Game Approved songs are available yet. Ask an admin to approve songs in Games.'}</div> : <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">{filteredSongs.map(song=><button key={song.id} type="button" onClick={()=>setSelectedSongId(song.id)} className={'flex items-center gap-3 rounded-2xl border p-3 text-left transition '+(selectedSongId===song.id?'border-cyan-300/60 bg-cyan-300/10':'border-white/10 bg-white/[.025] hover:bg-white/[.06]')}><div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-800">{song.coverUrl&&<img src={song.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy"/>}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-white">{song.title}</div><div className="truncate text-[10px] text-slate-400">{song.artist}</div><div className="mt-1 flex gap-2 text-[9px] font-bold text-cyan-200"><span>{song.gameBpm} BPM</span><span>·</span><span>{Math.round(song.duration)} SEC</span></div></div>{selectedSongId===song.id&&<CheckCircle2 className="h-4 w-4 shrink-0 text-cyan-300"/>}</button>)}</div>}
+            {phase==='loading' ? <div className="p-7 text-center text-xs text-cyan-200">{loadingMessage}</div> : loadingSongs ? <div className="p-7 text-center text-xs text-slate-400">Loading approved songs…</div> : !filteredSongs.length ? <div className="p-7 text-center text-xs text-slate-400">{catalogueError || 'No Game Approved songs are available yet. Ask an admin to approve songs in Games.'}</div> : <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">{filteredSongs.map(song=><button key={song.id} type="button" onClick={()=>setSelectedSongId(song.id)} className={'flex items-center gap-3 rounded-2xl border p-3 text-left transition '+(selectedSongId===song.id?'border-cyan-300/60 bg-cyan-300/10':'border-white/10 bg-white/[.025] hover:bg-white/[.06]')}><div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-800">{song.coverUrl&&<img src={song.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy"/>}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-white">{song.title}</div><div className="truncate text-[10px] text-slate-400">{song.artist}</div><div className="mt-1 flex gap-2 text-[9px] font-bold text-cyan-200"><span>{song.gameBpm} BPM</span><span>·</span><span>{Math.round(song.duration)} SEC</span></div></div>{selectedSongId===song.id&&<CheckCircle2 className="h-4 w-4 shrink-0 text-cyan-300"/>}</button>)}</div>}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><div className="flex gap-1.5">{DIFFICULTIES.map(mode=><button key={mode.id} onClick={()=>setDifficulty(mode.id)} className={'rounded-lg px-3 py-2 text-[10px] font-black '+(difficulty===mode.id?'bg-cyan-300 text-slate-950':'bg-white/5 text-slate-400')}>{mode.label}</button>)}</div><button onClick={()=>void startLevel()} disabled={!selectedSong||phase==='loading'||loadingSongs} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-300 to-blue-400 px-5 py-3 text-xs font-black text-slate-950 disabled:opacity-40"><Play className="h-4 w-4"/> Build & play level</button></div>
             {gameError&&<p className="mt-3 text-xs font-semibold text-rose-300">{gameError}</p>}
           </div>
