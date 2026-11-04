@@ -29,7 +29,8 @@ function makeLane(row: number, now: number): Lane {
   const kindRoll = random01(row + 30);
   const kind: LaneKind = row <= 0 ? 'grass' : kindRoll < .23 ? 'grass' : kindRoll < .69 ? 'road' : kindRoll < .91 ? 'river' : 'rail';
   const direction = random01(row + 71) > .5 ? 1 : -1;
-  const speed = kind === 'road' ? 95 + random01(row + 8) * 115 : kind === 'river' ? 42 + random01(row + 11) * 38 : 0;
+  const progression = clamp(Math.max(0, row) / 90, 0, 1);
+  const speed = kind === 'road' ? (95 + random01(row + 8) * 115) * (1 + progression * .7) : kind === 'river' ? (42 + random01(row + 11) * 38) * (1 + progression * .42) : 0;
   const objects: MovingObject[] = [];
   if (kind === 'road' || kind === 'river') {
     const count = kind === 'road' ? (random01(row + 4) > .5 ? 3 : 4) : (random01(row + 6) > .5 ? 2 : 3);
@@ -46,7 +47,7 @@ function makeLane(row: number, now: number): Lane {
   }
   return {
     row, kind, direction, speed, objects,
-    nextTrainAt: now + 4200 + random01(row + 8) * 4200,
+    nextTrainAt: now + 4200 + random01(row + 8) * 4200 - progression * 1250,
     trainWarningAt: 0, trainX: direction > 0 ? -370 : BOARD_W + 370, trainActive: false,
   };
 }
@@ -321,7 +322,7 @@ export const LaneHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     return () => { alive = false; if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
   }, [endGame]);
 
-  const pointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => { pointerRef.current = { x: event.clientX, y: event.clientY }; };
+  const pointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => { event.currentTarget.setPointerCapture(event.pointerId); pointerRef.current = { x: event.clientX, y: event.clientY }; };
   const pointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const start = pointerRef.current; pointerRef.current = null;
     if (!start) return;
