@@ -1904,7 +1904,7 @@ app.post('/api/games/rhythm/finish', async (req: Request, res: Response) => {
       return res.status(409).json({ success: false, error: 'Finish listening to the track before submitting the score.' });
     }
 
-    const noteById = new Map(notes.map((note) => [String(note.id), note]));
+    const noteById = new Map<string, RhythmNote>(notes.map((note): [string, RhythmNote] => [String(note.id), note]));
     const accepted = new Map<string, number>();
     for (const raw of submittedHits) {
       const noteId = String(raw?.noteId || '');
