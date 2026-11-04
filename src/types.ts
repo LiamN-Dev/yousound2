@@ -23,6 +23,8 @@ export interface User {
   dailyListensToday?: number; // Admin-only usage displayed in the user table
   /** Enabled only by an administrator for this account. */
   christmasMode?: boolean;
+  /** Enabled only by an administrator for this account. */
+  gamesEnabled?: boolean;
 }
 
 export type SongBadgeType = 'none' | 'hot' | 'new' | 'top' | 'pinned' | 'admin-pick' | 'limited' | 'custom' | 'spotlight';
