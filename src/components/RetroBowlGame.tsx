@@ -279,7 +279,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           if(keysRef.current.arrowup||keysRef.current.w)carrier.vy-=accel;
           if(keysRef.current.arrowdown||keysRef.current.s)carrier.vy+=accel;
           const sprint=!!keysRef.current.shift;
-          const max=sprint?310:225;
+          const max=sprint?320+franchise.speed*18:220+franchise.speed*14;
           carrier.vx=clamp(carrier.vx,-95,max);carrier.vy=clamp(carrier.vy,-160,160);
           carrier.vx*=Math.pow(.86,dt*60);carrier.vy*=Math.pow(.84,dt*60);
           carrier.x=clamp(carrier.x+carrier.vx*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
@@ -300,7 +300,8 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           defender.x+=dx/len*defender.speed*dt;defender.y+=dy/len*defender.speed*dt;
           if(runPhase&&Math.hypot(defender.x-play.carrier.x,defender.y-play.carrier.y)<23){
             const gain=Math.round((play.carrier.x-play.startX)/YARD_PX);
-            finishPlay(gain,'TACKLED · '+gain+' YARDS');
+            const fumble=Math.random()<clamp(.035+(franchise.defense-franchise.speed)*.009,.015,.09);
+            finishPlay(gain,fumble?'FUMBLE · THE DEFENSE KNOCKED IT LOOSE':'TACKLED · '+gain+' YARDS',fumble);
           }
           if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'&&Math.hypot(defender.x-play.qb.x,defender.y-play.qb.y)<27){
             const gain=Math.round((play.qb.x-play.startX)/YARD_PX)-4;
@@ -311,7 +312,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           const defender=play.defenders[blocker.target];
           if(!defender)return;
           const dx=defender.x-blocker.x,dy=defender.y-blocker.y,len=Math.max(1,Math.hypot(dx,dy));
-          blocker.x+=dx/len*72*dt;blocker.y+=dy/len*72*dt;
+          blocker.x+=dx/len*(68+franchise.offense*5)*dt;blocker.y+=dy/len*(68+franchise.offense*5)*dt;
           if(Math.hypot(dx,dy)<35)defender.blocked=Math.max(defender.blocked,.22);
         });
         if(play.phase==='ball'&&play.ball){
@@ -324,8 +325,11 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
             const closest=play.defenders.reduce((best,d)=>Math.hypot(d.x-receiver.x,d.y-receiver.y)<Math.hypot(best.x-receiver.x,best.y-receiver.y)?d:best,play.defenders[0]);
             const pressure=closest?Math.hypot(closest.x-receiver.x,closest.y-receiver.y):200;
             const interception=pressure<27&&Math.random()<(.52+(3-franchise.offense)*.04);
+            const catchChance=clamp(.72+franchise.offense*.045-(play.type==='deep'?.13:0),.48,.96);
             if(interception){
               setPlayStats(s=>({...s,interceptions:s.interceptions+1}));finishPlay(0,'INTERCEPTION · THE DEFENSE READ THE ROUTE',true);
+            }else if(Math.random()>catchChance){
+              finishPlay(0,'INCOMPLETE · THE PASS FELL INCOMPLETE.');
             }else{
               play.carrier={x:receiver.x,y:receiver.y,vx:0,vy:0,number:receiver.number};play.phase='catch';setPhase('catch');setMessage('CATCH! NOW TURN UPFIELD · WASD / ARROWS TO RUN.');
               setPlayStats(s=>({...s,completions:s.completions+1}));
