@@ -1401,9 +1401,9 @@ export const AdminPanel: React.FC = () => {
                         <Gamepad2 className="h-4 w-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-xs font-bold text-white">Games access</span>
+                        <span className="block text-xs font-bold text-white">VIP Games access</span>
                         <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-300">
-                          Let this account open the Games tab and play the YouSong track-guessing game.
+                          Grant this account exclusive access to the VIP Arcade and its current and future games.
                         </span>
                       </span>
                     </div>
@@ -1412,8 +1412,8 @@ export const AdminPanel: React.FC = () => {
                       role="switch"
                       aria-checked={editGamesEnabled}
                       onClick={() => setEditGamesEnabled((value) => !value)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${editGamesEnabled ? 'bg-violet-500' : 'bg-slate-700'}`}
-                      aria-label="Enable games for this user"
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${editGamesEnabled ? 'bg-amber-300' : 'bg-slate-700'}`}
+                      aria-label="Enable VIP Games access for this user"
                     >
                       <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${editGamesEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
