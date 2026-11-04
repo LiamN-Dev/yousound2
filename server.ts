@@ -1480,6 +1480,9 @@ app.post('/api/games/guess-track/start', async (req: Request, res: Response) => 
     const playableSongs = (storedSongs as any[]).filter((song) => {
       const audioUrl = typeof song.audioUrl === 'string' ? song.audioUrl.trim() : '';
       const hiddenFrom = Array.isArray(song.hiddenFrom) ? song.hiddenFrom : [];
+      const hiddenForThisUser = hiddenFrom.includes('all')
+        || hiddenFrom.includes(account.uid)
+        || hiddenFrom.includes(account.username);
       return !!song.id
         && !!song.title
         && !!song.artist
@@ -1487,7 +1490,7 @@ app.post('/api/games/guess-track/start', async (req: Request, res: Response) => 
         && !audioUrl.startsWith('data:')
         && !song.isScheduledForDeletion
         && !song.isDroppingSoon
-        && (account.isAdmin || !hiddenFrom.includes(account.uid));
+        && (account.isAdmin || !hiddenForThisUser);
     });
 
     if (playableSongs.length < 4) {
