@@ -30,7 +30,7 @@ const DEFAULT_ROSTER = [
   { id:'ol', name:'Leo Grant', position:'OL', rating:3, number:66 },
   { id:'db', name:'Evan Reed', position:'DB', rating:3, number:24 },
   { id:'lb', name:'Marcus Fox', position:'LB', rating:3, number:55 },
-  { id:'db', name:'Evan Reed', position:'CB', rating:3, number:24 },
+  { id:'cb', name:'Rico Turner', position:'CB', rating:3, number:29 },
   { id:'k', name:'Owen Wells', position:'K', rating:3, number:5 },
 ];
 function normalizeRoster(roster: any) {
@@ -243,10 +243,10 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     if(possession!=='away'||gameOver||paused)return;
     setSelectedDefense(call);
     const rand=seededRandom(Date.now()+cpuYard*15+cpuDown*9+awayScore);
-    const base=5.8+rand()*8.5-franchise.defense*1.5-getRating('db')*.45-getRating('lb')*.35;
+    const base=5.8+rand()*8.5-franchise.defense*1.5-getRating('db')*.3-getRating('cb')*.3-getRating('lb')*.35;
     const modifier=call==='blitz'?1.7:call==='zone'?-1.1:0;
     const sackChance=call==='blitz'?.24:call==='man'?.12:.07;
-    const turnoverChance=(call==='blitz'?.11:call==='zone'?.14:.08)+getRating('db')*.012+getRating('lb')*.006;
+    const turnoverChance=(call==='blitz'?.11:call==='zone'?.14:.08)+getRating('db')*.008+getRating('cb')*.008+getRating('lb')*.006;
     const sack=rand()<sackChance;
     const turnover=!sack&&rand()<turnoverChance;
     const gain=sack?-Math.floor(2+rand()*5):turnover?0:Math.max(0,Math.round(base+modifier));
