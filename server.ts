@@ -1437,7 +1437,7 @@ app.get('/api/games/guess-track/leaderboard', async (req: Request, res: Response
       return res.status(503).json({ success: false, error: 'The persistent game database is unavailable.' });
     }
     const result = await createPool().query(
-      \`SELECT user_id,
+      `SELECT user_id,
               MAX(username) AS username,
               MAX(score)::int AS best_score,
               COUNT(*)::int AS games_played
@@ -1445,7 +1445,7 @@ app.get('/api/games/guess-track/leaderboard', async (req: Request, res: Response
         WHERE completed = true
         GROUP BY user_id
         ORDER BY MAX(score) DESC, COUNT(*) DESC, LOWER(MAX(username)) ASC
-        LIMIT 20\`
+        LIMIT 20`
     );
     res.setHeader('Cache-Control', 'no-store, private');
     return res.json({
@@ -1519,8 +1519,8 @@ app.post('/api/games/guess-track/start', async (req: Request, res: Response) => 
       [account.uid]
     );
     await createPool().query(
-      \`INSERT INTO song_guess_sessions (id, user_id, username, rounds)
-       VALUES ($1, $2, $3, $4::jsonb)\`,
+      `INSERT INTO song_guess_sessions (id, user_id, username, rounds)
+       VALUES ($1, $2, $3, $4::jsonb)`,
       [sessionId, account.uid, account.username, JSON.stringify(rounds)]
     );
 
@@ -1590,9 +1590,9 @@ app.post('/api/games/guess-track/guess', async (req: Request, res: Response) => 
     const nextScore = (Number(session.score) || 0) + points;
 
     await client.query(
-      \`UPDATE song_guess_sessions
+      `UPDATE song_guess_sessions
           SET round_attempts = $2, round_solved = $3, score = $4
-        WHERE id = $1\`,
+        WHERE id = $1`,
       [sessionId, nextAttempts, solved, nextScore]
     );
     await client.query('COMMIT');
@@ -1665,9 +1665,9 @@ app.post('/api/games/guess-track/next', async (req: Request, res: Response) => {
     }
 
     await client.query(
-      \`UPDATE song_guess_sessions
+      `UPDATE song_guess_sessions
           SET current_round = $2, round_attempts = 0, round_solved = false
-        WHERE id = $1\`,
+        WHERE id = $1`,
       [sessionId, nextIndex]
     );
     await client.query('COMMIT');
