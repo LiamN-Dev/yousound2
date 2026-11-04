@@ -449,7 +449,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
       ctx.fillStyle='rgba(6,18,28,.82)';roundedRect(ctx,16,14,968,42,10);ctx.fill();
       ctx.fillStyle='#f6d77f';ctx.font='900 12px system-ui';ctx.fillText(franchise.team,31,31);
       ctx.fillStyle='#fff';ctx.font='900 20px monospace';ctx.textAlign='center';ctx.fillText(homeScore+'  —  '+awayScore,W/2,43);
-      ctx.fillStyle='#f4b7b7';ctx.font='900 12px system-ui';ctx.textAlign='right';ctx.fillText('BAY CITY',968,31);ctx.textAlign='left';
+      ctx.fillStyle='#f4b7b7';ctx.font='900 12px system-ui';ctx.textAlign='right';ctx.fillText(opponentTeam,968,31);ctx.textAlign='left';
       ctx.fillStyle='rgba(6,18,28,.82)';roundedRect(ctx,16,H-47,310,33,8);ctx.fill();
       ctx.fillStyle='#fff';ctx.font='bold 12px monospace';ctx.fillText((possession==='home'?'OFFENSE':'DEFENSE')+' · Q'+quarter+' · '+Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0'),28,H-26);
       ctx.textAlign='right';ctx.fillStyle='#ffe16c';ctx.fillText(possession==='home'?down+' & '+yardsToGo:'VISITOR '+cpuDown+' & '+cpuToGo,W-22,H-26);ctx.textAlign='left';
@@ -457,7 +457,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     };
     rafRef.current=requestAnimationFrame(frame);
     return()=>{alive=false;if(rafRef.current!==null)cancelAnimationFrame(rafRef.current);};
-  },[view,ballYard,yardsToGo,down,possession,cpuYard,cpuDown,cpuToGo,clock,quarter,homeScore,awayScore,franchise.team,paused,gameOver,finishPlay,franchise.offense]);
+  },[view,ballYard,yardsToGo,down,possession,cpuYard,cpuDown,cpuToGo,clock,quarter,homeScore,awayScore,franchise.team,franchise.week,paused,gameOver,finishPlay,franchise.offense]);
 
   const tapMove=(dx:number,dy:number)=>{
     const play=playRef.current;if(!play||!['live','catch'].includes(play.phase))return;
@@ -469,6 +469,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
   const defensivePanel=possession==='away';
   const canPickPlay=!gameOver&&!paused&&!defensivePanel&&(!playRef.current||!['live','ball','catch'].includes(playRef.current.phase));
   const record=franchise.wins+'-'+franchise.losses;
+  const opponentTeam=TEAM_NAMES[franchise.week%TEAM_NAMES.length];
   const getRating=(id:string)=>normalizeRoster(franchise.roster).find(player=>player.id===id)?.rating||2;
   const upgradePlayer=(id:string)=>{
     const roster=normalizeRoster(franchise.roster);
@@ -519,7 +520,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
       {view==='match'&&(
         <section className="overflow-hidden rounded-[28px] border border-amber-300/20 bg-[#0c1726] shadow-2xl">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-4 sm:px-5">
-            <div><div className="text-[9px] font-black uppercase tracking-[.2em] text-amber-200">{teamName} · WEEK {franchise.week}</div><div className="mt-1 flex items-center gap-3 text-2xl font-black text-white"><span>{homeScore}</span><span className="text-slate-500">—</span><span>{awayScore}</span></div></div>
+            <div><div className="text-[9px] font-black uppercase tracking-[.2em] text-amber-200">{teamName} vs. {opponentTeam} · WEEK {franchise.week}</div><div className="mt-1 flex items-center gap-3 text-2xl font-black text-white"><span>{homeScore}</span><span className="text-slate-500">—</span><span>{awayScore}</span></div></div>
             <div className="flex items-center gap-5"><div className="text-center"><div className="text-[8px] font-black text-slate-500">QUARTER</div><div className="text-xl font-black text-white">Q{quarter}</div></div><div className="text-center"><div className="text-[8px] font-black text-slate-500">GAME CLOCK</div><div className="text-xl font-black tabular-nums text-amber-100">{Math.floor(clock/60)}:{String(clock%60).padStart(2,'0')}</div></div><button onClick={()=>setPaused(v=>!v)} disabled={gameOver} className="rounded-xl border border-white/10 p-2 text-slate-300 disabled:opacity-30"><Pause className="h-4 w-4"/></button></div>
           </div>
           <div className="relative bg-[#1b5837] p-2 sm:p-3"><canvas ref={canvasRef} width={W} height={H} className="block w-full rounded-2xl border border-white/10" style={{aspectRatio:'25 / 13',imageRendering:'pixelated'}}/>
