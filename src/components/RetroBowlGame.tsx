@@ -52,15 +52,16 @@ function seededRandom(seed:number){let state=seed>>>0;return()=>{state=(state*16
 function roundedRect(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,r:number){
   const radius=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+radius,y);ctx.arcTo(x+w,y,x+w,y+h,radius);ctx.arcTo(x+w,y+h,x,y+h,radius);ctx.arcTo(x,y+h,x,y,radius);ctx.arcTo(x,y,x+w,y,radius);ctx.closePath();
 }
-function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false,facing:1|-1=1){
+function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false,facing:1|-1=1,running=false,hasBall=false){
   // Side-profile football sprite with a shell helmet, cage, pads, jersey, gloves and cleats.
   ctx.save();ctx.translate(x,y);ctx.scale(facing,1);
   const shadowY=role==='carrier'?PLAYER_GROUND-y:y;
   ctx.fillStyle='rgba(0,0,0,.32)';ctx.beginPath();ctx.ellipse(2,shadowY+18,19,7,0,0,Math.PI*2);ctx.fill();
   const pants=role==='defender'?'#eee0de':'#e8edf1';
-  ctx.fillStyle=pants;ctx.fillRect(-5,5,8,15);ctx.fillRect(5,5,8,13);
-  ctx.fillStyle='#16202a';ctx.fillRect(-7,18,13,5);ctx.fillRect(5,16,13,5);
-  ctx.fillStyle='rgba(255,255,255,.42)';ctx.fillRect(-3,7,3,7);ctx.fillRect(8,7,3,6);
+  const stride=running?Math.sin(performance.now()/65+number)*3:0;
+  ctx.fillStyle=pants;ctx.fillRect(-5+stride,5,8,15);ctx.fillRect(5-stride,5,8,13);
+  ctx.fillStyle='#16202a';ctx.fillRect(-7+stride,18,13,5);ctx.fillRect(5-stride,16,13,5);
+  ctx.fillStyle='rgba(255,255,255,.42)';ctx.fillRect(-3+stride,7,3,7);ctx.fillRect(8-stride,7,3,6);
   ctx.fillStyle='#101b27';roundedRect(ctx,-13,-15,29,29,6);ctx.fill();
   ctx.fillStyle=color;roundedRect(ctx,-11,-13,25,25,5);ctx.fill();
   ctx.fillStyle='rgba(255,255,255,.32)';ctx.fillRect(-8,-10,19,3);ctx.fillRect(-9,-7,3,14);
@@ -75,6 +76,7 @@ function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,
   ctx.fillStyle=role==='defender'?'#efd2c9':'#f4d8b4';ctx.fillRect(10,-27,9,10);ctx.fillRect(7,-20,12,3);
   ctx.strokeStyle='#101b27';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(15,-25);ctx.lineTo(28,-25);ctx.moveTo(17,-20);ctx.lineTo(27,-20);ctx.moveTo(25,-29);ctx.lineTo(25,-15);ctx.stroke();
   ctx.fillStyle='#fff';ctx.fillRect(12,-26,2,2);
+  if(hasBall){ctx.fillStyle='#85451f';ctx.beginPath();ctx.ellipse(25,-2,9,5,-.3,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#f3dfc1';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(21,-2);ctx.lineTo(29,-2);ctx.stroke();}
   if(selected){ctx.strokeStyle='#ffe07a';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(2,1,25,34,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffe07a';ctx.beginPath();ctx.moveTo(2,-45);ctx.lineTo(-3,-53);ctx.lineTo(7,-53);ctx.closePath();ctx.fill();}
   ctx.restore();
 }
@@ -412,8 +414,8 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         const line=yardX(visitorBallYard), qx=line+44, mid=270;
         // Visitor offense lines up facing left; our defenders line up across from them.
         for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,PLAYER_GROUND-25+i*12,DEFENSE_RED,60+i,'blocker',false,-1);
-        drawPlayer(ctx,qx-camera,PLAYER_GROUND,DEFENSE_RED,12,'quarterback',false,-1);
-        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier',false,-1);
+        drawPlayer(ctx,qx-camera,PLAYER_GROUND,DEFENSE_RED,12,'quarterback',false,-1,false,true);
+        drawPlayer(ctx,qx+25-camera,PLAYER_GROUND+12,DEFENSE_RED,24,'carrier',false,-1,true,true);
         for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,PLAYER_GROUND-12+i*12,DEFENSE_RED,8+i*3,'receiver',false,-1);
         for(let i=0;i<7;i++)drawPlayer(ctx,line-65-(i%3)*55-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,PLAYER_BLUE,20+i,'defender');
         drawBall(ctx,qx-camera,PLAYER_GROUND-16);
@@ -425,18 +427,18 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           play.receivers.forEach((r,i)=>{ctx.strokeStyle=['#f4df8a','#a5e1ff','#f1a6dc'][i];ctx.beginPath();ctx.moveTo(r.x-camera,r.y);ctx.lineTo(r.x+130-camera,r.y+(r.route*65));ctx.stroke();});
           ctx.setLineDash([]);
         }
-        play.blockers.forEach(blocker=>drawPlayer(ctx,blocker.x-camera,blocker.y,PLAYER_BLUE,blocker.number,'blocker'));
-        play.defenders.forEach(defender=>drawPlayer(ctx,defender.x-camera,defender.y,DEFENSE_RED,defender.number,'defender',false,-1));
+        play.blockers.forEach(blocker=>drawPlayer(ctx,blocker.x-camera,blocker.y,PLAYER_BLUE,blocker.number,'blocker',false,1,true));
+        play.defenders.forEach(defender=>drawPlayer(ctx,defender.x-camera,defender.y,DEFENSE_RED,defender.number,'defender',false,-1,true));
         if(play.phase==='live'&&play.type!=='run'){
-          play.receivers.forEach((r,i)=>drawPlayer(ctx,r.x-camera,r.y,PLAYER_BLUE,r.number,'receiver',i===play.target));
-          drawPlayer(ctx,play.qb.x-camera,play.qb.y,PLAYER_BLUE,12,'quarterback');
+          play.receivers.forEach((r,i)=>drawPlayer(ctx,r.x-camera,r.y,PLAYER_BLUE,r.number,'receiver',i===play.target,1,true));
+          drawPlayer(ctx,play.qb.x-camera,play.qb.y,PLAYER_BLUE,12,'quarterback',false,1,false,play.phase==='live');
         }else{
-          drawPlayer(ctx,play.carrier.x-camera,play.carrier.y,PLAYER_BLUE,play.carrier.number,'carrier',true);
+          drawPlayer(ctx,play.carrier.x-camera,play.carrier.y,PLAYER_BLUE,play.carrier.number,'carrier',true,1,true,true);
         }
         if(play.ball)drawBall(ctx,play.ball.x-camera,play.ball.y);
       }else{
-        drawPlayer(ctx,startX-52-camera,PLAYER_GROUND,PLAYER_BLUE,12,'quarterback');
-        drawPlayer(ctx,startX-14-camera,PLAYER_GROUND,PLAYER_BLUE,22,'carrier',true);
+        drawPlayer(ctx,startX-52-camera,PLAYER_GROUND,PLAYER_BLUE,12,'quarterback',false,1,false,true);
+        drawPlayer(ctx,startX-14-camera,PLAYER_GROUND,PLAYER_BLUE,22,'carrier',true,1,true,true);
         for(let i=0;i<5;i++)drawPlayer(ctx,startX+5-camera,PLAYER_GROUND-25+i*12,PLAYER_BLUE,60+i,'blocker');
         for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,PLAYER_GROUND-22+Math.floor(i*1.1)*8,DEFENSE_RED,20+i,'defender',false,-1);
       }
