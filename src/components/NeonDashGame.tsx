@@ -349,6 +349,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     if (player.grounded || now - lastGroundedAtRef.current <= 115) {
       player.vy = -860;
       player.grounded = false;
+      lastGroundedAtRef.current = now - 1000;
       jumpBufferUntilRef.current = 0;
       playSound(710);
     }
@@ -453,6 +454,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         if (jumpBufferUntilRef.current >= now && now - lastGroundedAtRef.current <= 115 && player.grounded) {
           player.vy = -860;
           player.grounded = false;
+          lastGroundedAtRef.current = now - 1000;
           jumpBufferUntilRef.current = 0;
           playSound(710);
         }
