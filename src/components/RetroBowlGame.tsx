@@ -21,31 +21,65 @@ const FIELD_GREEN=['#397b4c','#347447'];
 const PLAYER_BLUE='#3185da';
 const DEFENSE_RED='#e35d5d';
 const TEAM_NAMES=['MIAMI WAVES','NAPLES HURRICANES','GULF COAST STORM','ORLANDO COMETS'];
+const DEFAULT_ROSTER = [
+  { id:'qb', name:'Alex Rivers', position:'QB', rating:4, number:12 },
+  { id:'rb', name:'Jay Carter', position:'RB', rating:3, number:22 },
+  { id:'wr1', name:'Malik Stone', position:'WR', rating:4, number:8 },
+  { id:'wr2', name:'Devin Parks', position:'WR', rating:3, number:18 },
+  { id:'te', name:'Noah Brooks', position:'TE', rating:3, number:81 },
+  { id:'ol', name:'Leo Grant', position:'OL', rating:3, number:66 },
+  { id:'db', name:'Evan Reed', position:'DB', rating:3, number:24 },
+  { id:'lb', name:'Marcus Fox', position:'LB', rating:3, number:55 },
+];
+function normalizeRoster(roster: any) {
+  return DEFAULT_ROSTER.map(base => {
+    const existing = Array.isArray(roster) ? roster.find((player:any) => player.id === base.id) : null;
+    return existing ? { ...base, ...existing, rating: clamp(Number(existing.rating) || base.rating, 1, 5) } : { ...base };
+  });
+}
 const clamp=(v:number,min:number,max:number)=>Math.max(min,Math.min(max,v));
 const yardX=(yard:number)=>GOAL_LEFT+yard*YARD_PX;
 function loadFranchise(){
   try {
     const saved=localStorage.getItem(SAVE_KEY);
-    if(saved){const parsed=JSON.parse(saved);return {...parsed,week:Math.max(1,Number(parsed.week)||1),coins:Math.max(0,Number(parsed.coins)||120),offense:clamp(Number(parsed.offense)||2,1,5),defense:clamp(Number(parsed.defense)||2,1,5),speed:clamp(Number(parsed.speed)||2,1,5)};}
+    if(saved){const parsed=JSON.parse(saved);return {...parsed,week:Math.max(1,Number(parsed.week)||1),coins:Math.max(0,Number(parsed.coins)||120),offense:clamp(Number(parsed.offense)||2,1,5),defense:clamp(Number(parsed.defense)||2,1,5),speed:clamp(Number(parsed.speed)||2,1,5),roster:normalizeRoster(parsed.roster)};}
   } catch {}
-  return {team:'MIAMI WAVES',wins:0,losses:0,week:1,coins:120,offense:2,defense:2,speed:2,touchdowns:0,fieldGoals:0};
+  return {team:'MIAMI WAVES',wins:0,losses:0,week:1,coins:120,offense:2,defense:2,speed:2,touchdowns:0,fieldGoals:0,roster:normalizeRoster([])};
 }
 function seededRandom(seed:number){let state=seed>>>0;return()=>{state=(state*1664525+1013904223)>>>0;return state/4294967296;};}
 function roundedRect(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,r:number){
   const radius=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+radius,y);ctx.arcTo(x+w,y,x+w,y+h,radius);ctx.arcTo(x+w,y+h,x,y+h,radius);ctx.arcTo(x,y+h,x,y,radius);ctx.arcTo(x,y,x+w,y,radius);ctx.closePath();
 }
 function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false){
-  ctx.fillStyle='rgba(0,0,0,.28)';ctx.beginPath();ctx.ellipse(x+2,y+15,17,7,0,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#101c27';roundedRect(ctx,x-11,y-10,22,28,5);ctx.fill();
-  ctx.fillStyle=color;roundedRect(ctx,x-12,y-13,24,25,6);ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,.28)';ctx.fillRect(x-8,y-10,16,4);
-  ctx.fillStyle='#fff';ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText(String(number),x,y+5);
-  ctx.fillStyle=role==='quarterback'?'#f6d7a3':'#d9e3ed';ctx.beginPath();ctx.arc(x,y-17,11,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y-19,12,Math.PI,Math.PI*2);ctx.fill();ctx.fillRect(x+4,y-20,9,5);
-  ctx.fillStyle='#162330';ctx.fillRect(x-4,y-19,3,3);ctx.fillRect(x+3,y-19,3,3);
-  if(selected){ctx.strokeStyle='#ffe07a';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y-2,21,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffe07a';ctx.beginPath();ctx.moveTo(x,y-37);ctx.lineTo(x-5,y-45);ctx.lineTo(x+5,y-45);ctx.closePath();ctx.fill();}
+  // Compact pixel-athlete sprite: helmet/facemask, shoulder pads, jersey, pants, legs and gloves.
+  ctx.fillStyle='rgba(0,0,0,.32)';ctx.beginPath();ctx.ellipse(x+2,y+18,19,8,0,0,Math.PI*2);ctx.fill();
+  const light=role==='defender'?'#f4b8b8':role==='receiver'?'#b9e9ff':'#d9e7f2';
+  const pants=role==='defender'?'#f1e1e1':'#e8edf1';
+  // Cleats and lower legs.
+  ctx.fillStyle='#17212b';ctx.fillRect(x-10,y+10,8,12);ctx.fillRect(x+3,y+10,8,12);
+  ctx.fillStyle=pants;ctx.fillRect(x-10,y+5,8,12);ctx.fillRect(x+3,y+5,8,12);
+  ctx.fillStyle='#aab8c3';ctx.fillRect(x-10,y+14,8,3);ctx.fillRect(x+3,y+14,8,3);
+  // Shoulder pads, jersey and arm sleeves.
+  ctx.fillStyle='#101c27';ctx.fillRect(x-17,y-14,34,28);
+  ctx.fillStyle=color;ctx.fillRect(x-15,y-13,30,23);ctx.fillRect(x-19,y-11,7,17);ctx.fillRect(x+12,y-11,7,17);
+  ctx.fillStyle='rgba(255,255,255,.30)';ctx.fillRect(x-12,y-10,24,3);ctx.fillRect(x-16,y-8,4,9);ctx.fillRect(x+12,y-8,4,9);
+  ctx.fillStyle=light;ctx.fillRect(x-20,y+3,7,6);ctx.fillRect(x+13,y+3,7,6);
+  // Waist, jersey stripe and number.
+  ctx.fillStyle='#f4f0e6';ctx.fillRect(x-13,y+7,26,3);
+  ctx.fillStyle='#172331';ctx.font='900 10px monospace';ctx.textAlign='center';ctx.fillText(String(number),x,y+3);
+  ctx.fillStyle='rgba(255,255,255,.72)';ctx.fillRect(x-12,y+10,5,2);ctx.fillRect(x+7,y+10,5,2);
+  // Helmet shell and face opening.
+  ctx.fillStyle='#111b26';ctx.fillRect(x-13,y-31,26,18);ctx.fillRect(x-16,y-25,7,10);ctx.fillRect(x+9,y-24,7,9);
+  ctx.fillStyle=role==='defender'?'#f1d7d7':'#f5e4c4';ctx.fillRect(x-10,y-28,20,12);
+  ctx.fillStyle=color;ctx.fillRect(x-13,y-32,26,9);ctx.fillRect(x-8,y-35,17,4);
+  ctx.fillStyle='#0c1721';ctx.fillRect(x+4,y-25,7,4);ctx.fillRect(x+8,y-21,3,8);ctx.fillRect(x+1,y-17,11,2);
+  ctx.fillStyle='#fff';ctx.fillRect(x-6,y-22,3,3);
+  // Small team stripe on the helmet.
+  ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillRect(x-2,y-33,3,8);
+  if(selected){ctx.strokeStyle='#ffe07a';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x,y-5,23,39,0,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffe07a';ctx.beginPath();ctx.moveTo(x,y-50);ctx.lineTo(x-5,y-58);ctx.lineTo(x+5,y-58);ctx.closePath();ctx.fill();}
   ctx.textAlign='left';
 }
+
 function drawBall(ctx:CanvasRenderingContext2D,x:number,y:number){
   ctx.fillStyle='#8b4c25';ctx.beginPath();ctx.ellipse(x,y,10,5,-.28,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='#f6e7cd';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.stroke();
@@ -402,6 +436,13 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
   const defensivePanel=possession==='away';
   const canPickPlay=!gameOver&&!paused&&!defensivePanel&&(!playRef.current||!['live','ball','catch'].includes(playRef.current.phase));
   const record=franchise.wins+'-'+franchise.losses;
+  const getRating=(id:string)=>normalizeRoster(franchise.roster).find(player=>player.id===id)?.rating||2;
+  const upgradePlayer=(id:string)=>{
+    const roster=normalizeRoster(franchise.roster);
+    const player=roster.find(item=>item.id===id);
+    if(!player||player.rating>=5||franchise.coins<25)return;
+    saveFranchise({...franchise,coins:franchise.coins-25,roster:roster.map(item=>item.id===id?{...item,rating:item.rating+1}:item)});
+  };
   const upgrade=(kind:'offense'|'defense'|'speed')=>{
     const current=franchise[kind]||1;if(current>=5||franchise.coins<35)return;
     saveFranchise({...franchise,[kind]:current+1,coins:franchise.coins-35});
