@@ -25,6 +25,7 @@ import { AccountLockScreen } from './components/AccountLockScreen';
 import { ChatHub } from './components/ChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
+import { GuessTrackGame } from './components/GuessTrackGame';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
@@ -45,7 +46,7 @@ const MainAppContent: React.FC = () => {
     && (!spotlightConfig.startsAt || new Date(spotlightConfig.startsAt).getTime() <= spotlightClock)
     && (!spotlightConfig.endsAt || new Date(spotlightConfig.endsAt).getTime() > spotlightClock);
 
-  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
 
@@ -154,6 +155,12 @@ const MainAppContent: React.FC = () => {
       setIsPlaylistModalOpen(false);
     }
   }, [spotlightActive, isAdmin, activeTab]);
+
+  useEffect(() => {
+    if (!isAdmin && !currentUser?.gamesEnabled && activeTab === 'games') {
+      setActiveTab('library');
+    }
+  }, [isAdmin, currentUser?.gamesEnabled, activeTab]);
 
   const handleOpenPlaylistModal = (song: Song | null) => {
     if (spotlightActive && !isAdmin) return;
@@ -321,6 +328,7 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
+        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && <GuessTrackGame />}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}

@@ -174,6 +174,7 @@ class StorageService {
         updated.isApproved !== current.isApproved ||
         updated.chatBlocked !== current.chatBlocked ||
         updated.christmasMode !== current.christmasMode ||
+        updated.gamesEnabled !== current.gamesEnabled ||
         updated.colorAccent !== current.colorAccent ||
         updated.dailyListenLimit !== current.dailyListenLimit
       ) {
@@ -324,6 +325,7 @@ class StorageService {
                 updated.isSuspended !== current.isSuspended ||
                 updated.isLocked !== current.isLocked ||
                 updated.christmasMode !== current.christmasMode ||
+                updated.gamesEnabled !== current.gamesEnabled ||
                 updated.colorAccent !== current.colorAccent ||
                 updated.dailyListenLimit !== current.dailyListenLimit ||
                 updated.suspendedReason !== current.suspendedReason
@@ -1082,6 +1084,7 @@ class StorageService {
       dailyListenLimit?: number | null;
       isLocked?: boolean;
       christmasMode?: boolean;
+      gamesEnabled?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1113,6 +1116,7 @@ class StorageService {
             ...(typeof params.isSuspended === 'boolean' ? { isSuspended: params.isSuspended, suspendedReason: params.suspendedReason } : {}),
             ...(params.dailyListenLimit !== undefined ? { dailyListenLimit: params.dailyListenLimit } : {}),
             ...(typeof params.christmasMode === 'boolean' ? { christmasMode: params.christmasMode } : {}),
+            ...(typeof params.gamesEnabled === 'boolean' ? { gamesEnabled: params.gamesEnabled } : {}),
           };
         });
       }

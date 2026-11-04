@@ -21,11 +21,12 @@ import {
   Volume2,
   Activity,
   Headphones,
+  Gamepad2,
 } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin';
-  setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'admin') => void;
+  activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin';
+  setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin') => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   selectedGenre: string;
@@ -301,6 +302,22 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Status</span>
                 </button>
 
+                {(isAdmin || currentUser?.gamesEnabled) && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('games')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
+                      activeTab === 'games'
+                        ? 'bg-violet-600 text-white shadow-sm border border-violet-400/50'
+                        : 'text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-600/15'
+                    }`}
+                    title="Play YouSong games"
+                  >
+                    <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Games</span>
+                  </button>
+                )}
+
                 {/* 6. Admin Panel (if admin) */}
                 {isAdmin && (
                   <button
@@ -461,6 +478,19 @@ export const Header: React.FC<HeaderProps> = ({
             >
               Status
             </button>
+            {(isAdmin || currentUser?.gamesEnabled) && (
+              <button
+                onClick={() => setActiveTab('games')}
+                className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
+                  activeTab === 'games'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300'
+                }`}
+              >
+                <Gamepad2 className="w-3.5 h-3.5" />
+                Games
+              </button>
+            )}
             {isAdmin && (
               <button
                 onClick={() => setActiveTab('admin')}
