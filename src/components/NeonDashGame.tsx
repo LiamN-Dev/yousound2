@@ -114,7 +114,9 @@ async function analyzeSongRhythm(song: Song): Promise<number[]> {
       raw.push(peak);
     }
     const sorted = [...raw].sort((a, b) => a - b);
-    const scale = sorted[Math.floor(sorted.length * .88)] || Math.max(...raw, 1);
+    const peak = raw.length ? Math.max(...raw) : 0;
+    if (peak < .00001) return [];
+    const scale = sorted[Math.floor(sorted.length * .88)] || peak;
     return raw.map(value => clamp(value / Math.max(scale, .00001), 0, 1));
   } finally {
     await context.close().catch(() => undefined);
