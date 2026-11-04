@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, CheckCircle2, Gamepad2, Loader2, Medal, Music2, Play, RotateCcw, Trophy, XCircle, Zap } from 'lucide-react';
+import { CheckCircle2, Gamepad2, Loader2, Medal, Music2, Play, RotateCcw, Trophy, Zap } from 'lucide-react';
 
 type Difficulty = 'easy' | 'normal' | 'hard';
 type GameSong = { id: string; title: string; artist: string; audioUrl: string; coverUrl: string; duration: number; gameBpm: number };
@@ -9,9 +9,7 @@ type HitRecord = { noteId: string; offsetMs: number };
 type RhythmResult = { score: number; accuracy: number; maxCombo: number; totalNotes: number; hits: number };
 type LeaderboardEntry = { rank: number; userId: string; username: string; bestScore: number; bestAccuracy: number; bestCombo: number; gamesPlayed: number };
 
-const LANE_KEYS = ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'];
 const LANE_LABELS = ['←', '↓', '↑', '→'];
-const LANE_COLORS = ['sky', 'rose', 'violet', 'emerald'];
 const LEAD_MS = 1800;
 const PIXELS_PER_SECOND = 205;
 const HIT_LINE_BOTTOM = 58;
