@@ -6,6 +6,27 @@ type GameRound = { roundNumber: number; totalRounds: number; audioUrl: string; c
 type RevealedSong = { id: string; title: string; artist: string; coverUrl?: string };
 type LeaderboardEntry = { rank: number; userId: string; username: string; bestScore: number; gamesPlayed: number };
 
+function getPlayableGameAudioUrl(rawUrl: string): string {
+  const value = String(rawUrl || '').trim();
+  if (!value) return value;
+
+  const localProxy = value.match(/^\\/api\\/media\\/drive-stream\\/([a-zA-Z0-9_-]{10,200})(?:[?#].*)?$/);
+  if (localProxy) return `/api/drive/stream/${encodeURIComponent(localProxy[1])}`;
+  if (/^\\/api\\/drive\\/stream\\/[a-zA-Z0-9_-]{10,200}(?:[?#].*)?$/.test(value)) return value;
+
+  try {
+    const url = new URL(value);
+    if (!['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com'].includes(url.hostname.toLowerCase())) return value;
+    const segments = url.pathname.split('/').filter(Boolean);
+    const dIndex = segments.indexOf('d');
+    const fileId = (dIndex >= 0 ? segments[dIndex + 1] : '') || url.searchParams.get('id') || '';
+    if (!/^[a-zA-Z0-9_-]{10,200}$/.test(fileId)) return value;
+    return `/api/drive/stream/${encodeURIComponent(fileId)}`;
+  } catch {
+    return value;
+  }
+}
+
 async function requestJson(url: string, body?: Record<string, unknown>) {
   const response = await fetch(url, {
     method: body ? 'POST' : 'GET',
@@ -183,7 +204,7 @@ export const GuessTrackGame: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 pb-28 animate-in fade-in">
-      <audio ref={audioRef} src={round?.audioUrl || undefined} preload="auto" onEnded={() => setPlaying(false)} className="hidden" />
+      <audio ref={audioRef} src={round?.audioUrl ? getPlayableGameAudioUrl(round.audioUrl) : undefined} preload="auto" onEnded={() => setPlaying(false)} className="hidden" />
 
       <section className="relative overflow-hidden rounded-3xl border border-violet-400/25 bg-slate-950 text-white shadow-xl">
         <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-violet-600/25 blur-3xl" />
