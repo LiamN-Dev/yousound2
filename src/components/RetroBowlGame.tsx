@@ -360,8 +360,11 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           defender.x+=dx/len*defender.speed*dt;defender.y+=dy/len*defender.speed*dt;
           if(runPhase&&Math.hypot(defender.x-play.carrier.x,defender.y-play.carrier.y)<23){
             const gain=Math.round((play.carrier.x-play.startX)/YARD_PX);
-            const fumble=Math.random()<clamp(.035+(franchise.defense-franchise.speed)*.009,.015,.09);
-            finishPlay(gain,fumble?'FUMBLE · THE DEFENSE KNOCKED IT LOOSE':'TACKLED · '+gain+' YARDS',fumble);
+            if(play.carrier.x>=GOAL_RIGHT-8) finishPlay(gain,'TOUCHDOWN! '+Math.max(1,gain)+' YARDS.',false,true);
+            else {
+              const fumble=Math.random()<clamp(.035+(franchise.defense-franchise.speed)*.009,.015,.09);
+              finishPlay(gain,fumble?'FUMBLE · THE DEFENSE KNOCKED IT LOOSE':'TACKLED · '+gain+' YARDS',fumble);
+            }
           }
           if(play.phase==='live'&&play.type!=='run'&&Math.hypot(defender.x-play.qb.x,defender.y-play.qb.y)<27){
             const gain=Math.round((play.qb.x-play.startX)/YARD_PX)-4;
