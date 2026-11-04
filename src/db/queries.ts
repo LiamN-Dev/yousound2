@@ -498,7 +498,7 @@ export async function bulkUpdateSongsDb(
     'title', 'artist', 'mediaCode', 'album', 'genre', 'typeMood', 'duration', 'durationExact', 'plays',
     'dailyPlays', 'weeklyPlays', 'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
     'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'dropMessage', 'autoReleaseOnDrop',
-    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
+    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote', 'gameApproved', 'gameBpm', 'gameBpmDetected', 'isChristmasEdition',
     'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);
   const cleanUpdates: Record<string, any> = {};
