@@ -63,6 +63,10 @@ export interface Song {
   gameApproved?: boolean;
   /** Beats per minute used by the rhythm game; defaults to 120. */
   gameBpm?: number;
+  /** True after automatic audio beat analysis has produced a BPM estimate. */
+  gameBpmDetected?: boolean;
+  /** Detected phase of the first beat, in milliseconds from audio start. */
+  gameBeatOffsetMs?: number;
   // Admin Management Enhancements
   hiddenFrom?: string[]; // ['all'] to hide from everyone, or list of user IDs/usernames
   isSpotlight?: boolean; // Spotlighted track

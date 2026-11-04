@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS songs (
   is_christmas_edition BOOLEAN DEFAULT false,
   game_approved BOOLEAN NOT NULL DEFAULT false,
   game_bpm INTEGER NOT NULL DEFAULT 120,
+  game_bpm_detected BOOLEAN NOT NULL DEFAULT false,
+  game_beat_offset_ms INTEGER NOT NULL DEFAULT 0,
   hidden_from JSONB DEFAULT '[]'::jsonb,
   is_spotlight BOOLEAN DEFAULT false,
   spotlight_order INTEGER DEFAULT 0,

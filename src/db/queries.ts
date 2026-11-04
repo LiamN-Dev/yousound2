@@ -426,7 +426,7 @@ const SONG_EDITABLE_COLUMNS = new Set([
   'dropMessage', 'isChristmasEdition', 'autoReleaseOnDrop', 'hiddenFrom', 'isSpotlight', 'spotlightOrder',
   'spotlightNote', 'dailyPlays', 'dailyPlaysResetDate', 'weeklyPlays',
   'weeklyPlaysResetDate', 'isScheduledForDeletion', 'scheduledDeletionAt',
-  'lastPlayedAt',
+  'lastPlayedAt', 'gameApproved', 'gameBpm', 'gameBpmDetected', 'gameBeatOffsetMs',
 ]);
 
 function normalizeSongUpdate(input: Record<string, any>) {
@@ -440,6 +440,14 @@ function normalizeSongUpdate(input: Record<string, any>) {
       else if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
         throw new Error(key + ' must be a list of text values.');
       } else updates[key] = value.map((item: string) => item.trim()).filter(Boolean);
+    } else if (key === 'gameBeatOffsetMs') {
+      const offset = Math.round(Number(value));
+      if (!Number.isFinite(offset) || offset < 0 || offset > 2000) throw new Error('gameBeatOffsetMs must be between 0 and 2000.');
+      updates[key] = offset;
+    } else if (key === 'gameBpm') {
+      const bpm = Math.round(Number(value));
+      if (!Number.isFinite(bpm) || bpm < 60 || bpm > 240) throw new Error('gameBpm must be between 60 and 240.');
+      updates[key] = bpm;
     } else if (['duration', 'plays', 'dailyPlays', 'weeklyPlays', 'spotlightOrder'].includes(key)) {
       if (!Number.isFinite(Number(value)) || Number(value) < 0) throw new Error(key + ' must be a non-negative number.');
       updates[key] = Math.floor(Number(value));
@@ -447,7 +455,7 @@ function normalizeSongUpdate(input: Record<string, any>) {
       if (value === null) updates[key] = null;
       else if (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 43200) throw new Error('durationExact must be between 0 and 43,200 seconds.');
       else updates[key] = Number(value);
-    } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isChristmasEdition', 'isSpotlight', 'isScheduledForDeletion'].includes(key)) {
+    } else if (['featured', 'isLimitedEdition', 'autoRemoveOnExpire', 'isPinned', 'isDroppingSoon', 'autoReleaseOnDrop', 'isChristmasEdition', 'isSpotlight', 'isScheduledForDeletion', 'gameApproved', 'gameBpmDetected'].includes(key)) {
       if (typeof value !== 'boolean') throw new Error(key + ' must be true or false.');
       updates[key] = value;
     } else if (key === 'audioUrl' || key === 'coverUrl') {
@@ -498,7 +506,7 @@ export async function bulkUpdateSongsDb(
     'title', 'artist', 'mediaCode', 'album', 'genre', 'typeMood', 'duration', 'durationExact', 'plays',
     'dailyPlays', 'weeklyPlays', 'featured', 'description', 'isLimitedEdition', 'limitedUntil', 'autoRemoveOnExpire',
     'badgeType', 'badgeMessage', 'isPinned', 'isDroppingSoon', 'dropDate', 'dropMessage', 'autoReleaseOnDrop',
-    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote',
+    'hiddenFrom', 'isSpotlight', 'spotlightOrder', 'spotlightNote', 'gameApproved', 'gameBpm', 'gameBpmDetected', 'gameBeatOffsetMs', 'isChristmasEdition',
     'isScheduledForDeletion', 'scheduledDeletionAt', 'dailyPlaysResetDate', 'weeklyPlaysResetDate', 'lastPlayedAt',
   ]);
   const cleanUpdates: Record<string, any> = {};

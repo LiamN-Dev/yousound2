@@ -337,6 +337,7 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         isChristmasEdition,
         gameApproved,
         gameBpm: Math.min(240, Math.max(60, Math.round(Number(gameBpm) || 120))),
+        gameBpmDetected: !!song.gameBpmDetected || Math.round(Number(gameBpm) || 120) !== Math.round(Number(song.gameBpm) || 120),
         hiddenFrom: isScheduledForDeletion ? ['all'] : computedHiddenFrom,
         isSpotlight,
         spotlightOrder: Number(spotlightOrder) || 0,
