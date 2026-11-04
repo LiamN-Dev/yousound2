@@ -2013,6 +2013,7 @@ app.post('/api/songs', async (req: Request, res: Response) => {
       isPinned: !!songData.isPinned,
       gameApproved: false,
       gameBpm: 120,
+      gameBpmDetected: false,
       isDroppingSoon: !!songData.isDroppingSoon,
       dropDate: songData.dropDate || null,
       autoReleaseOnDrop: !!songData.autoReleaseOnDrop,
@@ -2060,6 +2061,9 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
 
     if (Object.prototype.hasOwnProperty.call(updates, 'gameApproved') && typeof updates.gameApproved !== 'boolean') {
       return res.status(400).json({ success: false, error: 'Game Approved must be a true/false value.' });
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'gameBpmDetected') && typeof updates.gameBpmDetected !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'BPM detection status must be a true/false value.' });
     }
     if (Object.prototype.hasOwnProperty.call(updates, 'gameBpm')) {
       const gameBpm = Math.round(Number(updates.gameBpm));
