@@ -38,7 +38,7 @@ import { BetterStackAnnouncement } from './components/BetterStackAnnouncement';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
-  const { allSongs, adminAllSongs, spotlightConfig } = useAudio();
+  const { allSongs, adminAllSongs, spotlightConfig, bulkUpdateSongs, refreshSongLibrary, updateSong } = useAudio();
   const christmasMode = !!currentUser?.christmasMode;
   const [spotlightClock, setSpotlightClock] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setSpotlightClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
@@ -328,7 +328,15 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
-        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && <GamesHub />}
+        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && (
+          <GamesHub
+            isAdmin={isAdmin}
+            songs={adminAllSongs}
+            bulkUpdateSongs={bulkUpdateSongs}
+            updateSong={updateSong}
+            refreshSongLibrary={refreshSongLibrary}
+          />
+        )}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
