@@ -179,6 +179,7 @@ export const LaneHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const worldRef = useRef<HopperWorld | null>(null);
   const phaseRef = useRef<'menu' | 'playing' | 'paused' | 'over'>('menu');
   const [phaseState, setPhaseState] = useState<'menu' | 'playing' | 'paused' | 'over'>('menu');
+  const phase = phaseState;
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(loadBest);
   const [coins, setCoins] = useState(0);
