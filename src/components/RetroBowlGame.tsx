@@ -124,6 +124,10 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
   const finishPlay=useCallback((gain:number,result:string,turnover=false,touchdown=false)=>{
     const play=playRef.current;if(!play||play.phase==='result')return;
     play.phase='result';setPhase('result');setLastPlay(result);setMessage(result);
+    if(!turnover){
+      if(play.type==='run'||play.type==='screen')setPlayStats(s=>({...s,rushing:s.rushing+Math.max(0,gain)}));
+      else if(play.ballThrown)setPlayStats(s=>({...s,passing:s.passing+Math.max(0,gain)}));
+    }
     consumeClock(Math.max(5,Math.round(6+play.elapsed)));
     if(touchdown){
       setHomeScore(value=>value+7);saveFranchise({...franchise,touchdowns:(franchise.touchdowns||0)+1,coins:franchise.coins+25});
@@ -338,7 +342,8 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
       }
       if(play&&active&&play.phase==='result')runnerX=play.carrier.x;
       const visitorBallYard=100-cpuYard;
-      const camera=clamp(runnerX-460,0,260);
+      const fieldRunnerX=possession==='home'?runnerX:yardX(visitorBallYard)+42;
+      const camera=clamp(fieldRunnerX-460,0,260);
       drawField(ctx,camera,possession==='home'?ballYard:visitorBallYard,possession==='home'?yardsToGo:cpuToGo,possession==='home'?1:-1);
       if(possession==='away'){
         const line=yardX(visitorBallYard), qx=line+44, mid=270;
