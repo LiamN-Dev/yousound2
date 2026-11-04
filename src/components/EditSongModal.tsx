@@ -87,6 +87,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
   const [autoReleaseOnDrop, setAutoReleaseOnDrop] = useState(false);
   const [dropMessage, setDropMessage] = useState('');
   const [isChristmasEdition, setIsChristmasEdition] = useState(false);
+  const [gameApproved, setGameApproved] = useState(false);
+  const [gameBpm, setGameBpm] = useState(120);
 
   // Plays, Listen reset & Scheduled for deletion state
   const [plays, setPlays] = useState<number>(0);
@@ -141,6 +143,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
       setAutoReleaseOnDrop(!!song.autoReleaseOnDrop);
       setDropMessage(song.dropMessage || '');
       setIsChristmasEdition(!!song.isChristmasEdition);
+      setGameApproved(!!song.gameApproved);
+      setGameBpm(Math.min(240, Math.max(60, Number(song.gameBpm) || 120)));
 
       setIsSpotlight(!!song.isSpotlight);
       setSpotlightOrder(song.spotlightOrder ?? 0);
@@ -327,6 +331,8 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
         autoReleaseOnDrop: isDroppingSoon && autoReleaseOnDrop,
         dropMessage: dropMessage.trim() || null as any,
         isChristmasEdition,
+        gameApproved,
+        gameBpm: Math.min(240, Math.max(60, Math.round(Number(gameBpm) || 120))),
         hiddenFrom: isScheduledForDeletion ? ['all'] : computedHiddenFrom,
         isSpotlight,
         spotlightOrder: Number(spotlightOrder) || 0,
@@ -988,6 +994,43 @@ export const EditSongModal: React.FC<EditSongModalProps> = ({
                 <span className="font-bold text-emerald-700 dark:text-emerald-300">🎄 It&apos;s Time — Christmas Edition</span>
               </label>
               <p className="text-[10px] text-slate-500 dark:text-slate-400">Adds a festive red-and-green outline and Christmas edition label to the song card.</p>
+            </div>
+
+            <div className="sm:col-span-2 p-3.5 rounded-xl bg-violet-500/5 border border-violet-500/25 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <label className="flex min-w-0 items-start gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={gameApproved}
+                    onChange={(e) => setGameApproved(e.target.checked)}
+                    className="mt-0.5 rounded border-violet-300 bg-white dark:bg-slate-900 text-violet-600 focus:ring-0"
+                  />
+                  <span>
+                    <span className="block font-bold text-violet-700 dark:text-violet-300">Game Approved</span>
+                    <span className="mt-1 block text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      Allow this track to appear in YouSong Games, including Guess the Track and Rhythm Battle. New and existing songs stay excluded until an admin approves them.
+                    </span>
+                  </span>
+                </label>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${gameApproved ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300' : 'bg-slate-200 text-slate-500 dark:bg-white/10 dark:text-slate-400'}`}>
+                  {gameApproved ? 'APPROVED' : 'NOT APPROVED'}
+                </span>
+              </div>
+              {gameApproved && (
+                <div className="border-t border-violet-500/15 pt-3">
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-700 dark:text-slate-300">Rhythm Game BPM</label>
+                  <input
+                    type="number"
+                    min="60"
+                    max="240"
+                    step="1"
+                    value={gameBpm}
+                    onChange={(e) => setGameBpm(Math.min(240, Math.max(60, Number(e.target.value) || 120)))}
+                    className="w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono text-slate-900 focus:border-violet-500 focus:outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Set the track&apos;s tempo for note timing. Use 120 BPM when you do not know the tempo.</p>
+                </div>
+              )}
             </div>
 
             {/* Admin Spotlight VIP Track */}
