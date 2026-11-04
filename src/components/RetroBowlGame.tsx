@@ -41,6 +41,7 @@ export const RetroBowlGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [isPaused, setIsPaused] = useState(false);
   const [targetReceiver, setTargetReceiver] = useState(1);
   const [playNumber, setPlayNumber] = useState(0);
+  const [renderTick, setRenderTick] = useState(0);
   const [gameOver, setGameOver] = useState(false);
 
   const setSavedFranchise = useCallback((next: any) => {
@@ -94,13 +95,15 @@ export const RetroBowlGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setYardsToGo(v => Math.max(1, v - gain));
       setLineYards(v => Math.min(90, v + gain));
     }
+    if (playNumber >= 8) setGameOver(true);
     window.setTimeout(() => {
       if (!gameRef.current) return;
       if (gameRef.current.phase === 'result') {
         gameRef.current.phase = 'ready';
+        setRenderTick((n) => n + 1);
       }
     }, 1050);
-  }, [down, yardsToGo, setSavedFranchise]);
+  }, [down, yardsToGo, playNumber, setSavedFranchise]);
 
   const throwBall = useCallback(() => {
     const g = gameRef.current;
@@ -119,7 +122,7 @@ export const RetroBowlGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(key)) e.preventDefault();
       keysRef.current[key] = true;
       const g = gameRef.current;
-      if (g?.phase === 'live') {
+      if (g?.phase === 'live' && !isPaused && !gameOver) {
         if (key === '1' || key === '2' || key === '3') {
           g.target = Number(key) - 1; setTargetReceiver(Number(key));
         }
@@ -252,7 +255,24 @@ export const RetroBowlGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     };
     rafRef.current = requestAnimationFrame(frame);
     return () => { alive = false; if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [mode, lineYards, down, yardsToGo, franchise.team, finish]);
+  }, [mode, lineYards, down, yardsToGo, franchise.team, finish, isPaused, gameOver]);
+
+  useEffect(() => {
+    if (mode !== 'game' || isPaused || gameOver) return;
+    const timer = window.setInterval(() => {
+      setClock((value) => {
+        if (value > 1) return value - 1;
+        if (quarter >= 4) {
+          setGameOver(true);
+          setMessage('FINAL WHISTLE · The game clock has expired.');
+          return 0;
+        }
+        setQuarter((q) => q + 1);
+        return 150;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [mode, isPaused, gameOver, quarter]);
 
   const startMatch = () => {
     setScore({ us: 0, them: Math.max(0, Math.round(7 - franchise.defense)) });
@@ -300,7 +320,7 @@ export const RetroBowlGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3"><div><div className="text-[10px] font-black uppercase tracking-[.2em] text-amber-300">{franchise.team} vs. Bay City · Week {franchise.week}</div><div className="mt-1 text-xl font-black text-white">{score.us} <span className="text-slate-500">—</span> {score.them}</div></div><div className="text-right"><div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Quarter {quarter}</div><div className="text-lg font-black tabular-nums text-white">{Math.floor(clock/60)}:{String(clock%60).padStart(2,'0')}</div></div></div>
           <div className="p-2 sm:p-4"><canvas ref={canvasRef} width={FIELD_W} height={FIELD_H} className="block w-full rounded-2xl border border-white/10 bg-emerald-950" style={{ aspectRatio: '16 / 9', imageRendering:'pixelated' }}/></div>
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2"><p className="min-h-8 text-xs font-bold text-amber-100">{message}</p><button onClick={()=>setIsPaused(v=>!v)} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-[10px] font-bold text-slate-300"><Pause className="h-3 w-3"/>{isPaused?'Resume':'Pause'}</button></div>
-          {!gameOver ? <div className="grid gap-3 border-t border-white/10 p-4 md:grid-cols-[1fr_auto]"><div className="flex flex-wrap gap-2"><button onClick={()=>choosePlay('run')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl bg-amber-300 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-30">RUN · POWER</button><button onClick={()=>choosePlay('pass')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl border border-amber-200/30 bg-amber-200/10 px-4 py-2.5 text-xs font-black text-amber-100 disabled:opacity-30">PASS · AIR RAID</button><button onClick={()=>choosePlay('screen')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl border border-slate-200/20 bg-slate-200/10 px-4 py-2.5 text-xs font-black text-slate-100 disabled:opacity-30">SCREEN · QUICK</button></div><div className="text-[10px] leading-5 text-slate-400">MOVE: WASD / ARROWS<br/>PASS: 1–3 TO TARGET, SPACE TO THROW</div></div> : <div className="p-5 text-center"><Trophy className="mx-auto h-8 w-8 text-amber-300"/><div className="mt-2 text-2xl font-black text-white">Final Whistle</div><p className="mt-1 text-xs text-slate-400">Your franchise record has been updated.</p><button onClick={()=>{endMatch(score.us>=score.them);setMode('franchise');}} className="mt-4 rounded-xl bg-amber-300 px-5 py-3 text-xs font-black text-slate-950">Return to Front Office</button></div>}
+          {!gameOver ? <div className="grid gap-3 border-t border-white/10 p-4 md:grid-cols-[1fr_auto]"><div className="flex flex-wrap gap-2"><button onClick={()=>choosePlay('run')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl bg-amber-300 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-30">RUN · POWER</button><button onClick={()=>choosePlay('pass')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl border border-amber-200/30 bg-amber-200/10 px-4 py-2.5 text-xs font-black text-amber-100 disabled:opacity-30">PASS · AIR RAID</button><button onClick={()=>choosePlay('screen')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl border border-slate-200/20 bg-slate-200/10 px-4 py-2.5 text-xs font-black text-slate-100 disabled:opacity-30">SCREEN · QUICK</button></div><div className="flex items-center gap-3"><div className="grid grid-cols-3 gap-1"><span/><button onClick={()=>{keysRef.current.arrowup=true;window.setTimeout(()=>keysRef.current.arrowup=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">▲</button><span/><button onClick={()=>{keysRef.current.arrowleft=true;window.setTimeout(()=>keysRef.current.arrowleft=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">◀</button><button onClick={()=>{keysRef.current.arrowdown=true;window.setTimeout(()=>keysRef.current.arrowdown=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">▼</button><button onClick={()=>{keysRef.current.arrowright=true;window.setTimeout(()=>keysRef.current.arrowright=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">▶</button></div><div className="text-[10px] leading-5 text-slate-400">MOVE: WASD / ARROWS<br/>PASS: 1–3 TO TARGET, SPACE TO THROW</div></div></div> : <div className="p-5 text-center"><Trophy className="mx-auto h-8 w-8 text-amber-300"/><div className="mt-2 text-2xl font-black text-white">Final Whistle</div><p className="mt-1 text-xs text-slate-400">Your franchise record has been updated.</p><button onClick={()=>{endMatch(score.us>=score.them);setMode('franchise');}} className="mt-4 rounded-xl bg-amber-300 px-5 py-3 text-xs font-black text-slate-950">Return to Front Office</button></div>}
         </section>
       )}
     </div>
