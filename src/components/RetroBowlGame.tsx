@@ -50,7 +50,7 @@ function drawBall(ctx:CanvasRenderingContext2D,x:number,y:number){
   ctx.fillStyle='#8b4c25';ctx.beginPath();ctx.ellipse(x,y,10,5,-.28,0,Math.PI*2);ctx.fill();
   ctx.strokeStyle='#f6e7cd';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.stroke();
 }
-function drawField(ctx:CanvasRenderingContext2D,camera:number,ballYard:number,yardsToGo:number,carrierX?:number){
+function drawField(ctx:CanvasRenderingContext2D,camera:number,ballYard:number,yardsToGo:number,direction:1|-1=1){
   ctx.clearRect(0,0,W,H);
   const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#153e2e');bg.addColorStop(1,'#0d3025');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
   // Sidelines and end zones.
@@ -67,14 +67,13 @@ function drawField(ctx:CanvasRenderingContext2D,camera:number,ballYard:number,ya
     for(let yy=FIELD_TOP+18;yy<FIELD_BOTTOM-10;yy+=22){ctx.beginPath();ctx.moveTo(x-4,yy);ctx.lineTo(x+4,yy);ctx.stroke();}
     if(y%10===0&&y>0&&y<100){ctx.fillStyle='rgba(255,255,255,.68)';ctx.font='bold 15px monospace';ctx.textAlign='center';ctx.fillText(String(Math.min(y,100-y)),x+((y>50)?1:0),FIELD_TOP+28);ctx.fillText(String(Math.min(y,100-y)),x+((y>50)?1:0),FIELD_BOTTOM-14);}
   }
-  const lineX=yardX(ballYard)-camera, firstX=yardX(Math.min(100,ballYard+yardsToGo))-camera;
+  const lineX=yardX(ballYard)-camera, firstX=yardX(clamp(ballYard+direction*yardsToGo,0,100))-camera;
   ctx.strokeStyle='#47c2ff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(lineX,FIELD_TOP);ctx.lineTo(lineX,FIELD_BOTTOM);ctx.stroke();
   ctx.strokeStyle='#ffe16c';ctx.lineWidth=3;ctx.setLineDash([8,7]);ctx.beginPath();ctx.moveTo(firstX,FIELD_TOP);ctx.lineTo(firstX,FIELD_BOTTOM);ctx.stroke();ctx.setLineDash([]);
   ctx.fillStyle='#ffe16c';ctx.font='bold 11px monospace';ctx.fillText('1ST DOWN',firstX-31,FIELD_TOP-7);
   // Sideline coach marks.
   ctx.fillStyle='rgba(255,255,255,.65)';for(let i=0;i<20;i++){const x=GOAL_LEFT-camera+i*42;ctx.fillRect(x,FIELD_TOP-8,12,3);ctx.fillRect(x,FIELD_BOTTOM+5,12,3);}
   ctx.fillStyle='rgba(255,255,255,.9)';ctx.font='bold 10px monospace';ctx.fillText('HOME',GOAL_LEFT-camera+10,FIELD_BOTTOM+21);ctx.fillText('VISITOR',GOAL_RIGHT-camera-70,FIELD_BOTTOM+21);
-  ctx.restore();
 }
 export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
   const canvasRef=useRef<HTMLCanvasElement|null>(null),rafRef=useRef<number|null>(null),keysRef=useRef<Record<string,boolean>>({}),playRef=useRef<LivePlay|null>(null),phaseRef=useRef<MatchPhase>('ready');
@@ -338,9 +337,20 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         runnerX=play.carrier.x;
       }
       if(play&&active&&play.phase==='result')runnerX=play.carrier.x;
+      const visitorBallYard=100-cpuYard;
       const camera=clamp(runnerX-460,0,260);
-      drawField(ctx,camera,ballYard,yardsToGo,runnerX);
-      if(play){
+      drawField(ctx,camera,possession==='home'?ballYard:visitorBallYard,possession==='home'?yardsToGo:cpuToGo,possession==='home'?1:-1);
+      if(possession==='away'){
+        const line=yardX(visitorBallYard), qx=line+44, mid=270;
+        // Visitor offense lines up facing left; our defenders line up across from them.
+        for(let i=0;i<5;i++)drawPlayer(ctx,line+15-camera,174+i*52,DEFENSE_RED,60+i,'blocker');
+        drawPlayer(ctx,qx-camera,mid,DEFENSE_RED,12,'quarterback');
+        drawPlayer(ctx,qx+25-camera,mid+65,DEFENSE_RED,24,'carrier');
+        for(let i=0;i<3;i++)drawPlayer(ctx,qx+20-camera,135+i*132,DEFENSE_RED,8+i*3,'receiver');
+        for(let i=0;i<7;i++)drawPlayer(ctx,line-65-(i%3)*55-camera,112+Math.floor(i*1.3)*48,PLAYER_BLUE,20+i,'defender');
+        drawBall(ctx,qx-camera,mid-16);
+        ctx.fillStyle='rgba(255,255,255,.82)';ctx.font='bold 11px monospace';ctx.fillText('VISITOR OFFENSE · '+selectedDefense.toUpperCase(),24,84);
+      }else if(play){
         // Route art appears before the ball is thrown.
         if(play.type!=='run'&&play.phase==='live'){
           ctx.setLineDash([7,6]);ctx.lineWidth=2;
