@@ -24,11 +24,13 @@ CREATE TABLE IF NOT EXISTS users (
   admin_note TEXT,
   color_accent TEXT,
   daily_listen_limit INTEGER, -- NULL = unlimited, 0 = no listens allowed
+  games_enabled BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Upgrade existing installations safely.
 ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS daily_listen_limit INTEGER;
+ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS games_enabled BOOLEAN NOT NULL DEFAULT false;
 
 -- One atomic listen counter per user per UTC calendar day.
 CREATE TABLE IF NOT EXISTS user_daily_listen_usage (
@@ -79,6 +81,23 @@ CREATE TABLE IF NOT EXISTS songs (
   scheduled_deletion_at TEXT,
   last_played_at TEXT
 );
+
+-- Persistent rounds and scores for the first YouSong game.
+CREATE TABLE IF NOT EXISTS song_guess_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  rounds JSONB NOT NULL,
+  current_round INTEGER NOT NULL DEFAULT 0,
+  round_attempts INTEGER NOT NULL DEFAULT 0,
+  round_solved BOOLEAN NOT NULL DEFAULT false,
+  score INTEGER NOT NULL DEFAULT 0,
+  completed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_song_guess_sessions_leaderboard
+  ON song_guess_sessions(completed, score DESC);
 
 -- Admin-only Media ID registry. Codes are unique and never silently recycled.
 CREATE TABLE IF NOT EXISTS media_ids (
