@@ -1372,6 +1372,312 @@ app.delete('/api/users/:uid', async (req: Request, res: Response) => {
   }
 });
 
+// ----------------- GAMES: GUESS THE TRACK -----------------
+const SONG_GUESS_CLIP_SECONDS = [1, 2, 4, 7, 12, 20];
+const SONG_GUESS_POINTS = [1000, 800, 600, 400, 250, 100];
+
+type SongGuessRoundRecord = {
+  answer: { id: string; title: string; artist: string; audioUrl: string; coverUrl: string };
+  options: Array<{ id: string; title: string; artist: string }>;
+};
+
+function shuffleSongGame<T>(values: T[]): T[] {
+  const result = [...values];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+async function getSongGameAccount(req: Request, res: Response) {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    res.status(401).json({ success: false, error: 'Please sign in to play.' });
+    return null;
+  }
+  const user = await getUserByUid(authUser.uid);
+  if (!user || !user.isApproved || user.isSuspended || user.isLocked) {
+    res.status(403).json({ success: false, error: 'This account is not allowed to play games.' });
+    return null;
+  }
+  const isAdmin = user.role === 'admin';
+  if (!isAdmin && user.gamesEnabled !== true) {
+    res.status(403).json({ success: false, error: 'An administrator has not enabled Games for this account.' });
+    return null;
+  }
+  return { uid: user.uid, username: user.username, isAdmin };
+}
+
+function songGuessRoundPayload(round: SongGuessRoundRecord, roundIndex: number, totalRounds: number, attempts = 0) {
+  return {
+    roundNumber: roundIndex + 1,
+    totalRounds,
+    audioUrl: round.answer.audioUrl,
+    clipSeconds: SONG_GUESS_CLIP_SECONDS[Math.min(attempts, SONG_GUESS_CLIP_SECONDS.length - 1)],
+    options: round.options,
+  };
+}
+
+app.get('/api/games/guess-track/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent game database is unavailable.' });
+    }
+    const result = await createPool().query(
+      \`SELECT user_id,
+              MAX(username) AS username,
+              MAX(score)::int AS best_score,
+              COUNT(*)::int AS games_played
+         FROM song_guess_sessions
+        WHERE completed = true
+        GROUP BY user_id
+        ORDER BY MAX(score) DESC, COUNT(*) DESC, LOWER(MAX(username)) ASC
+        LIMIT 20\`
+    );
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({
+      success: true,
+      leaderboard: result.rows.map((row: any, index: number) => ({
+        rank: index + 1,
+        userId: row.user_id,
+        username: row.username,
+        bestScore: Number(row.best_score) || 0,
+        gamesPlayed: Number(row.games_played) || 0,
+      })),
+    });
+  } catch (error: any) {
+    console.error('[GuessTrack] Leaderboard error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load the leaderboard.' });
+  }
+});
+
+app.post('/api/games/guess-track/start', async (req: Request, res: Response) => {
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    if (!(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent game database is unavailable. No game was started.' });
+    }
+
+    const storedSongs = await getSongsPersistentDb();
+    const playableSongs = (storedSongs as any[]).filter((song) => {
+      const audioUrl = typeof song.audioUrl === 'string' ? song.audioUrl.trim() : '';
+      const hiddenFrom = Array.isArray(song.hiddenFrom) ? song.hiddenFrom : [];
+      return !!song.id
+        && !!song.title
+        && !!song.artist
+        && !!audioUrl
+        && !audioUrl.startsWith('data:')
+        && !song.isScheduledForDeletion
+        && !song.isDroppingSoon
+        && (account.isAdmin || !hiddenFrom.includes(account.uid));
+    });
+
+    if (playableSongs.length < 4) {
+      return res.status(409).json({
+        success: false,
+        error: 'The game needs at least four playable tracks in your YouSong library.',
+      });
+    }
+
+    const selectedAnswers = shuffleSongGame(playableSongs).slice(0, Math.min(10, playableSongs.length));
+    const rounds: SongGuessRoundRecord[] = selectedAnswers.map((answer: any) => {
+      const distractors = shuffleSongGame(playableSongs.filter((song: any) => song.id !== answer.id)).slice(0, 3);
+      const options = shuffleSongGame([answer, ...distractors]).map((song: any) => ({
+        id: String(song.id),
+        title: String(song.title),
+        artist: String(song.artist),
+      }));
+      return {
+        answer: {
+          id: String(answer.id),
+          title: String(answer.title),
+          artist: String(answer.artist),
+          audioUrl: String(answer.audioUrl),
+          coverUrl: String(answer.coverUrl || ''),
+        },
+        options,
+      };
+    });
+
+    const sessionId = randomBytes(18).toString('hex');
+    await createPool().query(
+      'DELETE FROM song_guess_sessions WHERE user_id = $1 AND completed = false',
+      [account.uid]
+    );
+    await createPool().query(
+      \`INSERT INTO song_guess_sessions (id, user_id, username, rounds)
+       VALUES ($1, $2, $3, $4::jsonb)\`,
+      [sessionId, account.uid, account.username, JSON.stringify(rounds)]
+    );
+
+    return res.json({
+      success: true,
+      sessionId,
+      score: 0,
+      round: songGuessRoundPayload(rounds[0], 0, rounds.length),
+    });
+  } catch (error: any) {
+    console.error('[GuessTrack] Could not start game:', error);
+    return res.status(500).json({ success: false, error: 'Could not start a new game. Please try again.' });
+  }
+});
+
+app.post('/api/games/guess-track/guess', async (req: Request, res: Response) => {
+  let client: any;
+  let transactionOpen = false;
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    const sessionId = String(req.body?.sessionId || '').trim();
+    const songId = String(req.body?.songId || '').trim();
+    const skip = req.body?.skip === true;
+    if (!sessionId || (!skip && !songId)) {
+      return res.status(400).json({ success: false, error: 'Choose a track or reveal more audio.' });
+    }
+
+    client = await createPool().connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const found = await client.query(
+      'SELECT * FROM song_guess_sessions WHERE id = $1 FOR UPDATE',
+      [sessionId]
+    );
+    const session = found.rows[0];
+    if (!session || session.user_id !== account.uid) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ success: false, error: 'Game session not found.' });
+    }
+    if (session.completed || session.round_solved) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(409).json({ success: false, error: 'This round is already finished.' });
+    }
+
+    const rounds = Array.isArray(session.rounds) ? session.rounds : [];
+    const round = rounds[Number(session.current_round)];
+    if (!round?.answer?.id || !Array.isArray(round.options)) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(500).json({ success: false, error: 'The saved game round is invalid.' });
+    }
+    const optionIds = round.options.map((option: any) => String(option.id));
+    if (!skip && !optionIds.includes(songId)) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(400).json({ success: false, error: 'That choice is not part of this round.' });
+    }
+
+    const previousAttempts = Math.max(0, Number(session.round_attempts) || 0);
+    const correct = !skip && songId === String(round.answer.id);
+    const nextAttempts = correct ? previousAttempts : previousAttempts + 1;
+    const solved = correct || nextAttempts >= SONG_GUESS_CLIP_SECONDS.length;
+    const points = correct ? SONG_GUESS_POINTS[Math.min(previousAttempts, SONG_GUESS_POINTS.length - 1)] : 0;
+    const nextScore = (Number(session.score) || 0) + points;
+
+    await client.query(
+      \`UPDATE song_guess_sessions
+          SET round_attempts = $2, round_solved = $3, score = $4
+        WHERE id = $1\`,
+      [sessionId, nextAttempts, solved, nextScore]
+    );
+    await client.query('COMMIT');
+    transactionOpen = false;
+
+    return res.json({
+      success: true,
+      correct,
+      solved,
+      points,
+      score: nextScore,
+      attempts: nextAttempts,
+      clipSeconds: SONG_GUESS_CLIP_SECONDS[Math.min(nextAttempts, SONG_GUESS_CLIP_SECONDS.length - 1)],
+      revealSong: solved ? round.answer : null,
+    });
+  } catch (error: any) {
+    if (client && transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch {}
+    }
+    console.error('[GuessTrack] Guess error:', error);
+    return res.status(500).json({ success: false, error: 'Your guess could not be saved. Please try again.' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+app.post('/api/games/guess-track/next', async (req: Request, res: Response) => {
+  let client: any;
+  let transactionOpen = false;
+  try {
+    const account = await getSongGameAccount(req, res);
+    if (!account) return;
+    const sessionId = String(req.body?.sessionId || '').trim();
+    if (!sessionId) return res.status(400).json({ success: false, error: 'Game session is required.' });
+
+    client = await createPool().connect();
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const found = await client.query(
+      'SELECT * FROM song_guess_sessions WHERE id = $1 FOR UPDATE',
+      [sessionId]
+    );
+    const session = found.rows[0];
+    if (!session || session.user_id !== account.uid) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ success: false, error: 'Game session not found.' });
+    }
+    if (session.completed) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(409).json({ success: false, error: 'This game has already been completed.' });
+    }
+    if (!session.round_solved) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(409).json({ success: false, error: 'Finish the current round before continuing.' });
+    }
+
+    const rounds = Array.isArray(session.rounds) ? session.rounds : [];
+    const nextIndex = Number(session.current_round) + 1;
+    if (nextIndex >= rounds.length) {
+      await client.query(
+        'UPDATE song_guess_sessions SET completed = true, completed_at = NOW() WHERE id = $1',
+        [sessionId]
+      );
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return res.json({ success: true, completed: true, score: Number(session.score) || 0 });
+    }
+
+    await client.query(
+      \`UPDATE song_guess_sessions
+          SET current_round = $2, round_attempts = 0, round_solved = false
+        WHERE id = $1\`,
+      [sessionId, nextIndex]
+    );
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return res.json({
+      success: true,
+      completed: false,
+      round: songGuessRoundPayload(rounds[nextIndex], nextIndex, rounds.length),
+    });
+  } catch (error: any) {
+    if (client && transactionOpen) {
+      try { await client.query('ROLLBACK'); } catch {}
+    }
+    console.error('[GuessTrack] Next round error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load the next round.' });
+  } finally {
+    if (client) client.release();
+  }
+});
+
 // ----------------- SONGS -----------------
 app.get('/api/songs', async (req: Request, res: Response) => {
   try {
