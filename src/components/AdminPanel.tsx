@@ -17,6 +17,7 @@ import {
   Shield,
   Hash,
   Music,
+  Gamepad2,
   Users,
   UserCheck,
   UserX,
@@ -112,6 +113,7 @@ export const AdminPanel: React.FC = () => {
   const [editDailyListenLimit, setEditDailyListenLimit] = useState('');
   const [editChatBlocked, setEditChatBlocked] = useState(false);
   const [editChristmasMode, setEditChristmasMode] = useState(false);
+  const [editGamesEnabled, setEditGamesEnabled] = useState(false);
   const [editIsSuspended, setEditIsSuspended] = useState(false);
   const [editSuspendedReason, setEditSuspendedReason] = useState('');
   const [userEditFeedback, setUserEditFeedback] = useState<string | null>(null);
@@ -248,6 +250,7 @@ export const AdminPanel: React.FC = () => {
       dailyListenLimit: editDailyListenLimit.trim() === '' ? null : Number(editDailyListenLimit),
       chatBlocked: editChatBlocked,
       christmasMode: editChristmasMode,
+      gamesEnabled: editGamesEnabled,
       isSuspended: editIsSuspended,
       suspendedReason: editIsSuspended ? (editSuspendedReason.trim() || 'Suspended by Administrator') : '',
     });
@@ -1187,6 +1190,7 @@ export const AdminPanel: React.FC = () => {
                               setEditDailyListenLimit(u.dailyListenLimit == null ? '' : String(u.dailyListenLimit));
                               setEditChatBlocked(!!u.chatBlocked);
                               setEditChristmasMode(!!u.christmasMode);
+                              setEditGamesEnabled(!!u.gamesEnabled);
                               setEditIsSuspended(!!u.isSuspended);
                               setEditSuspendedReason(u.suspendedReason || '');
                             }}
@@ -1388,6 +1392,30 @@ export const AdminPanel: React.FC = () => {
                       aria-label="Enable Christmas effects for this user"
                     >
                       <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${editChristmasMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3.5 py-3">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-violet-400/25 bg-violet-400/10 text-violet-300">
+                        <Gamepad2 className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs font-bold text-white">Games access</span>
+                        <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-300">
+                          Let this account open the Games tab and play the YouSong track-guessing game.
+                        </span>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={editGamesEnabled}
+                      onClick={() => setEditGamesEnabled((value) => !value)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${editGamesEnabled ? 'bg-violet-500' : 'bg-slate-700'}`}
+                      aria-label="Enable games for this user"
+                    >
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${editGamesEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
                   </div>
 
