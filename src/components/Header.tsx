@@ -308,13 +308,15 @@ export const Header: React.FC<HeaderProps> = ({
                     onClick={() => setActiveTab('games')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
                       activeTab === 'games'
-                        ? 'bg-violet-600 text-white shadow-sm border border-violet-400/50'
-                        : 'text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-600/15'
+                        ? 'bg-gradient-to-r from-amber-300 via-yellow-100 to-slate-300 text-slate-950 shadow-sm border border-amber-200/70'
+                        : 'text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200/25'
                     }`}
-                    title="Play YouSong games"
+                    title="VIP exclusive beta games"
                   >
                     <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
                     <span>Games</span>
+                    <span className="rounded bg-amber-200 px-1 py-0.5 text-[7px] font-black leading-none text-slate-950">BETA</span>
+                    <span className="text-[8px] font-black tracking-wider text-slate-500 dark:text-slate-300">VIP</span>
                   </button>
                 )}
 
@@ -483,12 +485,12 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => setActiveTab('games')}
                 className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
                   activeTab === 'games'
-                    ? 'bg-violet-600 text-white shadow-sm'
-                    : 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300'
+                    ? 'bg-gradient-to-r from-amber-300 via-yellow-100 to-slate-300 text-slate-950 shadow-sm border border-amber-200/70'
+                    : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 border border-amber-200/25'
                 }`}
               >
                 <Gamepad2 className="w-3.5 h-3.5" />
-                Games
+                Games <span className="rounded bg-amber-200 px-1 py-0.5 text-[7px] font-black text-slate-950">BETA</span> <span className="text-[8px] font-black text-slate-500 dark:text-slate-300">VIP</span>
               </button>
             )}
             {isAdmin && (
