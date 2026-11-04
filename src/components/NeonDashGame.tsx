@@ -418,7 +418,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const restartLevel = () => { stopAudio(); void startLevel(); };
-  const returnToCatalogue = () => { stopAudio(); setPhase('catalogue'); setGameError(''); };
+  const returnToCatalogue = () => { stopAudio(); activeSongRef.current = null; setPhase('catalogue'); setGameError(''); };
 
   useEffect(() => {
     const canvas = canvasRef.current, ctx = canvas?.getContext('2d');
@@ -488,7 +488,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           }
         }
       }
-      drawScene(ctx, activeSongRef.current || selectedSong, playheadRef.current, progressRef.current, playerRef.current, obstaclesRef.current, speedRef.current, palette, phaseRef.current, now / 1000);
+      drawScene(ctx, (phaseRef.current === 'catalogue' || phaseRef.current === 'loading') ? selectedSong : (activeSongRef.current || selectedSong), playheadRef.current, progressRef.current, playerRef.current, obstaclesRef.current, speedRef.current, palette, phaseRef.current, now / 1000);
       // Render the start / result states with a cinematic title band.
       if (phaseRef.current === 'catalogue' || phaseRef.current === 'loading') {
         ctx.fillStyle = 'rgba(5,8,25,.72)'; ctx.fillRect(0, 0, W, H);
@@ -506,7 +506,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   return (
     <div className="mx-auto max-w-6xl space-y-4 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button onClick={returnToCatalogue} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#10162a] px-3 py-2 text-xs font-bold text-slate-200"><ArrowLeft className="h-4 w-4"/> VIP Arcade</button>
+        <button onClick={() => { stopAudio(); onBack(); }} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#10162a] px-3 py-2 text-xs font-bold text-slate-200"><ArrowLeft className="h-4 w-4"/> VIP Arcade</button>
         <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.18em] text-cyan-100">GEOMETRY DASH · SONG LEVELS</span>
       </div>
       <section className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-[#090f24] text-white shadow-2xl">
@@ -521,7 +521,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <div className="border-t border-white/10 bg-black/20 p-4 sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-black text-white">Choose a YouSong level</div><p className="mt-1 text-[10px] text-slate-400">Only Game Approved tracks appear here. The game analyzes the audio, then places fair obstacles on its beat grid.</p></div><span className="rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-[10px] font-bold text-cyan-100">{songs.length} approved tracks</span></div>
             <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search approved songs…" className="w-full rounded-xl border border-white/10 bg-[#0b1228] py-2.5 pl-9 pr-3 text-xs text-white outline-none focus:border-cyan-300/50"/></div>
-            {phase==='loading' ? <div className="p-7 text-center text-xs text-cyan-200">{loadingMessage}</div> : loadingSongs ? <div className="p-7 text-center text-xs text-slate-400">Loading approved songs…</div> : !filteredSongs.length ? <div className="p-7 text-center text-xs text-slate-400">{catalogueError || 'No Game Approved songs are available yet. Ask an admin to approve songs in Games.'}</div> : <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">{filteredSongs.map(song=><button key={song.id} type="button" onClick={()=>setSelectedSongId(song.id)} className={'flex items-center gap-3 rounded-2xl border p-3 text-left transition '+(selectedSongId===song.id?'border-cyan-300/60 bg-cyan-300/10':'border-white/10 bg-white/[.025] hover:bg-white/[.06]')}><div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-800">{song.coverUrl&&<img src={song.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy"/>}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-white">{song.title}</div><div className="truncate text-[10px] text-slate-400">{song.artist}</div><div className="mt-1 flex gap-2 text-[9px] font-bold text-cyan-200"><span>{song.gameBpm} BPM</span><span>·</span><span>{Math.round(song.duration)} SEC</span></div></div>{selectedSongId===song.id&&<CheckCircle2 className="h-4 w-4 shrink-0 text-cyan-300"/>}</button>)}</div>}
+            {phase==='loading' ? <div className="p-7 text-center text-xs text-cyan-200">{loadingMessage}</div> : loadingSongs ? <div className="p-7 text-center text-xs text-slate-400">Loading approved songs…</div> : !filteredSongs.length ? <div className="p-7 text-center text-xs text-slate-400">{catalogueError || 'No Game Approved songs are available yet. Ask an admin to approve songs in Games.'}</div> : <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2">{filteredSongs.map(song=><button key={song.id} type="button" onClick={()=>{activeSongRef.current=null;setSelectedSongId(song.id);}} className={'flex items-center gap-3 rounded-2xl border p-3 text-left transition '+(selectedSongId===song.id?'border-cyan-300/60 bg-cyan-300/10':'border-white/10 bg-white/[.025] hover:bg-white/[.06]')}><div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-800">{song.coverUrl&&<img src={song.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy"/>}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-white">{song.title}</div><div className="truncate text-[10px] text-slate-400">{song.artist}</div><div className="mt-1 flex gap-2 text-[9px] font-bold text-cyan-200"><span>{song.gameBpm} BPM</span><span>·</span><span>{Math.round(song.duration)} SEC</span></div></div>{selectedSongId===song.id&&<CheckCircle2 className="h-4 w-4 shrink-0 text-cyan-300"/>}</button>)}</div>}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><div className="flex gap-1.5">{DIFFICULTIES.map(mode=><button key={mode.id} onClick={()=>setDifficulty(mode.id)} className={'rounded-lg px-3 py-2 text-[10px] font-black '+(difficulty===mode.id?'bg-cyan-300 text-slate-950':'bg-white/5 text-slate-400')}>{mode.label}</button>)}</div><button onClick={()=>void startLevel()} disabled={!selectedSong||phase==='loading'||loadingSongs} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-300 to-blue-400 px-5 py-3 text-xs font-black text-slate-950 disabled:opacity-40"><Play className="h-4 w-4"/> Build & play level</button></div>
             {gameError&&<p className="mt-3 text-xs font-semibold text-rose-300">{gameError}</p>}
           </div>
