@@ -3,7 +3,6 @@ import { ArrowLeft, ArrowRight, AudioLines, Crown, Gamepad2, Headphones, Music2,
 import { Song } from '../types';
 import { GuessTrackGame } from './GuessTrackGame';
 import { RhythmGame } from './RhythmGame';
-import { NeonDashGame } from './NeonDashGame';
 import { ExternalGameEmbed } from './ExternalGameEmbed';
 
 type SelectedGame = 'menu' | 'guess' | 'rhythm' | 'retro' | 'dash' | 'crossy';
@@ -140,14 +139,14 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
   const returnToMenu = () => setSelectedGame('menu');
   if (selectedGame === 'guess') return <div className="space-y-4">{backButton(returnToMenu)}<GuessTrackGame/></div>;
   if (selectedGame === 'rhythm') return <div className="space-y-4">{backButton(returnToMenu)}<RhythmGame/></div>;
-  if (selectedGame === 'retro') return <ExternalGameEmbed title="Retro Bowl" url="https://poki.com/en/g/retro-bowl" controls="Drag to aim and release to throw. Use W/S to dodge and A to dive." onBack={returnToMenu}/>;
-  if (selectedGame === 'dash') return <NeonDashGame onBack={returnToMenu}/>;
-  if (selectedGame === 'crossy') return <ExternalGameEmbed title="Crossy Road" url="https://poki.com/en/g/crossy-road" controls="Use arrow keys or WASD to move. On touchscreens, tap or swipe to hop." onBack={returnToMenu}/>;
+  if (selectedGame === 'retro') return <ExternalGameEmbed title="Retro Bowl" url="https://www.miniplay.com/embed/retro-bowl" controls="Use the game’s on-screen or keyboard controls to manage your team and play offense." onBack={returnToMenu}/>;
+  if (selectedGame === 'dash') return <ExternalGameEmbed title="Geometry Dash" url="https://www.miniplay.com/embed/geometry-dash-online" controls="Click, tap, or press Space to jump. This is a hosted Geometry Dash browser version." onBack={returnToMenu}/>;
+  if (selectedGame === 'crossy') return <ExternalGameEmbed title="Crossy Road" url="https://www.miniplay.com/embed/crossy-road" controls="Use the arrow keys or controller to move. On touchscreens, tap or swipe to hop." onBack={returnToMenu}/>;
 
   const cards = [
-    { id:'retro' as const, title:'Retro Bowl', subtitle:'HOSTED ON POKI', genre:'FOOTBALL · NEW STAR GAMES', desc:'Play the established browser version of Retro Bowl, including its original team management and on-field gameplay.', color:'amber', keys:'EXTERNAL HOSTED GAME', icon:<Trophy className="h-6 w-6"/> },
-    { id:'dash' as const, title:'Geometry Dash', subtitle:'NEON DASH', genre:'PRECISION PLATFORMER', desc:'A fast one-button platform challenge. Jump spikes, clear blocks, use aerial boosts, and master three escalating stages.', color:'fuchsia', keys:'TIMING + REACTION', icon:<Zap className="h-6 w-6"/> },
-    { id:'crossy' as const, title:'Crossy Road', subtitle:'HOSTED ON POKI', genre:'ARCADE · HIPSTER WHALE', desc:'Play the established Crossy Road browser game with its original traffic-crossing gameplay.', color:'lime', keys:'EXTERNAL HOSTED GAME', icon:<ArrowRight className="h-6 w-6"/> },
+    { id:'retro' as const, title:'Retro Bowl', subtitle:'EMBEDDED BROWSER GAME', genre:'FOOTBALL · NEW STAR GAMES', desc:'Play Retro Bowl directly inside YouSong using the hosted browser-game player.', color:'amber', keys:'IN-PAGE EMBED', icon:<Trophy className="h-6 w-6"/> },
+    { id:'dash' as const, title:'Geometry Dash', subtitle:'EMBEDDED BROWSER GAME', genre:'RHYTHM PLATFORMER', desc:'Play a hosted Geometry Dash browser version directly inside YouSong.', color:'fuchsia', keys:'IN-PAGE EMBED', icon:<Zap className="h-6 w-6"/> },
+    { id:'crossy' as const, title:'Crossy Road', subtitle:'EMBEDDED BROWSER GAME', genre:'ARCADE · HIPSTER WHALE', desc:'Play Crossy Road directly inside YouSong using the hosted browser-game player.', color:'lime', keys:'IN-PAGE EMBED', icon:<ArrowRight className="h-6 w-6"/> },
     { id:'guess' as const, title:'Guess the Track', subtitle:'YOUSONG MUSIC QUIZ', genre:'MUSIC TRIVIA', desc:'Hear short clips from approved YouSong tracks, identify the song, and compete for the highest score.', color:'silver', keys:'10 ROUNDS · LEADERBOARD', icon:<Headphones className="h-6 w-6"/> },
     { id:'rhythm' as const, title:'Rhythm Battle', subtitle:'FOUR-LANE RHYTHM', genre:'MUSIC ACTION', desc:'Play falling-note charts synced to the detected beat of Game Approved songs. Choose Easy, Normal, or Hard.', color:'gold', keys:'BPM-SYNCED GAMEPLAY', icon:<AudioLines className="h-6 w-6"/> },
   ];
