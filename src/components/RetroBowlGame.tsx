@@ -30,6 +30,8 @@ const DEFAULT_ROSTER = [
   { id:'ol', name:'Leo Grant', position:'OL', rating:3, number:66 },
   { id:'db', name:'Evan Reed', position:'DB', rating:3, number:24 },
   { id:'lb', name:'Marcus Fox', position:'LB', rating:3, number:55 },
+  { id:'db', name:'Evan Reed', position:'CB', rating:3, number:24 },
+  { id:'k', name:'Owen Wells', position:'K', rating:3, number:5 },
 ];
 function normalizeRoster(roster: any) {
   return DEFAULT_ROSTER.map(base => {
@@ -224,7 +226,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     setKickReady(false);
     const distance=100-ballYard+17;
     const timing=1-Math.abs(kickMeter-73)/100;
-    const accuracy=clamp(.79-(distance-20)*.009+(franchise.offense-2)*.04+timing*.16,.18,.96);
+    const accuracy=clamp(.76-(distance-20)*.009+(franchise.offense-2)*.035+(getRating('k')-3)*.055+timing*.19,.15,.97);
     consumeClock(5);
     if(Math.random()<accuracy){setHomeScore(value=>value+3);saveFranchise({...franchise,fieldGoals:(franchise.fieldGoals||0)+1,coins:franchise.coins+10});setLastPlay('FIELD GOAL GOOD · '+distance+' YARDS');setMessage('THREE POINTS! The kick is through.');}
     else{setLastPlay('FIELD GOAL MISSED · '+distance+' YARDS');setMessage('NO GOOD · The visitors take over.');}
@@ -241,10 +243,10 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     if(possession!=='away'||gameOver||paused)return;
     setSelectedDefense(call);
     const rand=seededRandom(Date.now()+cpuYard*15+cpuDown*9+awayScore);
-    const base=5.8+rand()*8.5+Math.max(0,franchise.offense-3)*.7-franchise.defense*1.5;
+    const base=5.8+rand()*8.5-franchise.defense*1.5-getRating('db')*.45-getRating('lb')*.35;
     const modifier=call==='blitz'?1.7:call==='zone'?-1.1:0;
     const sackChance=call==='blitz'?.24:call==='man'?.12:.07;
-    const turnoverChance=call==='blitz'?.12:call==='zone'?.16:.09;
+    const turnoverChance=(call==='blitz'?.11:call==='zone'?.14:.08)+getRating('db')*.012+getRating('lb')*.006;
     const sack=rand()<sackChance;
     const turnover=!sack&&rand()<turnoverChance;
     const gain=sack?-Math.floor(2+rand()*5):turnover?0:Math.max(0,Math.round(base+modifier));
@@ -285,10 +287,16 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
 
   const completeMatch=()=>{
     const won=homeScore>awayScore;
-    setSeasonRecord(won?'WIN':'LOSS');
-    saveFranchise({...franchise,team:teamName,wins:franchise.wins+(won?1:0),losses:franchise.losses+(won?0:1),week:franchise.week+1,coins:franchise.coins+(won?45:20)});
+    const tied=homeScore===awayScore;
+    setSeasonRecord(won?'WIN':tied?'TIE':'LOSS');
+    saveFranchise({...franchise,team:teamName,wins:franchise.wins+(won?1:0),losses:franchise.losses+(!won&&!tied?1:0),ties:(franchise.ties||0)+(tied?1:0),week:franchise.week+1,coins:franchise.coins+(won?45:20)});
     setView('frontoffice');setGameOver(false);setPaused(false);
   };
+  useEffect(()=>{
+    if(!gameOver)return;
+    setFinalResult(homeScore>awayScore?'VICTORY':homeScore<awayScore?'DEFEAT':'TIE GAME');
+  },[gameOver,homeScore,awayScore]);
+
   const startMatch=()=>{
     setHomeScore(0);setAwayScore(0);setQuarter(1);setClock(60);setBallYard(25);setYardsToGo(10);setDown(1);
     setPossession('home');setCpuYard(25);setCpuDown(1);setCpuToGo(10);setGameOver(false);setPaused(false);
@@ -380,7 +388,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           if(play.carrier.x>=GOAL_RIGHT-8)finishPlay(gain,'TOUCHDOWN! '+Math.max(1,gain)+' YARDS.',false,true);
           if(play.elapsed>8.5)finishPlay(gain,'WHISTLE · '+gain+' YARDS');
         }
-        if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'&&play.elapsed>5.5)finishPlay(-4,'SACK · THE QUARTERBACK HELD THE BALL TOO LONG.');
+        if(play.phase==='live'&&play.type!=='run'&&play.elapsed>5.5)finishPlay(-4,'SACK · THE QUARTERBACK HELD THE BALL TOO LONG.');
         runnerX=play.carrier.x;
       }
       if(play&&active&&play.phase==='result')runnerX=play.carrier.x;
