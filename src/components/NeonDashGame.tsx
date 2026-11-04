@@ -399,7 +399,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       // Render the start / result states with a cinematic title band.
       if (phaseRef.current === 'catalogue' || phaseRef.current === 'loading') {
         ctx.fillStyle = 'rgba(5,8,25,.72)'; ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#fff'; ctx.font = '900 34px system-ui'; ctx.textAlign = 'center'; ctx.fillText('SONG LEVEL', W / 2, H / 2 - 8); ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff'; ctx.font = '900 34px system-ui'; ctx.textAlign = 'center'; ctx.fillText('GEOMETRY DASH', W / 2, H / 2 - 8); ctx.textAlign = 'left';
       }
       rafRef.current = requestAnimationFrame(frame);
     };
@@ -414,11 +414,11 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     <div className="mx-auto max-w-6xl space-y-4 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button onClick={returnToCatalogue} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#10162a] px-3 py-2 text-xs font-bold text-slate-200"><ArrowLeft className="h-4 w-4"/> VIP Arcade</button>
-        <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.18em] text-cyan-100">SONG-DRIVEN GEOMETRY</span>
+        <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.18em] text-cyan-100">GEOMETRY DASH · SONG LEVELS</span>
       </div>
       <section className="overflow-hidden rounded-[28px] border border-cyan-300/20 bg-[#090f24] text-white shadow-2xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 p-4 sm:p-5">
-          <div><div className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-300">Every approved track gets its own level</div><h2 className="mt-1 text-2xl font-black sm:text-3xl">SONG DASH</h2><p className="mt-1 text-xs text-slate-400">The beat sets the pace. Obstacles are placed on the song's beat grid.</p></div>
+          <div><div className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-300">Every approved track gets its own level</div><h2 className="mt-1 text-2xl font-black sm:text-3xl">GEOMETRY DASH</h2><p className="mt-1 text-xs text-slate-400">The beat sets the pace. Obstacles are placed on the song's beat grid.</p></div>
           <button onClick={()=>setSoundOn(v=>!v)} className="rounded-xl border border-white/10 p-2 text-slate-300" title="Toggle game sound effects">{soundOn?<Volume2 className="h-4 w-4"/>:<VolumeX className="h-4 w-4"/>}</button>
         </div>
         <div className="p-2 sm:p-4">
