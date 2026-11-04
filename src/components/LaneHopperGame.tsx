@@ -187,10 +187,12 @@ export const LaneHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const moveLockRef = useRef(false);
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
   const soundCtx = useRef<AudioContext | null>(null);
+  const soundOnRef = useRef(soundOn);
+  soundOnRef.current = soundOn;
 
   const setPhase = (phase: 'menu' | 'playing' | 'paused' | 'over') => { phaseRef.current = phase; setPhaseState(phase); };
   const playTone = (frequency: number, duration = .08) => {
-    if (!soundOn) return;
+    if (!soundOnRef.current) return;
     try {
       const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
       if (!soundCtx.current) soundCtx.current = new AudioContextCtor();
@@ -213,7 +215,7 @@ export const LaneHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
   const endGame = useCallback(() => {
     const world = worldRef.current;
-    if (!world) return;
+    if (!world || phaseRef.current !== 'playing') return;
     setPhase('over');
     const nextBest = Math.max(best, world.bestRow);
     setBest(nextBest);
