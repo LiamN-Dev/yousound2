@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, AudioLines, CheckCircle2, Crown, Music2, Pause, Play, RotateCcw, Search, Sparkles, Trophy, Volume2, VolumeX, Zap } from 'lucide-react';
 
 type Difficulty = 'easy' | 'normal' | 'hard';
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 type Phase = 'catalogue' | 'loading' | 'playing' | 'paused' | 'dead' | 'complete';
 type Song = { id: string; title: string; artist: string; audioUrl: string; coverUrl: string; duration: number; gameBpm: number; gameBeatOffsetMs: number; };
 type ObstacleType = 'spike' | 'double' | 'block' | 'gap' | 'orb';
