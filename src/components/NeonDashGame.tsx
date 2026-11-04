@@ -260,6 +260,11 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     } catch {}
   };
 
+  useEffect(() => () => {
+    audioRef.current?.pause();
+    if (soundRef.current) void soundRef.current.close().catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setLoadingSongs(true);
