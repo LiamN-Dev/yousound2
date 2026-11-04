@@ -121,7 +121,7 @@ function drawWorld(ctx: CanvasRenderingContext2D, world: HopperWorld, now: numbe
     const y = (row - cameraY) * TILE_H;
     if (lane.kind === 'grass') {
       for (let col = 0; col < COLS; col++) drawGrass(ctx, BOARD_X + col * TILE_W, y, row * 31 + col);
-      if (row > 0 && row % 6 === 2 && !world.collected.has(row)) {
+      if (row > 0 && row % 6 === 2 && !world.collected.has(row * COLS + Math.floor(random01(row + 99) * COLS))) {
         const coinX = BOARD_X + ((Math.floor(random01(row + 99) * COLS)) * TILE_W) + TILE_W / 2;
         const pulse = 1 + Math.sin(now / 150) * .08;
         ctx.save(); ctx.translate(coinX, y + TILE_H / 2); ctx.scale(pulse, 1);
@@ -147,15 +147,11 @@ function drawWorld(ctx: CanvasRenderingContext2D, world: HopperWorld, now: numbe
       ctx.fillStyle = '#d1d7db'; ctx.fillRect(BOARD_X, y + 12, BOARD_W, 4); ctx.fillRect(BOARD_X, y + 51, BOARD_W, 4);
       ctx.fillStyle = '#8d979f'; for (let x = BOARD_X + 5; x < BOARD_X + BOARD_W; x += 25) ctx.fillRect(x, y + 8, 5, 51);
       ctx.fillStyle = '#404a55'; ctx.fillRect(BOARD_X, y + 6, BOARD_W, 3); ctx.fillRect(BOARD_X, y + 58, BOARD_W, 3);
-      if (!lane.trainActive && now >= lane.nextTrainAt && !lane.trainWarningAt) lane.trainWarningAt = now + 1800;
       if (lane.trainWarningAt && now < lane.trainWarningAt) {
         ctx.fillStyle = Math.sin(now / 95) > 0 ? '#ed453e' : '#fff0a7'; ctx.beginPath(); ctx.arc(BOARD_X + 25, y + 32, 7, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#fff0a7'; ctx.font = 'bold 10px monospace'; ctx.fillText('TRAIN APPROACHING', BOARD_X + 42, y + 36);
-      } else if (lane.trainWarningAt && now >= lane.trainWarningAt && !lane.trainActive) {
-        lane.trainActive = true; lane.trainX = lane.direction > 0 ? -390 : BOARD_W + 390;
       }
       if (lane.trainActive) {
-        lane.trainX += lane.direction * 740 * (1 / 60);
         const trainX = BOARD_X + lane.trainX;
         ctx.fillStyle = 'rgba(0,0,0,.28)'; roundedRect(ctx, trainX + 8, y + 15, 390, 42, 7); ctx.fill();
         for (let car = 0; car < 4; car++) {
@@ -278,40 +274,41 @@ export const LaneHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         world.visualX += (world.x - world.visualX) * Math.min(1, dt * 17);
         world.visualRow += (world.row - world.visualRow) * Math.min(1, dt * 17);
         const cameraY = Math.max(-4, world.visualRow - 4.25);
+        // Animate every lane in the camera window, not just the lane the hopper occupies.
+        for (let row = Math.floor(cameraY) - 1; row <= Math.floor(cameraY) + 10; row++) {
+          const visibleLane = world.lanes.get(row);
+          if (!visibleLane) continue;
+          if (visibleLane.kind === 'road' || visibleLane.kind === 'river') {
+            for (const obj of visibleLane.objects) {
+              obj.x += visibleLane.direction * visibleLane.speed * dt;
+              if (obj.x > BOARD_W + 230) obj.x = -obj.width - 90;
+              if (obj.x < -obj.width - 230) obj.x = BOARD_W + 90;
+            }
+          } else if (visibleLane.kind === 'rail') {
+            if (!visibleLane.trainActive && now >= visibleLane.nextTrainAt && !visibleLane.trainWarningAt) visibleLane.trainWarningAt = now + 1800;
+            if (visibleLane.trainWarningAt && now >= visibleLane.trainWarningAt && !visibleLane.trainActive) {
+              visibleLane.trainActive = true; visibleLane.trainX = visibleLane.direction > 0 ? -390 : BOARD_W + 390;
+            }
+            if (visibleLane.trainActive) {
+              visibleLane.trainX += visibleLane.direction * 740 * dt;
+              if ((visibleLane.direction > 0 && visibleLane.trainX > BOARD_W + 410) || (visibleLane.direction < 0 && visibleLane.trainX < -410)) {
+                visibleLane.trainActive = false; visibleLane.trainWarningAt = 0; visibleLane.nextTrainAt = now + 7500;
+              }
+            }
+          }
+        }
         const lane = world.lanes.get(world.row);
+        const playerX = world.x * TILE_W + TILE_W / 2;
         if (lane?.kind === 'road') {
-          for (const obj of lane.objects) {
-            obj.x += lane.direction * lane.speed * dt;
-            if (obj.x > BOARD_W + 230) obj.x = -obj.width - 90;
-            if (obj.x < -obj.width - 230) obj.x = BOARD_W + 90;
-            const playerX = world.x * TILE_W + TILE_W / 2;
-            if (playerX > obj.x - 14 && playerX < obj.x + obj.width + 14) endGame();
-          }
+          for (const obj of lane.objects) if (playerX > obj.x - 14 && playerX < obj.x + obj.width + 14) endGame();
         } else if (lane?.kind === 'river') {
-          for (const obj of lane.objects) {
-            obj.x += lane.direction * lane.speed * dt;
-            if (obj.x > BOARD_W + 230) obj.x = -obj.width - 90;
-            if (obj.x < -obj.width - 230) obj.x = BOARD_W + 90;
-          }
-          const playerX = world.x * TILE_W + TILE_W / 2;
           const support = lane.objects.find(obj => playerX >= obj.x + 3 && playerX <= obj.x + obj.width - 3);
           if (support) {
             world.x += lane.direction * lane.speed * dt / TILE_W;
             if (world.x < -.48 || world.x > COLS - .52) endGame();
           } else endGame();
-        } else if (lane?.kind === 'rail') {
-          if (!lane.trainActive && now >= lane.nextTrainAt && !lane.trainWarningAt) lane.trainWarningAt = now + 1800;
-          if (lane.trainWarningAt && now >= lane.trainWarningAt && !lane.trainActive) {
-            lane.trainActive = true; lane.trainX = lane.direction > 0 ? -390 : BOARD_W + 390;
-          }
-          if (lane.trainActive) {
-            lane.trainX += lane.direction * 740 * dt;
-            const playerX = world.x * TILE_W + TILE_W / 2;
-            if (playerX >= lane.trainX - 16 && playerX <= lane.trainX + 390) endGame();
-            if ((lane.direction > 0 && lane.trainX > BOARD_W + 410) || (lane.direction < 0 && lane.trainX < -410)) {
-              lane.trainActive = false; lane.trainWarningAt = 0; lane.nextTrainAt = now + 7500;
-            }
-          }
+        } else if (lane?.kind === 'rail' && lane.trainActive) {
+          if (playerX >= lane.trainX - 16 && playerX <= lane.trainX + 390) endGame();
         }
       }
       if (world) drawWorld(ctx, world, now);
