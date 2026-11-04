@@ -65,6 +65,7 @@ export const songs = pgTable('songs', {
   isChristmasEdition: boolean('is_christmas_edition').default(false),
   gameApproved: boolean('game_approved').notNull().default(false),
   gameBpm: integer('game_bpm').notNull().default(120),
+  gameBpmDetected: boolean('game_bpm_detected').notNull().default(false),
   hiddenFrom: jsonb('hidden_from').$type<string[]>(),
   isSpotlight: boolean('is_spotlight').default(false),
   spotlightOrder: integer('spotlight_order').default(0),
