@@ -186,12 +186,16 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
     if(playRef.current&&['live','ball','catch'].includes(playRef.current.phase))return;
     const startX=yardX(ballYard);
     const rand=seededRandom(franchise.week*991+Math.round(ballYard*7)+down*13+homeScore);
+    const roster=normalizeRoster(franchise.roster);
+    const wr1Rating=roster.find(player=>player.id==='wr1')?.rating||3;
+    const wr2Rating=roster.find(player=>player.id==='wr2')?.rating||3;
+    const rbRating=roster.find(player=>player.id==='rb')?.rating||3;
     const receivers:Receiver[]=[
-      {x:startX+(type==='screen'?-88:-12),y:type==='screen'?270:145,number:8,route:type==='screen'?0:-1,speed:type==='screen'?112:type==='deep'?180:132},
-      {x:startX-8,y:270,number:11,route:0,speed:type==='deep'?172:138},
-      {x:startX-12,y:395,number:18,route:1,speed:type==='deep'?166:128},
+      {x:startX+(type==='screen'?-88:-12),y:type==='screen'?270:145,number:8,route:type==='screen'?0:-1,speed:(type==='screen'?112:type==='deep'?180:132)+(type==='screen'?rbRating:wr1Rating)*5},
+      {x:startX-8,y:270,number:11,route:0,speed:(type==='deep'?172:138)+wr2Rating*5},
+      {x:startX-12,y:395,number:18,route:1,speed:128+(roster.find(player=>player.id==='te')?.rating||3)*5},
     ];
-    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:clamp(100+Math.floor(i*1.25)*48+rand()*12,FIELD_TOP+28,FIELD_BOTTOM-28),speed:80+rand()*34+franchise.defense*5,number:20+i,blocked:0}));
+    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:clamp(100+Math.floor(i*1.25)*48+rand()*12,FIELD_TOP+28,FIELD_BOTTOM-28),speed:80+rand()*34+franchise.defense*5+(roster.find(player=>player.id==='lb')?.rating||3)*2,number:20+i,blocked:0}));
     const blockers:Blocker[]=Array.from({length:5},(_,i)=>({x:startX-2+(i%2)*6,y:174+i*47,number:60+i,target:i%defenders.length}));
     const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:type==='run'?270:270,vx:0,vy:0,number:type==='screen'?24:22};
     const play:LivePlay={phase:'live',type,startX,startY:270,qb:{x:startX-48,y:270},carrier,receivers,defenders,blockers,ball:null,target:targetReceiver-1,ballThrown:false,turnover:false,message:type==='run'?'RUN · Follow your blockers and find the gap.':type==='screen'?'SCREEN · Hit the running back behind the line, then turn upfield.':'PASS · Select a receiver (1–3), then throw with SPACE.',elapsed:0};
@@ -313,7 +317,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           if(keysRef.current.arrowup||keysRef.current.w)carrier.vy-=accel;
           if(keysRef.current.arrowdown||keysRef.current.s)carrier.vy+=accel;
           const sprint=!!keysRef.current.shift;
-          const max=sprint?320+franchise.speed*18:220+franchise.speed*14;
+          const max=sprint?320+franchise.speed*18+getRating('rb')*12:220+franchise.speed*14+getRating('rb')*8;
           carrier.vx=clamp(carrier.vx,-95,max);carrier.vy=clamp(carrier.vy,-160,160);
           carrier.vx*=Math.pow(.86,dt*60);carrier.vy*=Math.pow(.84,dt*60);
           carrier.x=clamp(carrier.x+carrier.vx*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
@@ -346,7 +350,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           const defender=play.defenders[blocker.target];
           if(!defender)return;
           const dx=defender.x-blocker.x,dy=defender.y-blocker.y,len=Math.max(1,Math.hypot(dx,dy));
-          blocker.x+=dx/len*(68+franchise.offense*5)*dt;blocker.y+=dy/len*(68+franchise.offense*5)*dt;
+          blocker.x+=dx/len*(58+franchise.offense*4+getRating('ol')*5)*dt;blocker.y+=dy/len*(58+franchise.offense*4+getRating('ol')*5)*dt;
           if(Math.hypot(dx,dy)<35)defender.blocked=Math.max(defender.blocked,.22);
         });
         if(play.phase==='ball'&&play.ball){
@@ -359,7 +363,8 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
             const closest=play.defenders.reduce((best,d)=>Math.hypot(d.x-receiver.x,d.y-receiver.y)<Math.hypot(best.x-receiver.x,best.y-receiver.y)?d:best,play.defenders[0]);
             const pressure=closest?Math.hypot(closest.x-receiver.x,closest.y-receiver.y):200;
             const interception=pressure<27&&Math.random()<(.52+(3-franchise.offense)*.04);
-            const catchChance=clamp(.72+franchise.offense*.045-(play.type==='deep'?.13:0),.48,.96);
+            const targetId=play.type==='screen'?'rb':play.target===0?'wr1':play.target===1?'wr2':'te';
+            const catchChance=clamp(.58+franchise.offense*.025+getRating('qb')*.035+(getRating(targetId)-3)*.065-(play.type==='deep'?.15:0),.45,.97);
             if(interception){
               setPlayStats(s=>({...s,interceptions:s.interceptions+1}));finishPlay(0,'INTERCEPTION · THE DEFENSE READ THE ROUTE',true);
             }else if(Math.random()>catchChance){
@@ -465,6 +470,20 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           </section>
           <section className="grid gap-3 md:grid-cols-3">
             {([{key:'offense',label:'OFFENSE',sub:'Passing accuracy and blocking strength',icon:<Target className="h-5 w-5"/>,tone:'amber'},{key:'defense',label:'DEFENSE',sub:'Pressure, coverage and forced turnovers',icon:<Shield className="h-5 w-5"/>,tone:'rose'},{key:'speed',label:'SPEED',sub:'Ball-carrier acceleration and sprint speed',icon:<Zap className="h-5 w-5"/>,tone:'cyan'}] as const).map(item=><div key={item.key} className="rounded-2xl border border-white/10 bg-[#111d2d] p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-black text-white">{item.icon}{item.label}</div><span className="text-xl font-black text-amber-200">{franchise[item.key]}/5</span></div><p className="mt-2 min-h-8 text-[10px] leading-4 text-slate-400">{item.sub}</p><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-300 to-yellow-100" style={{width:franchise[item.key]*20+'%'}}/></div><button disabled={franchise[item.key]>=5||franchise.coins<35} onClick={()=>upgrade(item.key)} className="mt-3 w-full rounded-lg border border-amber-200/20 bg-amber-200/10 px-3 py-2 text-[10px] font-black text-amber-100 disabled:opacity-30">UPGRADE · 35 ✦</button></div>)}
+          </section>
+          <section className="rounded-3xl border border-amber-200/15 bg-[#111b2a] p-5 shadow-lg">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><div className="text-[9px] font-black uppercase tracking-[.22em] text-amber-200">Player development</div><h2 className="mt-1 text-xl font-black text-white">THE STARTING ROSTER</h2><p className="mt-1 text-[10px] text-slate-400">Improve individual players. Their ratings affect routes, catches, blocking, speed and defense.</p></div>
+              <span className="rounded-lg border border-amber-200/20 bg-amber-200/10 px-3 py-2 text-[10px] font-black text-amber-100">{normalizeRoster(franchise.roster).length} STARTERS · 25 ✦ PER UPGRADE</span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {normalizeRoster(franchise.roster).map(player=><div key={player.id} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="flex items-center justify-between gap-2"><span className="rounded-md bg-white/10 px-2 py-1 text-[8px] font-black tracking-wider text-slate-200">{player.position}</span><span className="font-mono text-[9px] text-slate-500">#{player.number}</span></div>
+                <div className="mt-2 truncate text-xs font-black text-white">{player.name}</div>
+                <div className="mt-2 flex items-center gap-1">{Array.from({length:5},(_,i)=><span key={i} className={'text-sm '+(i<player.rating?'text-amber-300':'text-slate-700')}>★</span>)}</div>
+                <button disabled={player.rating>=5||franchise.coins<25} onClick={()=>upgradePlayer(player.id)} className="mt-3 w-full rounded-lg border border-amber-200/20 bg-amber-200/10 px-2 py-2 text-[9px] font-black text-amber-100 disabled:opacity-30">{player.rating>=5?'MAX RATING':'TRAIN · 25 ✦'}</button>
+              </div>)}
+            </div>
           </section>
           <div className="rounded-2xl border border-white/10 bg-[#101a29] p-4 text-[10px] leading-5 text-slate-400">MATCH CONTROLS: WASD / ARROWS to move after the snap. Select a receiver with 1, 2, or 3, then SPACE to throw. SHIFT to sprint. Use defensive calls when the visitors have the ball.</div>
         </div>
