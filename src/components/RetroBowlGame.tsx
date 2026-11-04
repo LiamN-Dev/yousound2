@@ -154,7 +154,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
       {x:startX-8,y:270,number:11,route:0,speed:type==='deep'?172:138},
       {x:startX-12,y:395,number:18,route:1,speed:type==='deep'?166:128},
     ];
-    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:100+Math.floor(i*1.45)*48+rand()*12,speed:80+rand()*34+franchise.defense*5,number:20+i,blocked:0}));
+    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:clamp(100+Math.floor(i*1.25)*48+rand()*12,FIELD_TOP+28,FIELD_BOTTOM-28),speed:80+rand()*34+franchise.defense*5,number:20+i,blocked:0}));
     const blockers:Blocker[]=Array.from({length:5},(_,i)=>({x:startX-2+(i%2)*6,y:174+i*47,number:60+i,target:i%defenders.length}));
     const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:type==='run'?270:270,vx:0,vy:0,number:type==='screen'?24:22};
     const play:LivePlay={phase:'live',type,startX,startY:270,qb:{x:startX-48,y:270},carrier,receivers,defenders,blockers,ball:null,target:targetReceiver-1,ballThrown:false,turnover:false,message:type==='run'?'RUN · Follow your blockers and find the gap.':type==='screen'?'SCREEN · Let the rush flow, then release.':'PASS · Select a receiver (1–3), then throw with SPACE.',elapsed:0};
@@ -282,7 +282,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
           carrier.x=clamp(carrier.x+carrier.vx*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
           carrier.y=clamp(carrier.y+carrier.vy*dt,FIELD_TOP+30,FIELD_BOTTOM-25);
         }
-        if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'){
+        if((play.phase==='live'||play.phase==='ball')&&play.type!=='run'&&play.type!=='screen'){
           play.receivers.forEach((receiver,index)=>{
             receiver.x+=receiver.speed*dt;
             const direction=receiver.route===0?Math.sin(play.elapsed*2.7)*55:receiver.route*Math.min(135,play.elapsed*44);
@@ -331,7 +331,7 @@ export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
         }
         if(runPhase){
           const gain=Math.round((play.carrier.x-play.startX)/YARD_PX);
-          if(play.carrier.x>=GOAL_RIGHT-7)finishPlay(gain,'TOUCHDOWN! '+Math.max(1,gain)+' YARDS.',false,true);
+          if(play.carrier.x>=GOAL_RIGHT-8)finishPlay(gain,'TOUCHDOWN! '+Math.max(1,gain)+' YARDS.',false,true);
           if(play.elapsed>8.5)finishPlay(gain,'WHISTLE · '+gain+' YARDS');
         }
         if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'&&play.elapsed>5.5)finishPlay(-4,'SACK · THE QUARTERBACK HELD THE BALL TOO LONG.');
