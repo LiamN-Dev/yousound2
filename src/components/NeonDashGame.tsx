@@ -543,7 +543,7 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           </div>
         )}
       </section>
-      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#10162a] p-4"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-200"><AudioLines className="h-5 w-5"/></div><div><div className="text-xs font-black text-white">Beat-mapped course generation</div><div className="mt-0.5 text-[10px] text-slate-400">The selected track's audio transients refine beat offset. Obstacles only spawn on whole beats, with safe runway between jumps.</div></div></div>
+      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#10162a] p-4"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-300/10 text-cyan-200"><AudioLines className="h-5 w-5"/></div><div><div className="text-xs font-black text-white">Beat-mapped course generation</div><div className="mt-0.5 text-[10px] text-slate-400">Audio transients refine the beat offset. Press SPACE, ↑, W, tap the level, or use JUMP before a hazard; obstacles stay on whole beats with a full landing window.</div></div></div>
     </div>
   );
 };
