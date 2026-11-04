@@ -52,11 +52,11 @@ function createSongLevel(song: Song, difficulty: Difficulty): { obstacles: Obsta
   const totalBeats = Math.floor((song.duration - 1) / beatSeconds);
   const startBeat = 3;
   const obstacles: Obstacle[] = [];
-  const basePattern: ObstacleType | 'none'[] = mode.pattern === 0
+  const basePattern: (ObstacleType | 'none')[] = mode.pattern === 0
     ? ['spike', 'none', 'block', 'none', 'spike', 'none', 'orb', 'none']
     : mode.pattern === 1
       ? ['spike', 'none', 'block', 'spike', 'double', 'none', 'orb', 'block']
-      : ['spike', 'double', 'none', 'block', 'spike', 'orb', 'double', 'block'];
+      : ['spike', 'double', 'none', 'block', 'spike', 'orb', 'gap', 'block'];
   let id = 0;
   for (let beat = startBeat; beat < totalBeats; beat++) {
     const patternIndex = (beat - startBeat) % basePattern.length;
