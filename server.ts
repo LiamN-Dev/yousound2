@@ -1709,7 +1709,7 @@ function rhythmRandom(seed: number) {
   };
 }
 
-function buildRhythmChart(songId: string, bpm: number, durationSeconds: number, difficulty: RhythmDifficulty): RhythmChart {
+function buildRhythmChart(songId: string, bpm: number, durationSeconds: number, difficulty: RhythmDifficulty, beatOffsetMs = 0): RhythmChart {
   const safeBpm = Math.max(60, Math.min(240, Math.round(Number(bpm) || 120)));
   const safeDuration = Math.max(10, Math.min(240, Number(durationSeconds) || 90));
   const durationMs = Math.round(safeDuration * 1000);
@@ -1721,7 +1721,8 @@ function buildRhythmChart(songId: string, bpm: number, durationSeconds: number, 
   let noteNumber = 0;
 
   // Leave an intro count-in, then generate a four-lane chart across the song.
-  for (let timeMs = 2200; timeMs < durationMs - 400 && notes.length < 1000; timeMs += stepMs) {
+  const firstBeatNoteMs = Math.max(1500, Math.min(4000, Math.max(0, Number(beatOffsetMs) || 0) + beatMs * 2));
+  for (let timeMs = firstBeatNoteMs; timeMs < durationMs - 400 && notes.length < 1000; timeMs += stepMs) {
     const lane = Math.floor(random() * 4);
     notes.push({ id: 'n' + noteNumber++, lane, timeMs: Math.round(timeMs) });
 
@@ -1775,6 +1776,7 @@ app.get('/api/games/rhythm/songs', async (req: Request, res: Response) => {
         coverUrl: String(song.coverUrl || ''),
         duration: Math.max(10, Math.min(240, Number(song.durationExact) || Number(song.duration) || 90)),
         gameBpm: Math.max(60, Math.min(240, Math.round(Number(song.gameBpm) || 120))),
+        gameBeatOffsetMs: Math.max(0, Math.min(2000, Math.round(Number(song.gameBeatOffsetMs) || 0))),
       })),
     });
   } catch (error: any) {
@@ -1836,7 +1838,8 @@ app.post('/api/games/rhythm/start', async (req: Request, res: Response) => {
 
     const duration = Math.max(10, Math.min(240, Number(song.durationExact) || Number(song.duration) || 90));
     const bpm = Math.max(60, Math.min(240, Math.round(Number(song.gameBpm) || 120)));
-    const chart = buildRhythmChart(song.id, bpm, duration, difficulty);
+    const beatOffsetMs = Math.max(0, Math.min(2000, Math.round(Number(song.gameBeatOffsetMs) || 0)));
+    const chart = buildRhythmChart(song.id, bpm, duration, difficulty, beatOffsetMs);
     if (chart.notes.length < 8) {
       return res.status(409).json({ success: false, error: 'This track is too short to create a rhythm chart.' });
     }
@@ -2014,6 +2017,7 @@ app.post('/api/songs', async (req: Request, res: Response) => {
       gameApproved: false,
       gameBpm: 120,
       gameBpmDetected: false,
+      gameBeatOffsetMs: 0,
       isDroppingSoon: !!songData.isDroppingSoon,
       dropDate: songData.dropDate || null,
       autoReleaseOnDrop: !!songData.autoReleaseOnDrop,
@@ -2061,6 +2065,11 @@ app.patch('/api/songs/:id', async (req: Request, res: Response) => {
 
     if (Object.prototype.hasOwnProperty.call(updates, 'gameApproved') && typeof updates.gameApproved !== 'boolean') {
       return res.status(400).json({ success: false, error: 'Game Approved must be a true/false value.' });
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'gameBeatOffsetMs')) {
+      const offset = Math.round(Number(updates.gameBeatOffsetMs));
+      if (!Number.isFinite(offset) || offset < 0 || offset > 2000) return res.status(400).json({ success: false, error: 'Beat offset must be between 0 and 2000 milliseconds.' });
+      updates.gameBeatOffsetMs = offset;
     }
     if (Object.prototype.hasOwnProperty.call(updates, 'gameBpmDetected') && typeof updates.gameBpmDetected !== 'boolean') {
       return res.status(400).json({ success: false, error: 'BPM detection status must be a true/false value.' });
