@@ -65,6 +65,7 @@ interface AuthContextType {
           dailyListenLimit?: number | null;
           isLocked?: boolean;
           christmasMode?: boolean;
+          gamesEnabled?: boolean;
         }
       | string,
     newPassword?: string
@@ -298,6 +299,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           dailyListenLimit?: number | null;
           isLocked?: boolean;
           christmasMode?: boolean;
+          gamesEnabled?: boolean;
         }
       | string,
     newPassword?: string
@@ -315,6 +317,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dailyListenLimit?: number | null;
       isLocked?: boolean;
       christmasMode?: boolean;
+      gamesEnabled?: boolean;
     };
 
     if (typeof paramsOrUsername === 'object' && paramsOrUsername !== null) {
@@ -331,6 +334,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         dailyListenLimit: paramsOrUsername.dailyListenLimit,
         isLocked: paramsOrUsername.isLocked,
         christmasMode: paramsOrUsername.christmasMode,
+        gamesEnabled: paramsOrUsername.gamesEnabled,
       };
     } else {
       params = {
