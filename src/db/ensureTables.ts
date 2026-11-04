@@ -68,6 +68,7 @@ export async function ensureTables(): Promise<void> {
     ['songs', 'is_christmas_edition BOOLEAN DEFAULT false'],
     ['songs', 'game_approved BOOLEAN NOT NULL DEFAULT false'],
     ['songs', 'game_bpm INTEGER NOT NULL DEFAULT 120'],
+    ['songs', 'game_bpm_detected BOOLEAN NOT NULL DEFAULT false'],
     ['song_requests', "tags JSONB DEFAULT '[]'::jsonb"],
     ['song_requests', 'description TEXT'],
     ['song_requests', 'is_dropping_soon BOOLEAN DEFAULT false'],
