@@ -1,326 +1,441 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Crown, Pause, Play, RotateCcw, Shield, Sparkles, Trophy, Zap } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Award, Crown, Pause, Play, Shield, Target, Trophy, Zap } from 'lucide-react';
 
-type Mode = 'menu' | 'franchise' | 'game';
-type PlayType = 'run' | 'pass' | 'screen';
-type Player = { x: number; y: number; speed: number; number: number; color: string; route: number; };
-type Defender = { x: number; y: number; speed: number; number: number; };
-type BallState = { x: number; y: number; targetX: number; targetY: number; progress: number; receiver: number; };
+type View = 'frontoffice' | 'match';
+type PlayType = 'run' | 'pass' | 'deep' | 'screen';
+type MatchPhase = 'ready' | 'live' | 'ball' | 'catch' | 'result';
+type Defender = { x:number; y:number; speed:number; number:number; blocked:number; };
+type Blocker = { x:number; y:number; number:number; target:number; };
+type Receiver = { x:number; y:number; number:number; route:number; speed:number; };
+type Carrier = { x:number; y:number; vx:number; vy:number; number:number; };
+type BallFlight = { x:number; y:number; fromX:number; fromY:number; toX:number; toY:number; progress:number; receiver:number; };
+type LivePlay = {
+  phase:MatchPhase; type:PlayType; startX:number; startY:number; qb:{x:number;y:number}; carrier:Carrier;
+  receivers:Receiver[]; defenders:Defender[]; blockers:Blocker[]; ball:BallFlight|null;
+  target:number; ballThrown:boolean; turnover:boolean; message:string; elapsed:number;
+};
 
-const FIELD_W = 960;
-const FIELD_H = 540;
-const YARD_START = 80;
-const YARD_END = 880;
-const PX_PER_YARD = (YARD_END - YARD_START) / 100;
-const SAVE_KEY = 'yousong-gridiron-franchise-v1';
-
-function loadFranchise() {
+const W=1000,H=540, FIELD_TOP=62, FIELD_BOTTOM=478, GOAL_LEFT=80, GOAL_RIGHT=920, YARD_PX=(GOAL_RIGHT-GOAL_LEFT)/100;
+const SAVE_KEY='ys-gridiron-dynasty-v3';
+const FIELD_GREEN=['#397b4c','#347447'];
+const PLAYER_BLUE='#3185da';
+const DEFENSE_RED='#e35d5d';
+const TEAM_NAMES=['MIAMI WAVES','NAPLES HURRICANES','GULF COAST STORM','ORLANDO COMETS'];
+const clamp=(v:number,min:number,max:number)=>Math.max(min,Math.min(max,v));
+const yardX=(yard:number)=>GOAL_LEFT+yard*YARD_PX;
+function loadFranchise(){
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) return JSON.parse(raw);
+    const saved=localStorage.getItem(SAVE_KEY);
+    if(saved){const parsed=JSON.parse(saved);return {...parsed,week:Math.max(1,Number(parsed.week)||1),coins:Math.max(0,Number(parsed.coins)||120),offense:clamp(Number(parsed.offense)||2,1,5),defense:clamp(Number(parsed.defense)||2,1,5),speed:clamp(Number(parsed.speed)||2,1,5)};}
   } catch {}
-  return { team: 'MIAMI WAVES', wins: 0, losses: 0, week: 1, coins: 120, offense: 2, defense: 2, stars: 3, touchdowns: 0 };
+  return {team:'MIAMI WAVES',wins:0,losses:0,week:1,coins:120,offense:2,defense:2,speed:2,touchdowns:0,fieldGoals:0};
 }
+function seededRandom(seed:number){let state=seed>>>0;return()=>{state=(state*1664525+1013904223)>>>0;return state/4294967296;};}
+function roundedRect(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,r:number){
+  const radius=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+radius,y);ctx.arcTo(x+w,y,x+w,y+h,radius);ctx.arcTo(x+w,y+h,x,y+h,radius);ctx.arcTo(x,y+h,x,y,radius);ctx.arcTo(x,y,x+w,y,radius);ctx.closePath();
+}
+function drawPlayer(ctx:CanvasRenderingContext2D,x:number,y:number,color:string,number:number,role='player',selected=false){
+  ctx.fillStyle='rgba(0,0,0,.28)';ctx.beginPath();ctx.ellipse(x+2,y+15,17,7,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#101c27';roundedRect(ctx,x-11,y-10,22,28,5);ctx.fill();
+  ctx.fillStyle=color;roundedRect(ctx,x-12,y-13,24,25,6);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.28)';ctx.fillRect(x-8,y-10,16,4);
+  ctx.fillStyle='#fff';ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText(String(number),x,y+5);
+  ctx.fillStyle=role==='quarterback'?'#f6d7a3':'#d9e3ed';ctx.beginPath();ctx.arc(x,y-17,11,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y-19,12,Math.PI,Math.PI*2);ctx.fill();ctx.fillRect(x+4,y-20,9,5);
+  ctx.fillStyle='#162330';ctx.fillRect(x-4,y-19,3,3);ctx.fillRect(x+3,y-19,3,3);
+  if(selected){ctx.strokeStyle='#ffe07a';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y-2,21,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffe07a';ctx.beginPath();ctx.moveTo(x,y-37);ctx.lineTo(x-5,y-45);ctx.lineTo(x+5,y-45);ctx.closePath();ctx.fill();}
+  ctx.textAlign='left';
+}
+function drawBall(ctx:CanvasRenderingContext2D,x:number,y:number){
+  ctx.fillStyle='#8b4c25';ctx.beginPath();ctx.ellipse(x,y,10,5,-.28,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#f6e7cd';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.stroke();
+}
+function drawField(ctx:CanvasRenderingContext2D,camera:number,ballYard:number,yardsToGo:number,carrierX?:number){
+  ctx.clearRect(0,0,W,H);
+  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#153e2e');bg.addColorStop(1,'#0d3025');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  // Sidelines and end zones.
+  ctx.fillStyle='#b58a52';ctx.fillRect(GOAL_LEFT-camera,FIELD_TOP-22,GOAL_RIGHT-GOAL_LEFT,FIELD_BOTTOM-FIELD_TOP+44);
+  ctx.fillStyle='#173e7b';ctx.fillRect(GOAL_LEFT-camera-80,FIELD_TOP-22,80,FIELD_BOTTOM-FIELD_TOP+44);
+  ctx.fillStyle='#8a313b';ctx.fillRect(GOAL_RIGHT-camera,FIELD_TOP-22,80,FIELD_BOTTOM-FIELD_TOP+44);
+  ctx.save();ctx.translate(GOAL_LEFT-camera-40,(FIELD_TOP+FIELD_BOTTOM)/2);ctx.rotate(-Math.PI/2);ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='900 20px system-ui';ctx.textAlign='center';ctx.fillText('YOUSONG',0,6);ctx.restore();
+  ctx.save();ctx.translate(GOAL_RIGHT-camera+40,(FIELD_TOP+FIELD_BOTTOM)/2);ctx.rotate(Math.PI/2);ctx.fillStyle='rgba(255,255,255,.8)';ctx.font='900 18px system-ui';ctx.textAlign='center';ctx.fillText('GRIDIRON',0,6);ctx.restore();
+  ctx.fillStyle='#2f7846';ctx.fillRect(GOAL_LEFT-camera,FIELD_TOP,GOAL_RIGHT-GOAL_LEFT,FIELD_BOTTOM-FIELD_TOP);
+  for(let i=0;i<10;i++){ctx.fillStyle=i%2?'rgba(255,255,255,.035)':'rgba(0,0,0,.035)';ctx.fillRect(GOAL_LEFT-camera+i*84,FIELD_TOP,84,FIELD_BOTTOM-FIELD_TOP);}
+  ctx.strokeStyle='rgba(255,255,255,.72)';ctx.lineWidth=2;
+  for(let y=0;y<=100;y+=5){
+    const x=yardX(y)-camera;ctx.beginPath();ctx.moveTo(x,FIELD_TOP);ctx.lineTo(x,FIELD_BOTTOM);ctx.stroke();
+    for(let yy=FIELD_TOP+18;yy<FIELD_BOTTOM-10;yy+=22){ctx.beginPath();ctx.moveTo(x-4,yy);ctx.lineTo(x+4,yy);ctx.stroke();}
+    if(y%10===0&&y>0&&y<100){ctx.fillStyle='rgba(255,255,255,.68)';ctx.font='bold 15px monospace';ctx.textAlign='center';ctx.fillText(String(Math.min(y,100-y)),x+((y>50)?1:0),FIELD_TOP+28);ctx.fillText(String(Math.min(y,100-y)),x+((y>50)?1:0),FIELD_BOTTOM-14);}
+  }
+  const lineX=yardX(ballYard)-camera, firstX=yardX(Math.min(100,ballYard+yardsToGo))-camera;
+  ctx.strokeStyle='#47c2ff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(lineX,FIELD_TOP);ctx.lineTo(lineX,FIELD_BOTTOM);ctx.stroke();
+  ctx.strokeStyle='#ffe16c';ctx.lineWidth=3;ctx.setLineDash([8,7]);ctx.beginPath();ctx.moveTo(firstX,FIELD_TOP);ctx.lineTo(firstX,FIELD_BOTTOM);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#ffe16c';ctx.font='bold 11px monospace';ctx.fillText('1ST DOWN',firstX-31,FIELD_TOP-7);
+  // Sideline coach marks.
+  ctx.fillStyle='rgba(255,255,255,.65)';for(let i=0;i<20;i++){const x=GOAL_LEFT-camera+i*42;ctx.fillRect(x,FIELD_TOP-8,12,3);ctx.fillRect(x,FIELD_BOTTOM+5,12,3);}
+  ctx.fillStyle='rgba(255,255,255,.9)';ctx.font='bold 10px monospace';ctx.fillText('HOME',GOAL_LEFT-camera+10,FIELD_BOTTOM+21);ctx.fillText('VISITOR',GOAL_RIGHT-camera-70,FIELD_BOTTOM+21);
+  ctx.restore();
+}
+export const RetroBowlGame:React.FC<{onBack:()=>void}>=({onBack})=>{
+  const canvasRef=useRef<HTMLCanvasElement|null>(null),rafRef=useRef<number|null>(null),keysRef=useRef<Record<string,boolean>>({}),playRef=useRef<LivePlay|null>(null),phaseRef=useRef<MatchPhase>('ready');
+  const [view,setView]=useState<View>('frontoffice');
+  const [franchise,setFranchise]=useState<any>(loadFranchise);
+  const [teamName,setTeamName]=useState(franchise.team);
+  const [quarter,setQuarter]=useState(1);
+  const [clock,setClock]=useState(60);
+  const [homeScore,setHomeScore]=useState(0);
+  const [awayScore,setAwayScore]=useState(0);
+  const [ballYard,setBallYard]=useState(25);
+  const [yardsToGo,setYardsToGo]=useState(10);
+  const [down,setDown]=useState(1);
+  const [possession,setPossession]=useState<'home'|'away'>('home');
+  const [cpuYard,setCpuYard]=useState(25);
+  const [cpuDown,setCpuDown]=useState(1);
+  const [cpuToGo,setCpuToGo]=useState(10);
+  const [playPhase,setPlayPhaseState]=useState<MatchPhase>('ready');
+  const [message,setMessage]=useState('First and ten. Choose your play.');
+  const [lastPlay,setLastPlay]=useState('');
+  const [targetReceiver,setTargetReceiver]=useState(1);
+  const [gameOver,setGameOver]=useState(false);
+  const [paused,setPaused]=useState(false);
+  const [selectedDefense,setSelectedDefense]=useState<'blitz'|'zone'|'man'>('zone');
+  const [lastCpuGain,setLastCpuGain]=useState(0);
+  const [finalResult,setFinalResult]=useState('');
+  const [playStats,setPlayStats]=useState({passing:0,rushing:0,completions:0,interceptions:0});
+  const [showPlaybook,setShowPlaybook]=useState(true);
+  const [kickMeter,setKickMeter]=useState(0);
+  const [kickDirection,setKickDirection]=useState(1);
+  const [kickReady,setKickReady]=useState(false);
+  const [touchControls,setTouchControls]=useState(false);
+  const [seasonRecord,setSeasonRecord]=useState('');
+  const [hudPulse,setHudPulse]=useState(0);
 
-export const RetroBowlGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const keysRef = useRef<Record<string, boolean>>({});
-  const gameRef = useRef<any>(null);
-  const [mode, setMode] = useState<Mode>('menu');
-  const [franchise, setFranchise] = useState<any>(loadFranchise);
-  const [playType, setPlayType] = useState<PlayType>('run');
-  const [down, setDown] = useState(1);
-  const [yardsToGo, setYardsToGo] = useState(10);
-  const [lineYards, setLineYards] = useState(25);
-  const [score, setScore] = useState({ us: 0, them: 0 });
-  const [quarter, setQuarter] = useState(1);
-  const [clock, setClock] = useState(150);
-  const [message, setMessage] = useState('Choose a play to start the drive');
-  const [lastGain, setLastGain] = useState<number | null>(null);
-  const [isPaused, setIsPaused] = useState(false);
-  const [targetReceiver, setTargetReceiver] = useState(1);
-  const [playNumber, setPlayNumber] = useState(0);
-  const [renderTick, setRenderTick] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
+  const setPhase=(phase:MatchPhase)=>{phaseRef.current=phase;setPlayPhaseState(phase);};
+  const saveFranchise=(next:any)=>{setFranchise(next);try{localStorage.setItem(SAVE_KEY,JSON.stringify(next));}catch{}};
+  const updateFranchise=(updates:any)=>saveFranchise({...franchise,...updates});
+  const consumeClock=useCallback((seconds:number)=>{
+    setClock(current=>{
+      const left=current-seconds;
+      if(left>0)return left;
+      if(quarter>=4){setGameOver(true);setFinalResult(homeScore===awayScore?'TIE GAME':'FINAL');setMessage('FINAL WHISTLE');return 0;}
+      setQuarter(q=>q+1);setMessage('END OF QUARTER · Change ends and keep playing.');return Math.max(1,60+left);
+    });
+  },[quarter,homeScore,awayScore]);
 
-  const setSavedFranchise = useCallback((next: any) => {
-    setFranchise(next);
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(next)); } catch {}
-  }, []);
-
-  const createPlay = useCallback((type: PlayType) => {
-    const receivers: Player[] = [
-      { x: 300, y: 145, speed: 2.6, number: 8, color: '#f1c75b', route: -1 },
-      { x: 310, y: 270, speed: 2.9, number: 11, color: '#f1c75b', route: 0 },
-      { x: 295, y: 390, speed: 2.5, number: 18, color: '#f1c75b', route: 1 },
-    ];
-    const defenders: Defender[] = Array.from({ length: 6 }, (_, i) => ({
-      x: 390 + (i % 3) * 95 + Math.floor(i / 3) * 25,
-      y: 100 + i * 58,
-      speed: 1.05 + Math.random() * 0.5 + franchise.defense * 0.04,
-      number: 20 + i,
-    }));
-    gameRef.current = {
-      phase: 'live', type, startX: 185 + (lineYards - 25) * PX_PER_YARD,
-      startY: 270, carrier: { x: 185 + (lineYards - 25) * PX_PER_YARD, y: 270, vx: 0, vy: 0 },
-      qb: { x: 160 + (lineYards - 25) * PX_PER_YARD, y: 270 },
-      receivers, defenders, ball: null, target: targetReceiver - 1,
-      endX: 870, startTime: performance.now(), passThrown: false, tackled: false,
-    };
-    setPlayType(type);
-    setMessage(type === 'run' ? 'RUN PLAY · Find daylight. Arrow keys or WASD to move.' : type === 'pass' ? 'PASS PLAY · Press 1, 2, or 3 to choose a receiver, then SPACE to throw.' : 'SCREEN PLAY · Let the rush come, then throw with SPACE.');
-    setLastGain(null);
-    setPlayNumber((n) => n + 1);
-  }, [franchise.defense, lineYards, targetReceiver]);
-
-  const finish = useCallback((gain: number, result: string, touchdown = false, turnover = false) => {
-    const current = gameRef.current;
-    if (!current || current.phase !== 'live') return;
-    current.phase = 'result';
-    setLastGain(gain);
-    setMessage(result);
-    if (touchdown) {
-      setScore(s => ({ ...s, us: s.us + 7 }));
-      setSavedFranchise((f: any) => ({ ...f, touchdowns: f.touchdowns + 1, coins: f.coins + 25 }));
-      setDown(1); setYardsToGo(10); setLineYards(25);
-    } else if (turnover || down >= 4 && gain < yardsToGo) {
-      setDown(1); setYardsToGo(10); setLineYards(25);
-      setMessage(turnover ? 'INTERCEPTION! Turnover on downs.' : 'TURNOVER ON DOWNS · Defense takes possession.');
-    } else if (gain >= yardsToGo) {
-      setDown(1); setYardsToGo(10); setLineYards(v => Math.min(90, v + gain));
-      setMessage(result + ' · FIRST DOWN!');
-    } else {
-      setDown(d => d + 1);
-      setYardsToGo(v => Math.max(1, v - gain));
-      setLineYards(v => Math.min(90, v + gain));
+  const finishPlay=useCallback((gain:number,result:string,turnover=false,touchdown=false)=>{
+    const play=playRef.current;if(!play||play.phase==='result')return;
+    play.phase='result';setPhase('result');setLastPlay(result);setMessage(result);
+    consumeClock(Math.max(5,Math.round(6+play.elapsed)));
+    if(touchdown){
+      setHomeScore(value=>value+7);saveFranchise({...franchise,touchdowns:(franchise.touchdowns||0)+1,coins:franchise.coins+25});
+      setPossession('away');setCpuYard(25);setCpuDown(1);setCpuToGo(10);setMessage('TOUCHDOWN! Seven points. Now get a defensive stop.');
+      setBallYard(25);setDown(1);setYardsToGo(10);
+      return;
     }
-    if (playNumber >= 8) setGameOver(true);
-    window.setTimeout(() => {
-      if (!gameRef.current) return;
-      if (gameRef.current.phase === 'result') {
-        gameRef.current.phase = 'ready';
-        setRenderTick((n) => n + 1);
-      }
-    }, 1050);
-  }, [down, yardsToGo, playNumber, setSavedFranchise]);
+    if(turnover){
+      setPossession('away');setCpuYard(clamp(100-ballYard-gain,5,95));setCpuDown(1);setCpuToGo(10);setDown(1);setYardsToGo(10);
+      setMessage(result+' · VISITOR BALL.');
+      return;
+    }
+    const nextYard=clamp(ballYard+gain,1,99);
+    if(nextYard>=100){setHomeScore(value=>value+7);setPossession('away');setCpuYard(25);setCpuDown(1);setCpuToGo(10);setBallYard(25);setDown(1);setYardsToGo(10);return;}
+    if(gain>=yardsToGo){setBallYard(nextYard);setDown(1);setYardsToGo(10);setMessage(result+' · FIRST DOWN!');}
+    else if(down>=4){setPossession('away');setCpuYard(clamp(100-nextYard,5,95));setCpuDown(1);setCpuToGo(10);setDown(1);setYardsToGo(10);setBallYard(25);setMessage('TURNOVER ON DOWNS · VISITOR BALL.');}
+    else{setBallYard(nextYard);setDown(d=>d+1);setYardsToGo(Math.max(1,yardsToGo-gain));}
+  },[ballYard,down,yardsToGo,franchise,saveFranchise,consumeClock]);
 
-  const throwBall = useCallback(() => {
-    const g = gameRef.current;
-    if (!g || g.phase !== 'live' || g.type === 'run' || g.passThrown) return;
-    const receiver = g.receivers[g.target];
-    const targetX = Math.min(760, receiver.x + 95);
-    const targetY = receiver.y;
-    g.ball = { x: g.qb.x + 22, y: g.qb.y - 12, targetX, targetY, progress: 0, receiver: g.target } as BallState;
-    g.passThrown = true;
-    setMessage('BALL IN THE AIR · Track the receiver!');
-  }, []);
+  const beginPlay=useCallback((type:PlayType)=>{
+    if(possession!=='home'||gameOver||paused)return;
+    if(playRef.current&&['live','ball','catch'].includes(playRef.current.phase))return;
+    const startX=yardX(ballYard);
+    const rand=seededRandom(franchise.week*991+Math.round(ballYard*7)+down*13+homeScore);
+    const receivers:Receiver[]=[
+      {x:startX-12,y:145,number:8,route:-1,speed:type==='deep'?180:132},
+      {x:startX-8,y:270,number:11,route:0,speed:type==='deep'?172:138},
+      {x:startX-12,y:395,number:18,route:1,speed:type==='deep'?166:128},
+    ];
+    const defenders:Defender[]=Array.from({length:7},(_,i)=>({x:startX+46+(i%3)*68+Math.floor(i/3)*28,y:100+Math.floor(i*1.45)*48+rand()*12,speed:80+rand()*34+franchise.defense*5,number:20+i,blocked:0}));
+    const blockers:Blocker[]=Array.from({length:5},(_,i)=>({x:startX-2+(i%2)*6,y:174+i*47,number:60+i,target:i%defenders.length}));
+    const carrier:Carrier={x:type==='run'?startX-20:startX-43,y:type==='run'?270:270,vx:0,vy:0,number:type==='screen'?24:22};
+    const play:LivePlay={phase:'live',type,startX,startY:270,qb:{x:startX-48,y:270},carrier,receivers,defenders,blockers,ball:null,target:targetReceiver-1,ballThrown:false,turnover:false,message:type==='run'?'RUN · Follow your blockers and find the gap.':type==='screen'?'SCREEN · Let the rush flow, then release.':'PASS · Select a receiver (1–3), then throw with SPACE.',elapsed:0};
+    playRef.current=play;setPhase('live');setPlayPhaseState('live');setMessage(play.message);setLastPlay('');setShowPlaybook(false);
+  },[possession,gameOver,paused,ballYard,franchise,down,homeScore,targetReceiver]);
 
-  useEffect(() => {
-    const downKey = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(key)) e.preventDefault();
-      keysRef.current[key] = true;
-      const g = gameRef.current;
-      if (g?.phase === 'live' && !isPaused && !gameOver) {
-        if (key === '1' || key === '2' || key === '3') {
-          g.target = Number(key) - 1; setTargetReceiver(Number(key));
+  const throwPass=useCallback(()=>{
+    const play=playRef.current;if(!play||play.phase!=='live'||play.type==='run'||play.ballThrown)return;
+    const receiver=play.receivers[play.target];
+    play.ball={x:play.qb.x,y:play.qb.y-15,fromX:play.qb.x,fromY:play.qb.y-15,toX:receiver.x+55,toY:receiver.y,progress:0,receiver:play.target};
+    play.ballThrown=true;play.phase='ball';setPhase('ball');setMessage('IN THE AIR · Watch the receiver and the safety!');
+  },[]);
+
+  const kickFieldGoal=()=>{
+    if(possession!=='home'||gameOver||paused||phaseRef.current==='live'||ballYard<57)return;
+    setKickReady(true);setKickMeter(0);setKickDirection(1);
+  };
+  useEffect(()=>{
+    if(!kickReady)return;
+    let value=0,direction=1;
+    const timer=window.setInterval(()=>{value+=direction*3.2;if(value>=100){value=100;direction=-1;}if(value<=0){value=0;direction=1;}setKickMeter(value);setKickDirection(direction);},26);
+    return()=>window.clearInterval(timer);
+  },[kickReady]);
+  const takeKick=()=>{
+    if(!kickReady)return;
+    setKickReady(false);
+    const distance=100-ballYard+17;
+    const timing=1-Math.abs(kickMeter-73)/100;
+    const accuracy=clamp(.79-(distance-20)*.009+(franchise.offense-2)*.04+timing*.16,.18,.96);
+    consumeClock(5);
+    if(Math.random()<accuracy){setHomeScore(value=>value+3);saveFranchise({...franchise,fieldGoals:(franchise.fieldGoals||0)+1,coins:franchise.coins+10});setLastPlay('FIELD GOAL GOOD · '+distance+' YARDS');setMessage('THREE POINTS! The kick is through.');}
+    else{setLastPlay('FIELD GOAL MISSED · '+distance+' YARDS');setMessage('NO GOOD · The visitors take over.');}
+    setPossession('away');setCpuYard(clamp(100-ballYard,5,95));setCpuDown(1);setCpuToGo(10);setDown(1);setYardsToGo(10);setBallYard(25);setShowPlaybook(true);
+  };
+  const punt=()=>{
+    if(possession!=='home'||gameOver||paused||phaseRef.current==='live')return;
+    const puntDistance=36+franchise.offense*2+Math.floor(Math.random()*10);
+    consumeClock(7);setLastPlay('PUNT · '+puntDistance+' YARDS');setMessage('PUNT AWAY · Set up the defense.');
+    setPossession('away');setCpuYard(clamp(100-ballYard-puntDistance,5,90));setCpuDown(1);setCpuToGo(10);setBallYard(25);setDown(1);setYardsToGo(10);setShowPlaybook(true);
+  };
+
+  const callDefense=(call:'blitz'|'zone'|'man')=>{
+    if(possession!=='away'||gameOver||paused)return;
+    setSelectedDefense(call);
+    const rand=seededRandom(Date.now()+cpuYard*15+cpuDown*9+awayScore);
+    const base=5.8+rand()*8.5+Math.max(0,franchise.offense-3)*.7-franchise.defense*1.5;
+    const modifier=call==='blitz'?1.7:call==='zone'?-1.1:0;
+    const sackChance=call==='blitz'?.24:call==='man'?.12:.07;
+    const turnoverChance=call==='blitz'?.12:call==='zone'?.16:.09;
+    const sack=rand()<sackChance;
+    const turnover=!sack&&rand()<turnoverChance;
+    const gain=sack?-Math.floor(2+rand()*5):turnover?0:Math.max(0,Math.round(base+modifier));
+    const elapsed=6+Math.floor(rand()*7);
+    consumeClock(elapsed);setLastCpuGain(gain);
+    if(turnover){
+      setMessage(call.toUpperCase()+' · INTERCEPTION / FUMBLE! YOU FORCE A TURNOVER.');
+      setPossession('home');setBallYard(clamp(100-cpuYard,12,94));setDown(1);setYardsToGo(10);setCpuYard(25);setCpuDown(1);setCpuToGo(10);setShowPlaybook(true);return;
+    }
+    const nextYard=clamp(cpuYard+gain,1,99);
+    if(nextYard>=100){
+      setAwayScore(value=>value+7);setMessage('VISITOR TOUCHDOWN · Answer back on offense.');
+      setPossession('home');setBallYard(25);setDown(1);setYardsToGo(10);setCpuYard(25);setCpuDown(1);setCpuToGo(10);setShowPlaybook(true);return;
+    }
+    if(gain>=cpuToGo){
+      setCpuYard(nextYard);setCpuDown(1);setCpuToGo(10);setMessage('DEFENSE · They moved the chains. Choose your next call.');
+    }else if(cpuDown>=4){
+      setPossession('home');setBallYard(clamp(100-nextYard,8,95));setDown(1);setYardsToGo(10);setCpuYard(25);setCpuDown(1);setCpuToGo(10);setMessage('STOPPED ON FOURTH DOWN · YOUR OFFENSE IS BACK.');setShowPlaybook(true);
+    }else{
+      setCpuYard(nextYard);setCpuDown(value=>value+1);setCpuToGo(value=>Math.max(1,value-gain));setMessage(sack?'SACK · Their offense goes backward.':call.toUpperCase()+' · DEFENSIVE STOP, BUT THEY KEEP THE BALL.');
+    }
+  };
+
+  useEffect(()=>{
+    const down=(event:KeyboardEvent)=>{
+      const key=event.key.toLowerCase();
+      if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(key))event.preventDefault();
+      keysRef.current[key]=true;
+      if(key===' '||key==='enter')throwPass();
+      if(key==='1'||key==='2'||key==='3'){setTargetReceiver(Number(key));if(playRef.current)playRef.current.target=Number(key)-1;}
+      if(key==='p'&&view==='match')setPaused(v=>!v);
+      if(key==='escape'&&view==='match'&&phaseRef.current!=='live'&&phaseRef.current!=='ball'&&phaseRef.current!=='catch')setView('frontoffice');
+    };
+    const up=(event:KeyboardEvent)=>{keysRef.current[event.key.toLowerCase()]=false;};
+    window.addEventListener('keydown',down);window.addEventListener('keyup',up);
+    return()=>{window.removeEventListener('keydown',down);window.removeEventListener('keyup',up);};
+  },[throwPass,view]);
+
+  const completeMatch=()=>{
+    const won=homeScore>awayScore;
+    setSeasonRecord(won?'WIN':'LOSS');
+    saveFranchise({...franchise,team:teamName,wins:franchise.wins+(won?1:0),losses:franchise.losses+(won?0:1),week:franchise.week+1,coins:franchise.coins+(won?45:20)});
+    setView('frontoffice');setGameOver(false);setPaused(false);
+  };
+  const startMatch=()=>{
+    setHomeScore(0);setAwayScore(0);setQuarter(1);setClock(60);setBallYard(25);setYardsToGo(10);setDown(1);
+    setPossession('home');setCpuYard(25);setCpuDown(1);setCpuToGo(10);setGameOver(false);setPaused(false);
+    setMessage('KICKOFF · Your offense takes the field.');setLastPlay('');setShowPlaybook(true);setPlayStats({passing:0,rushing:0,completions:0,interceptions:0});
+    playRef.current=null;setPhase('ready');setView('match');
+  };
+
+  useEffect(()=>{
+    const canvas=canvasRef.current,ctx=canvas?.getContext('2d');if(!canvas||!ctx)return;
+    let alive=true,last=performance.now();
+    const frame=(now:number)=>{
+      if(!alive)return;
+      const dt=Math.min(.035,(now-last)/1000);last=now;
+      const play=playRef.current;
+      const active=!paused&&!gameOver&&view==='match';
+      const startX=yardX(ballYard);
+      let runnerX=startX-16;
+      if(play&&active&&['live','ball','catch'].includes(play.phase)){
+        play.elapsed+=dt;
+        const runPhase=play.phase==='live'&&(play.type==='run'||play.type==='screen')||play.phase==='catch';
+        if(runPhase){
+          const carrier=play.carrier;
+          const accel=720*dt;
+          if(keysRef.current.arrowleft||keysRef.current.a)carrier.vx-=accel;
+          if(keysRef.current.arrowright||keysRef.current.d)carrier.vx+=accel;
+          if(keysRef.current.arrowup||keysRef.current.w)carrier.vy-=accel;
+          if(keysRef.current.arrowdown||keysRef.current.s)carrier.vy+=accel;
+          const sprint=!!keysRef.current.shift;
+          const max=sprint?310:225;
+          carrier.vx=clamp(carrier.vx,-95,max);carrier.vy=clamp(carrier.vy,-160,160);
+          carrier.vx*=Math.pow(.86,dt*60);carrier.vy*=Math.pow(.84,dt*60);
+          carrier.x=clamp(carrier.x+carrier.vx*dt,GOAL_LEFT+12,GOAL_RIGHT-8);
+          carrier.y=clamp(carrier.y+carrier.vy*dt,FIELD_TOP+30,FIELD_BOTTOM-25);
         }
-        if (key === ' ' || key === 'enter') throwBall();
-      }
-    };
-    const upKey = (e: KeyboardEvent) => { keysRef.current[e.key.toLowerCase()] = false; };
-    window.addEventListener('keydown', downKey);
-    window.addEventListener('keyup', upKey);
-    return () => { window.removeEventListener('keydown', downKey); window.removeEventListener('keyup', upKey); };
-  }, [throwBall]);
-
-  useEffect(() => {
-    if (mode !== 'game') return;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    let alive = true;
-    const drawPlayer = (x: number, y: number, color: string, number: number, highlight = false) => {
-      ctx.fillStyle = 'rgba(0,0,0,.24)'; ctx.beginPath(); ctx.ellipse(x, y + 15, 15, 6, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = color; ctx.fillRect(x - 11, y - 10, 22, 23);
-      ctx.fillStyle = '#f4d6b0'; ctx.fillRect(x - 7, y - 19, 14, 10);
-      ctx.fillStyle = highlight ? '#fff5bf' : '#dbe5ef'; ctx.fillRect(x - 9, y - 13, 18, 4);
-      ctx.fillStyle = '#102033'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillText(String(number), x, y + 5);
-      if (highlight) { ctx.strokeStyle = '#ffe28a'; ctx.lineWidth = 2; ctx.strokeRect(x - 15, y - 23, 30, 43); }
-    };
-    const drawField = () => {
-      ctx.clearRect(0, 0, FIELD_W, FIELD_H);
-      const gradient = ctx.createLinearGradient(0, 0, 0, FIELD_H); gradient.addColorStop(0, '#164b37'); gradient.addColorStop(1, '#0d382a');
-      ctx.fillStyle = gradient; ctx.fillRect(0, 0, FIELD_W, FIELD_H);
-      ctx.fillStyle = '#d7b46a'; ctx.fillRect(0, 0, FIELD_W, 49); ctx.fillRect(0, FIELD_H - 49, FIELD_W, 49);
-      ctx.fillStyle = '#b88a46'; ctx.fillRect(0, 49, 47, FIELD_H - 98); ctx.fillRect(FIELD_W - 47, 49, 47, FIELD_H - 98);
-      ctx.fillStyle = 'rgba(255,255,255,.035)';
-      for (let i = 0; i < 10; i++) ctx.fillRect(47 + i * 87, 49, 43, FIELD_H - 98);
-      ctx.strokeStyle = 'rgba(244,248,226,.50)'; ctx.lineWidth = 2;
-      for (let i = 0; i <= 10; i++) {
-        const x = 47 + i * 86.6;
-        ctx.beginPath(); ctx.moveTo(x, 49); ctx.lineTo(x, FIELD_H - 49); ctx.stroke();
-        for (let y = 65; y < FIELD_H - 60; y += 26) {
-          ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.stroke();
+        if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'){
+          play.receivers.forEach((receiver,index)=>{
+            receiver.x+=receiver.speed*dt;
+            const direction=receiver.route===0?Math.sin(play.elapsed*2.7)*55:receiver.route*Math.min(135,play.elapsed*44);
+            receiver.y=clamp((index===0?145:index===1?270:395)+direction,FIELD_TOP+35,FIELD_BOTTOM-35);
+          });
         }
-        if (i > 0 && i < 10) { ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center'; ctx.fillText(String(i * 10), x, 72); ctx.fillText(String(i * 10), x, FIELD_H - 58); }
-      }
-      ctx.fillStyle = '#f7d98b'; ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center'; ctx.fillText('YOUSONG', 23, FIELD_H / 2); ctx.fillText('ARCADE', FIELD_W - 23, FIELD_H / 2);
-      ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.setLineDash([7, 8]); ctx.beginPath(); ctx.moveTo(185 + (lineYards - 25) * PX_PER_YARD, 50); ctx.lineTo(185 + (lineYards - 25) * PX_PER_YARD, FIELD_H - 50); ctx.stroke(); ctx.setLineDash([]);
-    };
-    let last = performance.now();
-    const frame = (now: number) => {
-      if (!alive) return;
-      const dt = Math.min(0.035, (now - last) / 1000); last = now;
-      drawField();
-      const g = gameRef.current;
-      if (g?.phase === 'live') {
-        if (g.type === 'run') {
-          const c = g.carrier;
-          const accel = 320 * dt;
-          if (keysRef.current.arrowleft || keysRef.current.a) c.vx -= accel;
-          if (keysRef.current.arrowright || keysRef.current.d) c.vx += accel;
-          if (keysRef.current.arrowup || keysRef.current.w) c.vy -= accel;
-          if (keysRef.current.arrowdown || keysRef.current.s) c.vy += accel;
-          c.vx *= Math.pow(0.84, dt * 60); c.vy *= Math.pow(0.84, dt * 60);
-          c.vx = Math.max(-155, Math.min(220, c.vx)); c.vy = Math.max(-165, Math.min(165, c.vy));
-          c.x = Math.max(70, Math.min(880, c.x + c.vx * dt)); c.y = Math.max(82, Math.min(458, c.y + c.vy * dt));
-          const nearest = g.defenders.reduce((best: any, d: Defender) => Math.hypot(d.x - c.x, d.y - c.y) < Math.hypot(best.x - c.x, best.y - c.y) ? d : best, g.defenders[0]);
-          g.defenders.forEach((d: Defender) => {
-            const dx = c.x - d.x, dy = c.y - d.y, len = Math.max(1, Math.hypot(dx, dy));
-            d.x += dx / len * d.speed * 75 * dt; d.y += dy / len * d.speed * 75 * dt;
-          });
-          if (nearest && Math.hypot(nearest.x - c.x, nearest.y - c.y) < 22) {
-            const gain = Math.max(-2, Math.round((c.x - g.startX) / PX_PER_YARD));
-            finish(gain, 'TACKLED · ' + Math.max(0, gain) + ' yards on the carry.');
-          } else if (c.x >= 830) {
-            finish(Math.max(1, Math.round((830 - g.startX) / PX_PER_YARD)), 'TOUCHDOWN! Six points, plus the kick.', true);
+        const target=play.phase==='ball'||play.phase==='live'&&play.type!=='run'&&play.type!=='screen'?play.qb:play.carrier;
+        play.defenders.forEach((defender,index)=>{
+          if(defender.blocked>0){defender.blocked=Math.max(0,defender.blocked-dt);return;}
+          const mark=play.phase==='ball'?play.receivers[play.target]:target;
+          const dx=mark.x-defender.x,dy=mark.y-defender.y,len=Math.max(1,Math.hypot(dx,dy));
+          defender.x+=dx/len*defender.speed*dt;defender.y+=dy/len*defender.speed*dt;
+          if(runPhase&&Math.hypot(defender.x-play.carrier.x,defender.y-play.carrier.y)<23){
+            const gain=Math.round((play.carrier.x-play.startX)/YARD_PX);
+            finishPlay(gain,'TACKLED · '+gain+' YARDS');
           }
-          drawPlayer(c.x, c.y, '#e9b94f', 22, true);
-        } else {
-          g.receivers.forEach((r: Player, i: number) => {
-            r.x += (r.speed + (g.type === 'screen' ? 0.25 : 0)) * 43 * dt;
-            r.y += Math.sin(now / 330 + i * 1.7) * 0.9;
-            drawPlayer(r.x, r.y, '#e9b94f', r.number, i === g.target && !g.passThrown);
-          });
-          drawPlayer(g.qb.x, g.qb.y, '#f4c85d', 12, !g.passThrown);
-          g.defenders.forEach((d: Defender, i: number) => {
-            const target = g.passThrown ? g.receivers[g.target] : g.qb;
-            const dx = target.x - d.x, dy = target.y - d.y, len = Math.max(1, Math.hypot(dx, dy));
-            d.x += dx / len * d.speed * 43 * dt; d.y += dy / len * d.speed * 43 * dt;
-            drawPlayer(d.x, d.y, '#d95e5e', d.number);
-          });
-          if (!g.passThrown && g.type === 'screen') {
-            const closest = g.defenders.some((d: Defender) => Math.hypot(d.x - g.qb.x, d.y - g.qb.y) < 45);
-            if (closest) setMessage('PRESS SPACE · Release the screen pass!');
+          if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'&&Math.hypot(defender.x-play.qb.x,defender.y-play.qb.y)<27){
+            const gain=Math.round((play.qb.x-play.startX)/YARD_PX)-4;
+            finishPlay(gain,'SACK · THE DEFENSE GOT HOME');
           }
-          if (g.ball) {
-            const b = g.ball as BallState; b.progress = Math.min(1, b.progress + dt * 1.8);
-            const arc = Math.sin(b.progress * Math.PI) * 70;
-            b.x = g.qb.x + (b.targetX - g.qb.x) * b.progress;
-            b.y = g.qb.y + (b.targetY - g.qb.y) * b.progress - arc;
-            ctx.fillStyle = '#8b4f26'; ctx.beginPath(); ctx.ellipse(b.x, b.y, 10, 5, -0.4, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = '#fbe4bd'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(b.x - 5, b.y); ctx.lineTo(b.x + 5, b.y); ctx.stroke();
-            if (b.progress >= 1) {
-              const receiver = g.receivers[b.receiver];
-              const nearby = g.defenders.some((d: Defender) => Math.hypot(d.x - receiver.x, d.y - receiver.y) < 30);
-              if (nearby && Math.random() < 0.55) finish(0, 'PICKED OFF · The defense read the route.', false, true);
-              else {
-                const gain = Math.max(0, Math.round((receiver.x - g.startX) / PX_PER_YARD));
-                if (receiver.x >= 830) finish(gain, 'TOUCHDOWN! Perfectly placed pass.', true);
-                else finish(gain, 'COMPLETE · ' + gain + ' yards through the air.');
-              }
+        });
+        play.blockers.forEach((blocker,index)=>{
+          const defender=play.defenders[blocker.target];
+          if(!defender)return;
+          const dx=defender.x-blocker.x,dy=defender.y-blocker.y,len=Math.max(1,Math.hypot(dx,dy));
+          blocker.x+=dx/len*72*dt;blocker.y+=dy/len*72*dt;
+          if(Math.hypot(dx,dy)<35)defender.blocked=Math.max(defender.blocked,.22);
+        });
+        if(play.phase==='ball'&&play.ball){
+          play.ball.progress=Math.min(1,play.ball.progress+dt/(play.type==='deep'?1.05:.72));
+          const ball=play.ball,receiver=play.receivers[ball.receiver];
+          const targetX=receiver.x+8,targetY=receiver.y-5;
+          ball.x=play.qb.x+(targetX-play.qb.x)*ball.progress;
+          ball.y=play.qb.y-12+(targetY-play.qb.y+12)*ball.progress-Math.sin(ball.progress*Math.PI)*92;
+          if(ball.progress>=1){
+            const closest=play.defenders.reduce((best,d)=>Math.hypot(d.x-receiver.x,d.y-receiver.y)<Math.hypot(best.x-receiver.x,best.y-receiver.y)?d:best,play.defenders[0]);
+            const pressure=closest?Math.hypot(closest.x-receiver.x,closest.y-receiver.y):200;
+            const interception=pressure<27&&Math.random()<(.52+(3-franchise.offense)*.04);
+            if(interception){
+              setPlayStats(s=>({...s,interceptions:s.interceptions+1}));finishPlay(0,'INTERCEPTION · THE DEFENSE READ THE ROUTE',true);
+            }else{
+              play.carrier={x:receiver.x,y:receiver.y,vx:0,vy:0,number:receiver.number};play.phase='catch';setPhase('catch');setMessage('CATCH! NOW TURN UPFIELD · WASD / ARROWS TO RUN.');
+              setPlayStats(s=>({...s,completions:s.completions+1}));
             }
           }
         }
-      } else if (g?.phase === 'ready' || g?.phase === 'result') {
-        if (g.type === 'run') {
-          drawPlayer(g.carrier.x, g.carrier.y, '#e9b94f', 22, true);
-          g.defenders.forEach((d: Defender) => drawPlayer(d.x, d.y, '#d95e5e', d.number));
-        } else {
-          g.receivers.forEach((r: Player, i: number) => drawPlayer(r.x, r.y, '#e9b94f', r.number, i === g.target));
-          drawPlayer(g.qb.x, g.qb.y, '#f4c85d', 12, true);
-          g.defenders.forEach((d: Defender) => drawPlayer(d.x, d.y, '#d95e5e', d.number));
+        if(runPhase){
+          const gain=Math.round((play.carrier.x-play.startX)/YARD_PX);
+          if(play.carrier.x>=GOAL_RIGHT-7)finishPlay(gain,'TOUCHDOWN! '+Math.max(1,gain)+' YARDS.',false,true);
+          if(play.elapsed>8.5)finishPlay(gain,'WHISTLE · '+gain+' YARDS');
         }
+        if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'&&play.elapsed>5.5)finishPlay(-4,'SACK · THE QUARTERBACK HELD THE BALL TOO LONG.');
+        runnerX=play.carrier.x;
       }
-      ctx.fillStyle = 'rgba(4,20,16,.78)'; ctx.fillRect(0, 0, FIELD_W, 42);
-      ctx.fillStyle = '#f7e8bf'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'left';
-      ctx.fillText(franchise.team + '  ·  OFFENSE', 18, 27);
-      ctx.textAlign = 'right'; ctx.fillText('DOWN ' + down + '  ·  ' + yardsToGo + ' TO GO  ·  BALL ON ' + lineYards, FIELD_W - 18, 27);
-      if (g?.phase === 'live' && g.type !== 'run' && !g.passThrown) {
-        ctx.fillStyle = 'rgba(255,236,184,.85)'; ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center'; ctx.fillText('TARGET ' + (g.target + 1) + '  ·  PRESS SPACE TO THROW', FIELD_W / 2, FIELD_H - 18);
+      if(play&&active&&play.phase==='result')runnerX=play.carrier.x;
+      const camera=clamp(runnerX-460,0,260);
+      drawField(ctx,camera,ballYard,yardsToGo,runnerX);
+      if(play){
+        // Route art appears before the ball is thrown.
+        if(play.type!=='run'&&play.phase==='live'){
+          ctx.setLineDash([7,6]);ctx.lineWidth=2;
+          play.receivers.forEach((r,i)=>{ctx.strokeStyle=['#f4df8a','#a5e1ff','#f1a6dc'][i];ctx.beginPath();ctx.moveTo(r.x-camera,r.y);ctx.lineTo(r.x+130-camera,r.y+(r.route*65));ctx.stroke();});
+          ctx.setLineDash([]);
+        }
+        play.blockers.forEach(blocker=>drawPlayer(ctx,blocker.x-camera,blocker.y,PLAYER_BLUE,blocker.number,'blocker'));
+        play.defenders.forEach(defender=>drawPlayer(ctx,defender.x-camera,defender.y,DEFENSE_RED,defender.number,'defender'));
+        if(play.phase==='live'&&play.type!=='run'&&play.type!=='screen'){
+          play.receivers.forEach((r,i)=>drawPlayer(ctx,r.x-camera,r.y,PLAYER_BLUE,r.number,'receiver',i===play.target));
+          drawPlayer(ctx,play.qb.x-camera,play.qb.y,PLAYER_BLUE,12,'quarterback');
+        }else{
+          drawPlayer(ctx,play.carrier.x-camera,play.carrier.y,PLAYER_BLUE,play.carrier.number,'carrier',true);
+        }
+        if(play.ball)drawBall(ctx,play.ball.x-camera,play.ball.y);
+      }else{
+        drawPlayer(ctx,startX-52-camera,270,PLAYER_BLUE,12,'quarterback');
+        drawPlayer(ctx,startX-14-camera,270,PLAYER_BLUE,22,'carrier',true);
+        for(let i=0;i<5;i++)drawPlayer(ctx,startX+5-camera,174+i*54,PLAYER_BLUE,60+i,'blocker');
+        for(let i=0;i<7;i++)drawPlayer(ctx,startX+85+(i%3)*53-camera,115+Math.floor(i*1.35)*48,DEFENSE_RED,20+i,'defender');
       }
-      rafRef.current = requestAnimationFrame(frame);
+      // Match scoreboard embedded on the field.
+      ctx.fillStyle='rgba(6,18,28,.82)';roundedRect(ctx,16,14,968,42,10);ctx.fill();
+      ctx.fillStyle='#f6d77f';ctx.font='900 12px system-ui';ctx.fillText(franchise.team,31,31);
+      ctx.fillStyle='#fff';ctx.font='900 20px monospace';ctx.textAlign='center';ctx.fillText(homeScore+'  —  '+awayScore,W/2,43);
+      ctx.fillStyle='#f4b7b7';ctx.font='900 12px system-ui';ctx.textAlign='right';ctx.fillText('BAY CITY',968,31);ctx.textAlign='left';
+      ctx.fillStyle='rgba(6,18,28,.82)';roundedRect(ctx,16,H-47,310,33,8);ctx.fill();
+      ctx.fillStyle='#fff';ctx.font='bold 12px monospace';ctx.fillText((possession==='home'?'OFFENSE':'DEFENSE')+' · Q'+quarter+' · '+Math.floor(clock/60)+':'+String(clock%60).padStart(2,'0'),28,H-26);
+      ctx.textAlign='right';ctx.fillStyle='#ffe16c';ctx.fillText(possession==='home'?down+' & '+yardsToGo:'VISITOR '+cpuDown+' & '+cpuToGo,W-22,H-26);ctx.textAlign='left';
+      rafRef.current=requestAnimationFrame(frame);
     };
-    rafRef.current = requestAnimationFrame(frame);
-    return () => { alive = false; if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [mode, lineYards, down, yardsToGo, franchise.team, finish, isPaused, gameOver]);
+    rafRef.current=requestAnimationFrame(frame);
+    return()=>{alive=false;if(rafRef.current!==null)cancelAnimationFrame(rafRef.current);};
+  },[view,ballYard,yardsToGo,down,possession,cpuYard,cpuDown,cpuToGo,clock,quarter,homeScore,awayScore,franchise.team,paused,gameOver,finishPlay,franchise.offense]);
 
-  useEffect(() => {
-    if (mode !== 'game' || isPaused || gameOver) return;
-    const timer = window.setInterval(() => {
-      setClock((value) => {
-        if (value > 1) return value - 1;
-        if (quarter >= 4) {
-          setGameOver(true);
-          setMessage('FINAL WHISTLE · The game clock has expired.');
-          return 0;
-        }
-        setQuarter((q) => q + 1);
-        return 150;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [mode, isPaused, gameOver, quarter]);
-
-  const startMatch = () => {
-    setScore({ us: 0, them: Math.max(0, Math.round(7 - franchise.defense)) });
-    setQuarter(1); setClock(150); setDown(1); setYardsToGo(10); setLineYards(25);
-    setGameOver(false); setIsPaused(false); setMode('game');
-    gameRef.current = { phase: 'ready', type: 'run', carrier: { x: 185, y: 270 }, qb: { x: 160, y: 270 }, receivers: [], defenders: [] };
-    setMessage('First and ten. Pick your opening play.');
+  const tapMove=(dx:number,dy:number)=>{
+    const play=playRef.current;if(!play||!['live','catch'].includes(play.phase))return;
+    const carrier=play.carrier;carrier.vx+=dx*90;carrier.vy+=dy*90;
   };
-
-  const choosePlay = (type: PlayType) => {
-    if (gameOver || isPaused) return;
-    if (gameRef.current?.phase === 'live') return;
-    if (gameRef.current?.phase === 'result') return;
-    createPlay(type);
-  };
-
-  const endMatch = (won: boolean) => {
-    setGameOver(true);
-    setSavedFranchise((f: any) => ({ ...f, week: f.week + 1, wins: f.wins + (won ? 1 : 0), losses: f.losses + (won ? 0 : 1), coins: f.coins + (won ? 40 : 12), stars: Math.min(5, f.stars + (won ? 0.15 : 0)) }));
+  const defensivePanel=possession==='away';
+  const canPickPlay=!gameOver&&!paused&&!defensivePanel&&(!playRef.current||!['live','ball','catch'].includes(playRef.current.phase));
+  const record=franchise.wins+'-'+franchise.losses;
+  const upgrade=(kind:'offense'|'defense'|'speed')=>{
+    const current=franchise[kind]||1;if(current>=5||franchise.coins<35)return;
+    saveFranchise({...franchise,[kind]:current+1,coins:franchise.coins-35});
   };
 
   return (
-    <div data-render-tick={renderTick} className="mx-auto max-w-6xl space-y-4 pb-24 text-slate-100">
+    <div className="mx-auto max-w-6xl space-y-4 pb-24 text-slate-100">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-amber-300/20 bg-slate-950 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-slate-900"><ArrowLeft className="h-4 w-4" /> Arcade</button>
-        <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.18em] text-amber-200"><Crown className="h-3.5 w-3.5" /> Gridiron Dynasty · Pixel Football</div>
+        <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-amber-300/20 bg-slate-950 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-slate-900"><ArrowLeft className="h-4 w-4"/> VIP Arcade</button>
+        <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.18em] text-amber-200"><Crown className="h-3.5 w-3.5"/> Gridiron Dynasty · Franchise Football</div>
       </div>
-      {mode === 'menu' && (
-        <div className="relative overflow-hidden rounded-[28px] border border-amber-300/25 bg-[#101b2b] p-6 shadow-2xl sm:p-9">
-          <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-amber-400/15 blur-3xl" />
-          <div className="relative grid gap-8 lg:grid-cols-[1.2fr_.8fr] lg:items-center">
-            <div><p className="text-[10px] font-black uppercase tracking-[.25em] text-amber-300">YouSong Sports Network</p><h1 className="mt-3 text-4xl font-black tracking-tight text-white sm:text-6xl">GRIDIRON<br/><span className="text-amber-300">DYNASTY.</span></h1><p className="mt-4 max-w-lg text-sm leading-6 text-slate-300">Build a franchise. Call the plays. Find the open receiver. Take your team from a rebuilding project to championship night.</p><button onClick={() => setMode('franchise')} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-500 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-amber-900/30 transition hover:-translate-y-0.5"><Play className="h-4 w-4" /> Enter Franchise</button></div>
-            <div className="rounded-3xl border border-white/10 bg-black/25 p-5"><div className="grid grid-cols-3 gap-2 text-center">{[['WINS',franchise.wins],['LOSSES',franchise.losses],['WEEK',franchise.week]].map(([label,val]: any) => <div key={label} className="rounded-xl bg-white/5 p-3"><div className="text-[9px] font-bold tracking-wider text-slate-400">{label}</div><div className="mt-1 text-2xl font-black text-white">{val}</div></div>)}</div><div className="mt-4 flex items-center justify-between text-xs"><span className="text-slate-400">Franchise</span><span className="font-black text-amber-200">{franchise.team}</span></div><div className="mt-3 flex items-center justify-between text-xs"><span className="text-slate-400">Coach credits</span><span className="font-bold text-amber-200">{franchise.coins} ✦</span></div><div className="mt-4 flex items-center gap-1 text-amber-300">{Array.from({length:5},(_,i)=><span key={i} className={i<Math.round(franchise.stars)?'opacity-100':'opacity-20'}>★</span>)}</div></div>
+      {view==='frontoffice'&&(
+        <div className="space-y-4">
+          <section className="relative overflow-hidden rounded-[28px] border border-amber-300/25 bg-[#0d1727] p-6 shadow-2xl sm:p-9">
+            <div className="pointer-events-none absolute -right-10 -top-20 h-80 w-80 rounded-full bg-amber-300/15 blur-3xl"/>
+            <div className="relative grid gap-8 lg:grid-cols-[1.25fr_.75fr] lg:items-center">
+              <div><div className="inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-3 py-1 text-[9px] font-black uppercase tracking-[.22em] text-amber-200"><Crown className="h-3 w-3"/> Front Office · Season {Math.ceil(franchise.week/4)}</div><h1 className="mt-4 text-4xl font-black tracking-tight text-white sm:text-6xl">BUILD A<br/><span className="bg-gradient-to-r from-amber-200 via-yellow-100 to-slate-200 bg-clip-text text-transparent">DYNASTY.</span></h1><p className="mt-4 max-w-xl text-sm leading-6 text-slate-300">Manage the franchise, invest in your team, call the offense, and make every drive count. Your season record and upgrades persist on this device.</p><label className="mt-5 block text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Franchise name</label><input value={teamName} onChange={e=>{const value=e.target.value.toUpperCase().slice(0,20);setTeamName(value);saveFranchise({...franchise,team:value});}} className="mt-2 w-full max-w-sm rounded-xl border border-amber-200/20 bg-black/25 px-4 py-3 text-lg font-black tracking-wider text-amber-100 outline-none focus:border-amber-300/60"/><button onClick={startMatch} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-500 px-6 py-3.5 text-sm font-black text-slate-950 shadow-lg shadow-amber-900/30 transition hover:-translate-y-0.5"><Play className="h-4 w-4"/> Kick Off Week {franchise.week}</button></div>
+              <div className="rounded-3xl border border-white/10 bg-black/25 p-5"><div className="text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Season snapshot</div><div className="mt-4 grid grid-cols-3 gap-2 text-center">{[['WINS',franchise.wins],['LOSSES',franchise.losses],['WEEK',franchise.week]].map(([key,value]:any)=><div key={key} className="rounded-xl bg-white/[.06] p-3"><div className="text-[8px] font-bold text-slate-500">{key}</div><div className="mt-1 text-2xl font-black text-white">{value}</div></div>)}</div><div className="mt-4 flex items-center justify-between text-xs"><span className="text-slate-400">Coach credits</span><span className="font-black text-amber-200">{franchise.coins} ✦</span></div><div className="mt-3 flex items-center justify-between text-xs"><span className="text-slate-400">Franchise form</span><span className="font-black text-emerald-200">{franchise.wins>franchise.losses?'PLAYOFF CONTENDER':'BUILDING MOMENTUM'}</span></div>{seasonRecord&&<div className="mt-4 rounded-xl border border-amber-200/15 bg-amber-100/10 p-3 text-xs font-black text-amber-100">LAST WEEK: {seasonRecord}</div>}</div>
+            </div>
+          </section>
+          <section className="grid gap-3 md:grid-cols-3">
+            {([{key:'offense',label:'OFFENSE',sub:'Passing accuracy and blocking strength',icon:<Target className="h-5 w-5"/>,tone:'amber'},{key:'defense',label:'DEFENSE',sub:'Pressure, coverage and forced turnovers',icon:<Shield className="h-5 w-5"/>,tone:'rose'},{key:'speed',label:'SPEED',sub:'Ball-carrier acceleration and sprint speed',icon:<Zap className="h-5 w-5"/>,tone:'cyan'}] as const).map(item=><div key={item.key} className="rounded-2xl border border-white/10 bg-[#111d2d] p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-black text-white">{item.icon}{item.label}</div><span className="text-xl font-black text-amber-200">{franchise[item.key]}/5</span></div><p className="mt-2 min-h-8 text-[10px] leading-4 text-slate-400">{item.sub}</p><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-amber-300 to-yellow-100" style={{width:franchise[item.key]*20+'%'}}/></div><button disabled={franchise[item.key]>=5||franchise.coins<35} onClick={()=>upgrade(item.key)} className="mt-3 w-full rounded-lg border border-amber-200/20 bg-amber-200/10 px-3 py-2 text-[10px] font-black text-amber-100 disabled:opacity-30">UPGRADE · 35 ✦</button></div>)}
+          </section>
+          <div className="rounded-2xl border border-white/10 bg-[#101a29] p-4 text-[10px] leading-5 text-slate-400">MATCH CONTROLS: WASD / ARROWS to move after the snap. Select a receiver with 1, 2, or 3, then SPACE to throw. SHIFT to sprint. Use defensive calls when the visitors have the ball.</div>
+        </div>
+      )}
+      {view==='match'&&(
+        <section className="overflow-hidden rounded-[28px] border border-amber-300/20 bg-[#0c1726] shadow-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-4 sm:px-5">
+            <div><div className="text-[9px] font-black uppercase tracking-[.2em] text-amber-200">{teamName} · WEEK {franchise.week}</div><div className="mt-1 flex items-center gap-3 text-2xl font-black text-white"><span>{homeScore}</span><span className="text-slate-500">—</span><span>{awayScore}</span></div></div>
+            <div className="flex items-center gap-5"><div className="text-center"><div className="text-[8px] font-black text-slate-500">QUARTER</div><div className="text-xl font-black text-white">Q{quarter}</div></div><div className="text-center"><div className="text-[8px] font-black text-slate-500">GAME CLOCK</div><div className="text-xl font-black tabular-nums text-amber-100">{Math.floor(clock/60)}:{String(clock%60).padStart(2,'0')}</div></div><button onClick={()=>setPaused(v=>!v)} disabled={gameOver} className="rounded-xl border border-white/10 p-2 text-slate-300 disabled:opacity-30"><Pause className="h-4 w-4"/></button></div>
           </div>
-        </div>
-      )}
-      {mode === 'franchise' && (
-        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-          <section className="rounded-3xl border border-amber-300/20 bg-[#111c2c] p-5 sm:p-7"><p className="text-[10px] font-black uppercase tracking-[.2em] text-amber-300">Front Office · Week {franchise.week}</p><h1 className="mt-2 text-3xl font-black text-white">Welcome back, Coach.</h1><p className="mt-2 text-sm text-slate-400">Set the team identity and invest in the next game.</p><label className="mt-5 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Team name</label><input value={franchise.team} onChange={e=>setSavedFranchise((f:any)=>({...f,team:e.target.value.toUpperCase().slice(0,18)}))} className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-lg font-black tracking-wider text-amber-100 outline-none focus:border-amber-300/60"/><div className="mt-5 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-white/10 bg-black/20 p-4"><div className="flex items-center gap-2 text-xs font-bold text-white"><Zap className="h-4 w-4 text-amber-300"/> Offense rating</div><div className="mt-3 flex items-center justify-between"><span className="text-2xl font-black text-amber-200">{franchise.offense}/5</span><button disabled={franchise.coins<30||franchise.offense>=5} onClick={()=>setSavedFranchise((f:any)=>({...f,coins:f.coins-30,offense:f.offense+1}))} className="rounded-lg bg-amber-300 px-3 py-2 text-[10px] font-black text-slate-950 disabled:opacity-30">UPGRADE · 30 ✦</button></div></div><div className="rounded-2xl border border-white/10 bg-black/20 p-4"><div className="flex items-center gap-2 text-xs font-bold text-white"><Shield className="h-4 w-4 text-slate-300"/> Defense rating</div><div className="mt-3 flex items-center justify-between"><span className="text-2xl font-black text-slate-200">{franchise.defense}/5</span><button disabled={franchise.coins<30||franchise.defense>=5} onClick={()=>setSavedFranchise((f:any)=>({...f,coins:f.coins-30,defense:f.defense+1}))} className="rounded-lg border border-slate-300/30 bg-slate-200 px-3 py-2 text-[10px] font-black text-slate-900 disabled:opacity-30">UPGRADE · 30 ✦</button></div></div></div><button onClick={startMatch} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-500 px-4 py-3.5 text-sm font-black text-slate-950 shadow-lg"><Play className="h-4 w-4"/> Play Week {franchise.week}</button></section>
-          <aside className="rounded-3xl border border-white/10 bg-[#0d1725] p-5"><div className="text-[10px] font-black uppercase tracking-[.2em] text-slate-400">Season board</div><div className="mt-4 space-y-3">{[['Record',franchise.wins+'-'+franchise.losses],['Touchdowns',franchise.touchdowns],['Offense',franchise.offense+'/5'],['Defense',franchise.defense+'/5']].map(([k,v])=><div key={k} className="flex justify-between border-b border-white/5 pb-2 text-xs"><span className="text-slate-400">{k}</span><span className="font-bold text-white">{v}</span></div>)}</div><p className="mt-5 text-[10px] leading-5 text-slate-500">Upgrade your roster ratings to improve play speed and defensive pressure. Franchise data saves on this device.</p></aside>
-        </div>
-      )}
-      {mode === 'game' && (
-        <section className="overflow-hidden rounded-3xl border border-amber-300/20 bg-[#0d1725] shadow-2xl">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3"><div><div className="text-[10px] font-black uppercase tracking-[.2em] text-amber-300">{franchise.team} vs. Bay City · Week {franchise.week}</div><div className="mt-1 text-xl font-black text-white">{score.us} <span className="text-slate-500">—</span> {score.them}</div></div><div className="text-right"><div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Quarter {quarter}</div><div className="text-lg font-black tabular-nums text-white">{Math.floor(clock/60)}:{String(clock%60).padStart(2,'0')}</div></div></div>
-          <div className="p-2 sm:p-4"><canvas ref={canvasRef} width={FIELD_W} height={FIELD_H} className="block w-full rounded-2xl border border-white/10 bg-emerald-950" style={{ aspectRatio: '16 / 9', imageRendering:'pixelated' }}/></div>
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2"><p className="min-h-8 text-xs font-bold text-amber-100">{message}{lastGain!==null?' · LAST PLAY '+lastGain+' YDS':''} {playType.toUpperCase()}</p><button onClick={()=>setIsPaused(v=>!v)} className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-[10px] font-bold text-slate-300"><Pause className="h-3 w-3"/>{isPaused?'Resume':'Pause'}</button></div>
-          {!gameOver ? <div className="grid gap-3 border-t border-white/10 p-4 md:grid-cols-[1fr_auto]"><div className="flex flex-wrap gap-2"><button onClick={()=>choosePlay('run')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl bg-amber-300 px-4 py-2.5 text-xs font-black text-slate-950 disabled:opacity-30">RUN · POWER</button><button onClick={()=>choosePlay('pass')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl border border-amber-200/30 bg-amber-200/10 px-4 py-2.5 text-xs font-black text-amber-100 disabled:opacity-30">PASS · AIR RAID</button><button onClick={()=>choosePlay('screen')} disabled={!!gameRef.current&&['live','result'].includes(gameRef.current.phase)} className="rounded-xl border border-slate-200/20 bg-slate-200/10 px-4 py-2.5 text-xs font-black text-slate-100 disabled:opacity-30">SCREEN · QUICK</button></div><div className="flex items-center gap-3"><div className="grid grid-cols-3 gap-1"><span/><button onClick={()=>{keysRef.current.arrowup=true;window.setTimeout(()=>keysRef.current.arrowup=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">▲</button><span/><button onClick={()=>{keysRef.current.arrowleft=true;window.setTimeout(()=>keysRef.current.arrowleft=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">◀</button><button onClick={()=>{keysRef.current.arrowdown=true;window.setTimeout(()=>keysRef.current.arrowdown=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">▼</button><button onClick={()=>{keysRef.current.arrowright=true;window.setTimeout(()=>keysRef.current.arrowright=false,140);}} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200">▶</button></div><div className="text-[10px] leading-5 text-slate-400">MOVE: WASD / ARROWS<br/>PASS: 1–3 TO TARGET, SPACE TO THROW</div></div></div> : <div className="p-5 text-center"><Trophy className="mx-auto h-8 w-8 text-amber-300"/><div className="mt-2 text-2xl font-black text-white">Final Whistle</div><p className="mt-1 text-xs text-slate-400">Your franchise record has been updated.</p><button onClick={()=>{endMatch(score.us>=score.them);setMode('franchise');}} className="mt-4 rounded-xl bg-amber-300 px-5 py-3 text-xs font-black text-slate-950">Return to Front Office</button></div>}
+          <div className="relative bg-[#1b5837] p-2 sm:p-3"><canvas ref={canvasRef} width={W} height={H} className="block w-full rounded-2xl border border-white/10" style={{aspectRatio:'25 / 13',imageRendering:'pixelated'}}/>
+            {paused&&<div className="absolute inset-2 sm:inset-3 flex items-center justify-center rounded-2xl bg-slate-950/65 backdrop-blur-sm"><div className="text-center"><div className="text-3xl font-black text-white">PAUSED</div><button onClick={()=>setPaused(false)} className="mt-4 rounded-xl bg-amber-300 px-5 py-3 text-xs font-black text-slate-950">Resume Game</button></div></div>}
+            {gameOver&&<div className="absolute inset-2 sm:inset-3 flex items-center justify-center rounded-2xl bg-slate-950/80 backdrop-blur-sm"><div className="max-w-sm text-center"><Trophy className="mx-auto h-9 w-9 text-amber-200"/><div className="mt-2 text-3xl font-black text-white">{finalResult}</div><div className="mt-2 text-sm font-black text-amber-100">{homeScore} — {awayScore}</div><p className="mt-2 text-xs text-slate-300">The final whistle. Your season record is waiting in the front office.</p><button onClick={completeMatch} className="mt-5 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-400 px-5 py-3 text-xs font-black text-slate-950">Complete Week</button></div></div>}
+          </div>
+          <div className="border-t border-white/10 bg-black/20 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex-1"><div className="text-xs font-black text-amber-100">{message}</div>{lastPlay&&<div className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-500">LAST PLAY · {lastPlay}</div>}</div><div className="flex gap-2 text-[9px] font-black"><span className="rounded-lg bg-white/5 px-2 py-1.5 text-slate-300">PASS {playStats.passing} YDS</span><span className="rounded-lg bg-white/5 px-2 py-1.5 text-slate-300">RUSH {playStats.rushing} YDS</span><span className="rounded-lg bg-white/5 px-2 py-1.5 text-slate-300">INT {playStats.interceptions}</span></div></div>
+            {possession==='home'&&!gameOver&&(
+              <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_280px]">
+                <div><div className="mb-2 flex items-center justify-between"><div className="text-[9px] font-black uppercase tracking-[.2em] text-amber-200">Offensive playbook</div><span className="text-[9px] font-bold text-slate-500">DOWN {down} · {yardsToGo} TO GO · BALL ON {ballYard}</span></div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><button disabled={!canPickPlay} onClick={()=>beginPlay('run')} className="rounded-xl border border-amber-200/25 bg-amber-300/15 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-amber-100">POWER RUN</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Follow blocks. Cut through a gap.</p></button><button disabled={!canPickPlay} onClick={()=>beginPlay('pass')} className="rounded-xl border border-cyan-200/25 bg-cyan-300/10 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-cyan-100">SHORT PASS</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Quick routes. Catch and run.</p></button><button disabled={!canPickPlay} onClick={()=>beginPlay('deep')} className="rounded-xl border border-fuchsia-200/25 bg-fuchsia-300/10 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-fuchsia-100">DEEP PASS</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Long throw. Higher risk, more yards.</p></button><button disabled={!canPickPlay} onClick={()=>beginPlay('screen')} className="rounded-xl border border-emerald-200/25 bg-emerald-300/10 p-3 text-left disabled:opacity-30"><div className="text-[10px] font-black text-emerald-100">SCREEN</div><p className="mt-1 text-[9px] leading-4 text-slate-400">Quick toss to the running back.</p></button></div>
+                  <div className="mt-3 flex flex-wrap gap-2">{[1,2,3].map(n=><button key={n} onClick={()=>{setTargetReceiver(n);if(playRef.current)playRef.current.target=n-1;}} className={'rounded-lg border px-3 py-2 text-[10px] font-black '+(targetReceiver===n?'border-amber-200/50 bg-amber-200/15 text-amber-100':'border-white/10 bg-white/5 text-slate-400')}>TARGET {n}</button>)}<button disabled={phaseRef.current!=='live'||playRef.current?.type==='run'||playRef.current?.type==='screen'} onClick={throwPass} className="rounded-lg bg-cyan-300 px-4 py-2 text-[10px] font-black text-slate-950 disabled:opacity-30">THROW · SPACE</button><button disabled={ballYard<57||!canPickPlay} onClick={kickFieldGoal} className="rounded-lg border border-amber-200/25 px-3 py-2 text-[10px] font-black text-amber-100 disabled:opacity-30">FIELD GOAL</button><button disabled={!canPickPlay} onClick={punt} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] font-black text-slate-300 disabled:opacity-30">PUNT</button></div>
+                </div>
+                <aside className="rounded-2xl border border-white/10 bg-[#101b2a] p-3"><div className="text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Ball carrier controls</div><div className="mt-3 grid grid-cols-3 gap-1"><span/><button onClick={()=>tapMove(0,-1)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowUp className="mx-auto h-4 w-4"/></button><span/><button onClick={()=>tapMove(-1,0)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowLeft className="mx-auto h-4 w-4"/></button><button onClick={()=>tapMove(0,1)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowDown className="mx-auto h-4 w-4"/></button><button onClick={()=>tapMove(1,0)} className="rounded-lg border border-white/10 bg-white/5 p-2 text-white"><ArrowRight className="mx-auto h-4 w-4"/></button></div><p className="mt-3 text-[9px] leading-4 text-slate-500">WASD / arrows move the runner. Hold SHIFT to sprint. Pick a receiver, then throw before the rush gets home.</p></aside>
+              </div>
+            )}
+            {possession==='away'&&!gameOver&&(
+              <div className="mt-4 rounded-2xl border border-rose-200/15 bg-[#171c2a] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[9px] font-black uppercase tracking-[.2em] text-rose-200">Defensive coordinator</div><div className="mt-1 text-sm font-black text-white">Bay City has the ball</div><p className="mt-1 text-[10px] text-slate-400">Visitor ball · {cpuDown} & {cpuToGo} · Their field position {cpuYard}. Choose your defensive call.</p></div><span className="rounded-lg bg-rose-300/10 px-3 py-2 text-[10px] font-black text-rose-100">OUR DEFENSE {franchise.defense}/5</span></div><div className="mt-4 grid gap-2 sm:grid-cols-3"><button onClick={()=>callDefense('blitz')} className="rounded-xl border border-rose-200/25 bg-rose-400/10 p-3 text-left"><div className="text-[10px] font-black text-rose-100">BLITZ</div><p className="mt-1 text-[9px] text-slate-400">High sack pressure. Can give up a big play.</p></button><button onClick={()=>callDefense('zone')} className="rounded-xl border border-cyan-200/25 bg-cyan-300/10 p-3 text-left"><div className="text-[10px] font-black text-cyan-100">ZONE COVERAGE</div><p className="mt-1 text-[9px] text-slate-400">Protect space. Best against long gains.</p></button><button onClick={()=>callDefense('man')} className="rounded-xl border border-amber-200/25 bg-amber-200/10 p-3 text-left"><div className="text-[10px] font-black text-amber-100">MAN COVERAGE</div><p className="mt-1 text-[9px] text-slate-400">Balanced pressure and coverage.</p></button></div></div>
+            )}
+            {kickReady&&<div className="mt-4 rounded-2xl border border-amber-200/25 bg-amber-200/5 p-4"><div className="flex items-center justify-between"><div className="text-xs font-black text-amber-100">KICK METER · STOP IN THE GOLD ZONE</div><span className="text-[10px] text-slate-400">{Math.round(kickMeter)}%</span></div><div className="relative mt-3 h-4 rounded-full bg-white/10"><div className="absolute left-[64%] top-0 h-full w-[18%] rounded-full bg-emerald-400/50"/><div className="absolute top-[-4px] h-6 w-2 rounded bg-white shadow" style={{left:kickMeter+'%'}}/></div><button onClick={takeKick} className="mt-3 rounded-xl bg-amber-300 px-5 py-2.5 text-xs font-black text-slate-950">KICK NOW</button></div>}
+            {phaseRef.current==='result'&&playPhase==='result'&&possession==='home'&&!gameOver&&<div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[.04] p-3"><div className="text-xs font-bold text-white">Play complete. Call the next play.</div><button onClick={()=>{setPhase('ready');playRef.current=null;setShowPlaybook(true);}} className="rounded-lg bg-white px-4 py-2 text-[10px] font-black text-slate-950">NEXT PLAY</button></div>}
+          </div>
         </section>
       )}
     </div>
