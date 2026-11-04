@@ -173,7 +173,7 @@ function drawScene(ctx: CanvasRenderingContext2D, song: Song, playhead: number, 
     const y = (i * 53) % 275;
     ctx.fillStyle = 'rgba(225,235,255,' + (.16 + (i % 5) * .1) + ')'; ctx.fillRect(x, y, i % 7 === 0 ? 3 : 2, i % 7 === 0 ? 3 : 2);
   }
-  const beatPhase = (playhead / (60 / Math.max(60, song.gameBpm))) % 1;
+  const beatPhase = ((playhead - Math.max(0, Number(song.gameBeatOffsetMs) || 0) / 1000) / (60 / Math.max(60, song.gameBpm)) + 1) % 1;
   const pulse = Math.max(0, 1 - beatPhase) * .12;
   ctx.fillStyle = palette.glow; ctx.globalAlpha = pulse; ctx.fillRect(0, 0, W, GROUND); ctx.globalAlpha = 1;
   // Ground tiles are segmented so the level appears to scroll with the song.
@@ -380,7 +380,11 @@ export const NeonDashGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         else { player.grounded = false; player.rotation += dt * 5.8; }
         for (const obstacle of obstaclesRef.current) {
           const x = PLAYER_X + (obstacle.time - playhead) * speedRef.current;
-          if (x < PLAYER_X - 22 || x > PLAYER_X + 35) continue;
+          const playerLeft = PLAYER_X + 5;
+          const playerRight = PLAYER_X + CUBE - 5;
+          const obstacleRight = x + obstacle.width;
+          // Test the whole obstacle footprint, not only its leading edge.
+          if (playerRight <= x || playerLeft >= obstacleRight) continue;
           if (obstacle.type === 'orb') continue;
           let collision = false;
           if (obstacle.type === 'gap') collision = player.grounded;
