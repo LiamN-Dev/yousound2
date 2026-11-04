@@ -116,6 +116,7 @@ export async function updateUserDb(
     isLocked?: boolean;
     sessionVersion?: number;
     christmasMode?: boolean;
+    gamesEnabled?: boolean;
   }
 ) {
   if (!(await checkSqlAvailability())) {
