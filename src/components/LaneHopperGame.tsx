@@ -18,6 +18,7 @@ const BOARD_X = 73;
 const CANVAS_W = 960;
 const CANVAS_H = 620;
 const BEST_KEY = 'ys-lane-hopper-best-v3';
+const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 const VEHICLE_COLORS = ['#e65b57', '#e8b94f', '#3d91c9', '#e7e9ec', '#51a77d', '#a27ad1'];
 const LOG_COLORS = ['#9a613b', '#b97843', '#8a5233'];
 
