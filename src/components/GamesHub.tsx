@@ -130,7 +130,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
       }
     })();
     return () => { cancelled = true; };
-  }, [isAdmin]);
+  }, [isAdmin, songs.length > 0]);
 
   if (selectedGame === 'guess') return <div className="space-y-4"><button type="button" onClick={() => setSelectedGame('menu')} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300"><ArrowLeft className="h-3.5 w-3.5" /> All Games</button><GuessTrackGame /></div>;
   if (selectedGame === 'rhythm') return <RhythmGame onBack={() => setSelectedGame('menu')} />;
