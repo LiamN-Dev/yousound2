@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { Readable } from 'node:stream';
 import crossyRoadRouter from './src/routes/crossyRoad.ts';
 import path from 'path';
 import fs from 'fs';
@@ -274,6 +275,66 @@ app.use(async (req: Request, res: Response, next: any) => {
 // Parse request bodies only after the emergency gate has allowed the request.
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Serve the self-hosted Crossy Road build under YouSound's own origin.
+// The isolated page gives React Native Web the correct viewport while keeping
+// every game asset on the existing Cloudflare asset host behind this route.
+const CROSSY_ROAD_ASSET_ORIGIN = process.env.CROSSY_ROAD_ASSET_ORIGIN
+  || 'https://yousound-game-assets.liamnystrom9.workers.dev';
+
+app.get('/crossy-road', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.redirect(302, '/crossy-road/');
+});
+
+app.use('/crossy-road', async (req: Request, res: Response) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return res.status(405).send('Method Not Allowed');
+  }
+
+  try {
+    const upstreamUrl = new URL(req.originalUrl, CROSSY_ROAD_ASSET_ORIGIN);
+    const requestHeaders = new Headers();
+    for (const name of ['accept', 'range', 'if-range', 'if-none-match', 'if-modified-since']) {
+      const value = req.header(name);
+      if (value) requestHeaders.set(name, value);
+    }
+
+    const upstream = await fetch(upstreamUrl, {
+      method: req.method,
+      headers: requestHeaders,
+      redirect: 'follow',
+    });
+
+    res.status(upstream.status);
+    const allowedResponseHeaders = [
+      'content-type', 'cache-control', 'etag', 'last-modified',
+      'accept-ranges', 'content-range', 'expires', 'vary',
+    ];
+    for (const name of allowedResponseHeaders) {
+      const value = upstream.headers.get(name);
+      if (value) res.setHeader(name, value);
+    }
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+
+    if (req.method === 'HEAD' || !upstream.body) return res.end();
+    Readable.fromWeb(upstream.body as any)
+      .on('error', (error) => {
+        console.error('[Crossy Road] Asset proxy stream failed:', error);
+        if (!res.headersSent) res.status(502);
+        res.end();
+      })
+      .pipe(res);
+  } catch (error: any) {
+    console.error('[Crossy Road] Asset proxy failed:', error?.message || error);
+    if (!res.headersSent) {
+      res.status(502).type('text/plain').send('Crossy Road assets are temporarily unavailable.');
+    } else {
+      res.end();
+    }
+  }
+});
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
