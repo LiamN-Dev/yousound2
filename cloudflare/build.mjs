@@ -175,6 +175,14 @@ replaceOnce(
 );
 
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
+const originalGameScreen = readFileSync(gameScreenPath, "utf8");
+const webSafeGameScreen = originalGameScreen.replaceAll(
+  "useNativeDriver: true,",
+  'useNativeDriver: Platform.OS !== "web",'
+);
+if (webSafeGameScreen !== originalGameScreen) {
+  writeFileSync(gameScreenPath, webSafeGameScreen);
+}
 replaceOnce(
   gameScreenPath,
   '  transitionScreensValue = new Animated.Value(1);',
