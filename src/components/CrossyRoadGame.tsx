@@ -21,6 +21,9 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const frameRef = useRef<HTMLIFrameElement>(null);
   const runIdRef = useRef<string | null>(null);
   const startPendingRef = useRef(false);
+  const pendingFinishScoreRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
+  const finishedRunRef = useRef(false);
   const statsRef = useRef<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
   const [stats, setStats] = useState<Stats>(statsRef.current);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -60,63 +63,94 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     return () => { active = false; };
   }, [sendAccountUpdate]);
 
+  const finishRun = useCallback(async (score: number) => {
+    if (busyRef.current || finishedRunRef.current) return;
+    const runId = runIdRef.current;
+    if (!runId) {
+      if (startPendingRef.current) {
+        pendingFinishScoreRef.current = score;
+      } else {
+        setError('The game result arrived before a saved session was created. Please retry the run.');
+      }
+      return;
+    }
+
+    finishedRunRef.current = true;
+    runIdRef.current = null;
+    busyRef.current = true;
+    setBusy(true);
+    setMessage('Saving your run…');
+
+    try {
+      const result = await api<Stats & { coinsAwarded: number; score: number }>('/finish', {
+        method: 'POST',
+        body: JSON.stringify({ runId, score }),
+      });
+      const next = { coins: result.coins, highScore: result.highScore, totalGames: result.totalGames };
+      statsRef.current = next;
+      setStats(next);
+      sendAccountUpdate(next);
+      setMessage('Run saved · +' + result.coinsAwarded + ' coins');
+      await refreshLeaderboard();
+      setError('');
+    } catch (err: any) {
+      setMessage('');
+      setError(err?.message || 'Your run could not be saved.');
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, [refreshLeaderboard, sendAccountUpdate]);
+
   const startRun = useCallback(async () => {
-    if (runIdRef.current || startPendingRef.current) return;
+    if (runIdRef.current || startPendingRef.current || busyRef.current) return;
     startPendingRef.current = true;
     try {
       const started = await api<{ runId: string }>('/start', { method: 'POST', body: '{}' });
       runIdRef.current = started.runId;
+      finishedRunRef.current = false;
       sendAccountUpdate(statsRef.current);
       setError('');
+      const pendingScore = pendingFinishScoreRef.current;
+      if (pendingScore !== null) {
+        pendingFinishScoreRef.current = null;
+        void finishRun(pendingScore);
+      }
     } catch (err: any) {
+      pendingFinishScoreRef.current = null;
       runIdRef.current = null;
       setError(err?.message || 'Could not start a saved game session.');
     } finally {
       startPendingRef.current = false;
     }
-  }, [sendAccountUpdate]);
+  }, [finishRun, sendAccountUpdate]);
 
   useEffect(() => {
-    const onMessage = async (event: MessageEvent) => {
+    const onMessage = (event: MessageEvent) => {
       if (event.source !== frameRef.current?.contentWindow || event.origin !== CROSSY_ROAD_ORIGIN) return;
       const type = event.data?.type;
+
       if (type === 'yousound-crossy-road:ready') {
         sendAccountUpdate(statsRef.current);
         return;
       }
       if (type === 'yousound-crossy-road:run-started') {
-        if (!runIdRef.current && !busy) void startRun();
+        void startRun();
         return;
       }
-      if (type !== 'yousound-crossy-road:run-finished') return;
-
-      const runId = runIdRef.current;
-      if (!runId || busy) return;
-      runIdRef.current = null;
-      setBusy(true);
-      setMessage('Saving your run…');
-      try {
-        const result = await api<Stats & { coinsAwarded: number; score: number }>('/finish', {
-          method: 'POST',
-          body: JSON.stringify({ runId, score: Number(event.data.score) }),
-        });
-        const next = { coins: result.coins, highScore: result.highScore, totalGames: result.totalGames };
-        statsRef.current = next;
-        setStats(next);
-        sendAccountUpdate(next);
-        setMessage('Run saved · +' + result.coinsAwarded + ' coins');
-        await refreshLeaderboard();
-        setError('');
-      } catch (err: any) {
-        setMessage('');
-        setError(err?.message || 'Your run could not be saved.');
-      } finally {
-        setBusy(false);
+      if (type === 'yousound-crossy-road:run-finished') {
+        const score = Number(event.data.score);
+        if (Number.isSafeInteger(score) && score >= 0 && score <= 10000) {
+          void finishRun(score);
+        } else {
+          setError('The game returned an invalid score.');
+        }
       }
     };
+
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [busy, refreshLeaderboard, sendAccountUpdate, startRun]);
+  }, [finishRun, sendAccountUpdate, startRun]);
 
   return <div className="mx-auto max-w-6xl space-y-4 pb-24">
     <div className="flex flex-wrap items-center justify-between gap-3">
