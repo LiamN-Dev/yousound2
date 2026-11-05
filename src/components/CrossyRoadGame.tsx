@@ -25,6 +25,8 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const statsRef = useRef(stats);
+  statsRef.current = stats;
 
   const sendAccountUpdate = useCallback((next: Stats) => {
     window.postMessage({ type: 'yousound-crossy-road:account-update', ...next }, window.location.origin);
@@ -149,6 +151,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
             addedScripts.push(script);
           }
         }
+        if (!cancelled) sendAccountUpdate(statsRef.current);
       } catch (err: any) {
         if (!cancelled) setError(err?.message || 'Could not mount Crossy Road inside YouSound.');
       }
@@ -162,7 +165,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
       addedLinks.forEach((link) => link.remove());
       gameRoot?.remove();
     };
-  }, [url]);
+  }, [sendAccountUpdate, url]);
 
   return <div className="mx-auto max-w-6xl space-y-4 pb-24">
     <div className="flex flex-wrap items-center justify-between gap-3">
