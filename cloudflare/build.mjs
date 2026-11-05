@@ -64,7 +64,7 @@ replaceOnce(
 replaceOnce(
   providerPath,
   '    parseModulesAsync();\n  }, []);',
-  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") {\n      window.addEventListener("message", onParentMessage);\n      if (window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:ready" }, window.location.origin);\n      }\n    }\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
+  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") {\n      window.addEventListener("message", onParentMessage);\n      if (window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:ready" }, "*");\n      }\n    }\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
   "parent account message listener"
 );
 replaceOnce(
@@ -126,13 +126,13 @@ const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameInit = () => {\n      this.setState({ score: 0 });\n    };',
-  '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, window.location.origin);\n      }\n      this.setState({ score: 0 });\n    };',
+  '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\n      }\n      this.setState({ score: 0 });\n    };',
   "game-start event"
 );
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
-  '    this.engine.onGameEnded = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-finished", score: this.state.score }, window.location.origin);\n      }\n      this.setState({ gameState: State.Game.gameOver });',
+  '    this.engine.onGameEnded = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-finished", score: this.state.score }, "*");\n      }\n      this.setState({ gameState: State.Game.gameOver });',
   "game-over score event"
 );
 replaceOnce(
