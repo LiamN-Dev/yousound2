@@ -30,7 +30,16 @@ export default {
     headers.set("x-content-type-options", "nosniff");
 
     if (response.ok) {
-      headers.set("cache-control", "public, max-age=31536000, immutable");
+      const contentType = headers.get("content-type") || "";
+      const filename = url.pathname.split("/").pop() || "";
+      const fingerprinted = /[.-][a-f0-9]{8,}[.-]/i.test(filename);
+      if (contentType.includes("text/html") || url.pathname.endsWith("/")) {
+        headers.set("cache-control", "no-store");
+      } else if (fingerprinted) {
+        headers.set("cache-control", "public, max-age=31536000, immutable");
+      } else {
+        headers.set("cache-control", "public, max-age=86400");
+      }
     }
 
     return new Response(response.body, {
