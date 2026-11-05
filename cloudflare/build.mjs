@@ -85,15 +85,67 @@ replaceOnce(
 const scorePath = join(sourceDir, "src/components/ScoreText.tsx");
 replaceOnce(
   scorePath,
-  `  const { top, left } = useSafeArea();`,
-  `  const { bottom, left } = useSafeArea();`,
-  "score safe-area anchor"
+  `  const { top, left } = useSafeArea();
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.container,
+        { top: Math.max(top, 16), left: Math.max(left, 8) },
+      ]}
+    >
+      <Text style={[styles.score, textShadow]}>{score}</Text>
+      {highscore > 0 && (
+        <Text style={[styles.highscore, textShadowHighscore]}>
+          TOP {highscore}
+        </Text>
+      )}
+    </View>
+  );`,
+  `  const { top, bottom, left } = useSafeArea();
+
+  return (
+    <>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.container,
+          { top: Math.max(top, 16), left: Math.max(left, 8) },
+        ]}
+      >
+        <Text style={[styles.score, textShadow]}>{score}</Text>
+      </View>
+      {highscore > 0 && (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.highscoreContainer,
+            { bottom: Math.max(bottom, 16), left: Math.max(left, 8) },
+          ]}
+        >
+          <Text style={[styles.highscore, textShadowHighscore]}>
+            TOP {highscore}
+          </Text>
+        </View>
+      )}
+    </>
+  );`,
+  "separate current score and bottom-left high score HUD"
 );
 replaceOnce(
   scorePath,
-  `        { top: Math.max(top, 16), left: Math.max(left, 8) },`,
-  `        { bottom: Math.max(bottom, 16), left: Math.max(left, 8) },`,
-  "place score HUD at bottom left"
+  `  container: {
+    position: "absolute",
+    gap: 12,
+  },`,
+  `  container: {
+    position: "absolute",
+  },
+  highscoreContainer: {
+    position: "absolute",
+  },`,
+  "anchor high score independently at bottom left"
 );
 
 const audioPath = join(sourceDir, "src/AudioManager.ts");
