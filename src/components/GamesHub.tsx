@@ -4,6 +4,7 @@ import { Song } from '../types';
 import { GuessTrackGame } from './GuessTrackGame';
 import { RhythmGame } from './RhythmGame';
 import { ExternalGameEmbed } from './ExternalGameEmbed';
+import { CrossyRoadGame } from './CrossyRoadGame';
 
 type SelectedGame = 'menu' | 'guess' | 'rhythm' | 'retro' | 'dash' | 'crossy';
 type Props = {
@@ -141,7 +142,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
   if (selectedGame === 'rhythm') return <div className="space-y-4">{backButton(returnToMenu)}<RhythmGame/></div>;
   if (selectedGame === 'retro') return <ExternalGameEmbed title="Retro Bowl" url="https://www.miniplay.com/embed/retro-bowl" controls="Use the game’s on-screen or keyboard controls to manage your team and play offense." onBack={returnToMenu}/>;
   if (selectedGame === 'dash') return <ExternalGameEmbed title="Geometry Dash" url="https://www.miniplay.com/embed/geometry-dash-online" controls="Click, tap, or press Space to jump. This is a hosted Geometry Dash browser version." onBack={returnToMenu}/>;
-  if (selectedGame === 'crossy') return <ExternalGameEmbed title="Crossy Road" url="https://www.miniplay.com/embed/crossy-road" controls="Use the arrow keys or controller to move. On touchscreens, tap or swipe to hop." onBack={returnToMenu}/>;
+  if (selectedGame === 'crossy') return <CrossyRoadGame url={String(import.meta.env.VITE_CROSSY_ROAD_URL || '')} onBack={returnToMenu}/>
 
   const cards = [
     { id:'retro' as const, title:'Retro Bowl', subtitle:'EMBEDDED BROWSER GAME', genre:'FOOTBALL · NEW STAR GAMES', desc:'Play Retro Bowl directly inside YouSong using the hosted browser-game player.', color:'amber', keys:'IN-PAGE EMBED', icon:<Trophy className="h-6 w-6"/> },
