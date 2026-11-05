@@ -86,7 +86,7 @@ const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameInit = () => {\n      this.setState({ score: 0 });\n    };',
-  '    this.engine.onGameInit = () => {\\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\\n      }\\n      this.setState({ score: 0 });\\n    };',
+  '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\n      }\n      this.setState({ score: 0 });\n    };',
   "game-start event"
 );
 replaceOnce(
@@ -133,7 +133,7 @@ function patchBundleFiles(directory) {
     const filePath = join(directory, entry.name);
     if (entry.isDirectory()) {
       patchBundleFiles(filePath);
-    } else if (entry.isFile() && /\\.js$/.test(entry.name)) {
+    } else if (entry.isFile() && entry.name.endsWith(".js"))
       let source = readFileSync(filePath, "utf8");
       source = source.replace(/getElementById\\((['"])root\\1\\)/g, 'getElementById("yousound-crossy-road-root")');
       writeFileSync(filePath, source);
