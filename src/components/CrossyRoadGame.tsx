@@ -170,7 +170,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <iframe
             ref={frameRef}
             title="Crossy Road"
-            src={CROSSY_ROAD_ORIGIN + "/crossy-road/"}
+            src={CROSSY_ROAD_ORIGIN + "/crossy-road/?v=20261105-ultimate-fix-1"}
             className="block h-full w-full border-0 bg-[#87C6FF]"
             allow="autoplay; fullscreen; gamepad"
             allowFullScreen
