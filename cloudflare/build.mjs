@@ -133,9 +133,11 @@ function patchBundleFiles(directory) {
     const filePath = join(directory, entry.name);
     if (entry.isDirectory()) {
       patchBundleFiles(filePath);
-    } else if (entry.isFile() && entry.name.endsWith(".js"))
+    } else if (entry.isFile() && entry.name.endsWith(".js")) {
       let source = readFileSync(filePath, "utf8");
-      source = source.replace(/getElementById\\((['"])root\\1\\)/g, 'getElementById("yousound-crossy-road-root")');
+      source = source
+        .replaceAll('getElementById("root")', 'getElementById("yousound-crossy-road-root")')
+        .replaceAll("getElementById('root')", 'getElementById("yousound-crossy-road-root")');
       writeFileSync(filePath, source);
     }
   }
