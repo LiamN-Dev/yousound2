@@ -64,7 +64,7 @@ replaceOnce(
 replaceOnce(
   providerPath,
   '    parseModulesAsync();\n  }, []);',
-  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") {\\n      window.addEventListener("message", onParentMessage);\\n      if (window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:ready" }, window.location.origin);\\n      }\\n    }\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
+  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") {\n      window.addEventListener("message", onParentMessage);\n      if (window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:ready" }, window.location.origin);\n      }\n    }\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
   "parent account message listener"
 );
 replaceOnce(
@@ -106,7 +106,7 @@ replaceOnce(
 replaceOnce(
   audioPath,
   '  _soundCache: Record<number, AudioPlayer[]> = {};',
-  '  _soundCache: Record<number, AudioPlayer[]> = {};\\n\\n  webAudioUnlocked = process.env.EXPO_OS !== "web";',
+  '  _soundCache: Record<number, AudioPlayer[]> = {};\n\n  webAudioUnlocked = process.env.EXPO_OS !== "web";',
   "web audio gesture state"
 );
 replaceOnce(
@@ -117,8 +117,8 @@ replaceOnce(
 );
 replaceOnce(
   audioPath,
-  '  setupAsync = async () => {\\n    // noop -- maybe preload some common sounds upfront\\n    return true;\\n  };',
-  '  setupAsync = async () => {\\n    if (process.env.EXPO_OS === "web" && typeof window !== "undefined") {\\n      const unlock = () => {\\n        this.webAudioUnlocked = true;\\n        window.removeEventListener("pointerdown", unlock, true);\\n        window.removeEventListener("keydown", unlock, true);\\n        window.removeEventListener("touchstart", unlock, true);\\n      };\\n      window.addEventListener("pointerdown", unlock, true);\\n      window.addEventListener("keydown", unlock, true);\\n      window.addEventListener("touchstart", unlock, true);\\n    }\\n    return true;\\n  };',
+  '  setupAsync = async () => {\n    // noop -- maybe preload some common sounds upfront\n    return true;\n  };',
+  '  setupAsync = async () => {\n    if (process.env.EXPO_OS === "web" && typeof window !== "undefined") {\n      const unlock = () => {\n        this.webAudioUnlocked = true;\n        window.removeEventListener("pointerdown", unlock, true);\n        window.removeEventListener("keydown", unlock, true);\n        window.removeEventListener("touchstart", unlock, true);\n      };\n      window.addEventListener("pointerdown", unlock, true);\n      window.addEventListener("keydown", unlock, true);\n      window.addEventListener("touchstart", unlock, true);\n    }\n    return true;\n  };',
   "unlock audio on first player interaction"
 );
 
