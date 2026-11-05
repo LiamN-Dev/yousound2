@@ -2,8 +2,6 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Only serve static game files from this Worker.
-    // The YouSound app, API, authentication, and Supabase remain separate.
     if (url.pathname === "/" || url.pathname === "/health") {
       return new Response("YouSound game asset host is online.", {
         headers: {
