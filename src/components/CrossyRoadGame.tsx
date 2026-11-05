@@ -3,7 +3,6 @@ import { ArrowLeft, Crown, Trophy, Coins, RefreshCw } from 'lucide-react';
 
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
-type Props = { url: string; onBack: () => void };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/games/crossy-road' + path, {
@@ -16,20 +15,24 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
-  const mountRef = useRef<HTMLDivElement>(null);
+export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const frameRef = useRef<HTMLIFrameElement>(null);
   const runIdRef = useRef<string | null>(null);
   const startPendingRef = useRef(false);
-  const [stats, setStats] = useState<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
+  const statsRef = useRef<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
+  const [stats, setStats] = useState<Stats>(statsRef.current);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const statsRef = useRef(stats);
+
   statsRef.current = stats;
 
   const sendAccountUpdate = useCallback((next: Stats) => {
-    window.postMessage({ type: 'yousound-crossy-road:account-update', ...next }, window.location.origin);
+    frameRef.current?.contentWindow?.postMessage(
+      { type: 'yousound-crossy-road:account-update', ...next },
+      window.location.origin
+    );
   }, []);
 
   const refreshLeaderboard = useCallback(async () => {
@@ -44,11 +47,14 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
       api<{ leaderboard: LeaderboardEntry[] }>('/leaderboard'),
     ]).then(([account, board]) => {
       if (!active) return;
+      statsRef.current = account;
       setStats(account);
       setLeaderboard(board.leaderboard || []);
       setError('');
       sendAccountUpdate(account);
-    }).catch((err: any) => { if (active) setError(err?.message || 'Could not load Crossy Road account data.'); });
+    }).catch((err: any) => {
+      if (active) setError(err?.message || 'Could not load Crossy Road account data.');
+    });
     return () => { active = false; };
   }, [sendAccountUpdate]);
 
@@ -58,22 +64,30 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
     try {
       const started = await api<{ runId: string }>('/start', { method: 'POST', body: '{}' });
       runIdRef.current = started.runId;
-      sendAccountUpdate(stats);
+      sendAccountUpdate(statsRef.current);
       setError('');
     } catch (err: any) {
       runIdRef.current = null;
       setError(err?.message || 'Could not start a saved game session.');
-    } finally { startPendingRef.current = false; }
-  }, [sendAccountUpdate, stats]);
+    } finally {
+      startPendingRef.current = false;
+    }
+  }, [sendAccountUpdate]);
 
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
-      if (event.source !== window || event.data?.type === undefined) return;
-      if (event.data?.type === 'yousound-crossy-road:run-started') {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      const type = event.data?.type;
+      if (type === 'yousound-crossy-road:ready') {
+        sendAccountUpdate(statsRef.current);
+        return;
+      }
+      if (type === 'yousound-crossy-road:run-started') {
         if (!runIdRef.current && !busy) void startRun();
         return;
       }
-      if (event.data?.type !== 'yousound-crossy-road:run-finished') return;
+      if (type !== 'yousound-crossy-road:run-finished') return;
+
       const runId = runIdRef.current;
       if (!runId || busy) return;
       runIdRef.current = null;
@@ -85,6 +99,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
           body: JSON.stringify({ runId, score: Number(event.data.score) }),
         });
         const next = { coins: result.coins, highScore: result.highScore, totalGames: result.totalGames };
+        statsRef.current = next;
         setStats(next);
         sendAccountUpdate(next);
         setMessage('Run saved · +' + result.coinsAwarded + ' coins');
@@ -93,88 +108,13 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
       } catch (err: any) {
         setMessage('');
         setError(err?.message || 'Your run could not be saved.');
-      } finally { setBusy(false); }
+      } finally {
+        setBusy(false);
+      }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [busy, refreshLeaderboard, sendAccountUpdate, startRun]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const addedLinks: HTMLLinkElement[] = [];
-    const addedScripts: HTMLScriptElement[] = [];
-    let gameRoot: HTMLElement | null = null;
-
-    const loadGame = async () => {
-      try {
-        const response = await fetch(url, { credentials: 'omit', cache: 'no-cache' });
-        if (!response.ok) throw new Error('Could not load the self-hosted Crossy Road game (' + response.status + ').');
-        const sourceHtml = await response.text();
-        const parsed = new DOMParser().parseFromString(sourceHtml, 'text/html');
-        const rootTemplate = parsed.getElementById('yousound-crossy-road-root');
-        if (!rootTemplate) throw new Error('The Crossy Road build is missing its in-page game root. Redeploy the Cloudflare asset worker.');
-        for (const link of Array.from(parsed.querySelectorAll('link[rel="stylesheet"][href]'))) {
-          const added = document.createElement('link');
-          added.rel = 'stylesheet';
-          added.href = new URL(link.getAttribute('href')!, url).href;
-          document.head.appendChild(added);
-          addedLinks.push(added);
-        }
-        gameRoot = document.createElement('div');
-        gameRoot.id = 'yousound-crossy-road-root';
-        gameRoot.className = rootTemplate.className;
-        gameRoot.style.position = 'relative';
-        gameRoot.style.display = 'flex';
-        gameRoot.style.alignItems = 'center';
-        gameRoot.style.justifyContent = 'center';
-        gameRoot.style.width = '100%';
-        gameRoot.style.height = '100%';
-        gameRoot.style.minWidth = '0';
-        gameRoot.style.minHeight = '0';
-        gameRoot.style.margin = '0';
-        gameRoot.style.padding = '0';
-        gameRoot.style.overflow = 'hidden';
-        gameRoot.style.inset = '0';
-        if (cancelled || !mountRef.current) return;
-        mountRef.current.appendChild(gameRoot);
-
-        const scripts = Array.from(parsed.querySelectorAll('script')).filter((script) => script.src || script.textContent?.trim());
-        for (const original of scripts) {
-          if (cancelled) return;
-          const script = document.createElement('script');
-          if (original.type) script.type = original.type;
-          if (original.crossOrigin) script.crossOrigin = original.crossOrigin;
-          if (original.src) {
-            const scriptUrl = new URL(original.getAttribute('src')!, url);
-            scriptUrl.searchParams.set('ys_mount', String(Date.now()));
-            script.src = scriptUrl.href;
-            await new Promise<void>((resolve, reject) => {
-              script.onload = () => resolve();
-              script.onerror = () => reject(new Error('A Crossy Road game script failed to load.'));
-              document.body.appendChild(script);
-              addedScripts.push(script);
-            });
-          } else {
-            script.textContent = original.textContent;
-            document.body.appendChild(script);
-            addedScripts.push(script);
-          }
-        }
-        if (!cancelled) sendAccountUpdate(statsRef.current);
-      } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Could not mount Crossy Road inside YouSound.');
-      }
-    };
-
-    void loadGame();
-    return () => {
-      cancelled = true;
-      window.dispatchEvent(new Event('yousound-crossy-road:unmount'));
-      addedScripts.forEach((script) => script.remove());
-      addedLinks.forEach((link) => link.remove());
-      gameRoot?.remove();
-    };
-  }, [sendAccountUpdate, url]);
 
   return <div className="mx-auto max-w-6xl space-y-4 pb-24">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -189,7 +129,18 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
         <div><div className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-200">YOUSOUND ARCADE</div><h2 className="mt-1 text-2xl font-black">Crossy Road</h2><p className="mt-1 text-xs text-slate-400">Original 3D gameplay, saved coins, and account-linked scores.</p></div>
         <div className="text-right text-[10px] text-slate-400">{stats.totalGames.toLocaleString()} saved runs</div>
       </div>
-      <div className="bg-black p-1 sm:p-2"><div ref={mountRef} className="relative h-[min(76vh,860px)] min-h-[560px] w-full overflow-hidden rounded-xl bg-[#080d17]" /></div>
+      <div className="bg-black p-1 sm:p-2">
+        <div className="relative h-[min(76vh,860px)] min-h-[560px] w-full overflow-hidden rounded-xl bg-[#87C6FF]">
+          <iframe
+            ref={frameRef}
+            title="Crossy Road"
+            src="/crossy-road/"
+            className="block h-full w-full border-0 bg-[#87C6FF]"
+            allow="autoplay; fullscreen; gamepad"
+            allowFullScreen
+          />
+        </div>
+      </div>
       {(message || error) && <div className={'border-t border-white/10 px-4 py-3 text-xs ' + (error ? 'text-rose-300' : 'text-emerald-200')}>{error || message}</div>}
     </section>
     <section className="overflow-hidden rounded-3xl border border-amber-200/20 bg-[#111925] text-white shadow-lg">
