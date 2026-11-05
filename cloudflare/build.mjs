@@ -86,7 +86,7 @@ const audioPath = join(sourceDir, "src/AudioManager.ts");
 replaceOnce(
   audioPath,
   'const MUTED = process.env.EXPO_OS === "web";',
-  'const MUTED = false;',
+  'const MUTED = process.env.EXPO_OS === "web";',
   "enable browser game audio"
 );
 
