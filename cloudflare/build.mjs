@@ -122,13 +122,6 @@ replaceOnce(
   "unlock audio on first player interaction"
 );
 
-replaceOnce(
-  join(sourceDir, "src/app/index.tsx"),
-  '            web: { position: "fixed" },',
-  '            web: { position: "absolute" },',
-  "keep game inside YouSound panel"
-);
-
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
@@ -136,25 +129,6 @@ replaceOnce(
   '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, window.location.origin);\n      }\n      this.setState({ score: 0 });\n    };',
   "game-start event"
 );
-replaceOnce(
-  gameScreenPath,
-  '  async componentDidMount() {',
-  '  async componentDidMount() {\n    window.addEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);',
-  "game unmount listener"
-);
-replaceOnce(
-  gameScreenPath,
-  '  componentWillUnmount() {\n    cancelAnimationFrame(this.engine.raf);',
-  '  componentWillUnmount() {\n    window.removeEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);\n    cancelAnimationFrame(this.engine.raf);',
-  "game unmount cleanup"
-);
-replaceOnce(
-  gameScreenPath,
-  '  componentWillUnmount() {',
-  '  onCrossyUnmount = () => {\n    cancelAnimationFrame(this.engine.raf);\n  };\n\n  componentWillUnmount() {',
-  "game unmount handler"
-);
-
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
@@ -189,34 +163,9 @@ run("npx", ["expo", "export", "-p", "web", "--output-dir", "dist"], sourceDir);
 
 console.log("Preparing the Crossy Road app for direct in-page mounting...");
 const htmlPath = join(outputDir, "index.html");
-let html = readFileSync(htmlPath, "utf8");
+const html = readFileSync(htmlPath, "utf8");
 if (!html.includes('id="root"')) throw new Error("Expected Expo root element was not found.");
-html = html.replace('id="root"', 'id="yousound-crossy-road-root"');
-html = html.replaceAll("#root", "#yousound-crossy-road-root");
-writeFileSync(htmlPath, html);
-
-function patchBundleFiles(directory) {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const filePath = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      patchBundleFiles(filePath);
-    } else if (entry.isFile() && (entry.name.endsWith(".js") || entry.name.endsWith(".css"))) {
-      let source = readFileSync(filePath, "utf8");
-      if (entry.name.endsWith(".js")) {
-        source = source
-          .replaceAll('getElementById("root")', 'getElementById("yousound-crossy-road-root")')
-          .replaceAll("getElementById('root')", 'getElementById("yousound-crossy-road-root")')
-          .replaceAll("#root", "#yousound-crossy-road-root");
-      } else {
-        // Expo's exported web CSS targets #root. The integration renames that
-        // node so it can coexist with YouSound's own app root; keep the styles attached.
-        source = source.replaceAll("#root", "#yousound-crossy-road-root");
-      }
-      writeFileSync(filePath, source);
-    }
-  }
-}
-patchBundleFiles(outputDir);
+// Keep Expo's normal #root in its own document. No parent-DOM root rewriting is needed.
 
 if (!existsSync(join(outputDir, "index.html"))) {
   throw new Error("Expo export did not produce dist/index.html; refusing to deploy an incomplete game.");
