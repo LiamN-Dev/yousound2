@@ -28,6 +28,86 @@ appConfig.expo.experiments = {
 };
 writeFileSync(appConfigPath, JSON.stringify(appConfig, null, 2) + "\n");
 
+
+function replaceOnce(filePath, before, after, label) {
+  const source = readFileSync(filePath, "utf8");
+  if (source.includes(after)) return;
+  if (!source.includes(before)) throw new Error("Could not apply Crossy Road integration patch: " + label);
+  writeFileSync(filePath, source.replace(before, after));
+}
+
+const providerPath = join(sourceDir, "src/context/GameProvider.tsx");
+replaceOnce(
+  providerPath,
+  'const defaultState = { character: "chicken", highscore: 0 };',
+  'const defaultState = { character: "chicken", highscore: 0, coins: 0 };',
+  "provider defaults"
+);
+replaceOnce(
+  providerPath,
+  '  const [highscore, setHighscore] = React.useState(defaultState.highscore);',
+  '  const [highscore, setHighscore] = React.useState(defaultState.highscore);\n  const [coins, setCoins] = React.useState(defaultState.coins);',
+  "provider coin state"
+);
+replaceOnce(
+  providerPath,
+  '        const { character, highscore } = await rehydrateAsync();',
+  '        const { character, highscore, coins } = await rehydrateAsync();',
+  "provider hydration"
+);
+replaceOnce(
+  providerPath,
+  '        setHighscore(highscore);',
+  '        setHighscore(highscore);\n        setCoins(Number(coins) || 0);',
+  "provider hydrated coins"
+);
+replaceOnce(
+  providerPath,
+  '    parseModulesAsync();\n  }, []);',
+  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") window.addEventListener("message", onParentMessage);\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
+  "parent account message listener"
+);
+replaceOnce(
+  providerPath,
+  '        highscore,\n        setHighscore: (highscore) => {',
+  '        highscore,\n        coins,\n        setCoins: (coins) => {\n          setCoins(Math.max(0, Number(coins) || 0));\n        },\n        setHighscore: (highscore) => {',
+  "provider context value"
+);
+
+const contextPath = join(sourceDir, "src/context/GameContext.ts");
+replaceOnce(
+  contextPath,
+  '  highscore: 0,\n  setHighscore() {},',
+  '  highscore: 0,\n  setHighscore() {},\n  coins: 0,\n  setCoins() {},',
+  "game context defaults"
+);
+
+const gameScreenPath = join(sourceDir, "src/app/index.tsx");
+replaceOnce(
+  gameScreenPath,
+  '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
+  '    this.engine.onGameEnded = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-finished", score: this.state.score }, "*");\n      }\n      this.setState({ gameState: State.Game.gameOver });',
+  "game-over score event"
+);
+replaceOnce(
+  gameScreenPath,
+  '        <HomeScreen\n          onPlay={() => {',
+  '        <HomeScreen\n          coins={this.props.coins}\n          onPlay={() => {',
+  "home screen coin display"
+);
+replaceOnce(
+  gameScreenPath,
+  '  const { character, setCharacter } = React.useContext(GameContext);',
+  '  const { character, setCharacter, coins } = React.useContext(GameContext);',
+  "game screen coin context"
+);
+replaceOnce(
+  gameScreenPath,
+  '      character={character}\n      setCharacter={setCharacter}',
+  '      character={character}\n      setCharacter={setCharacter}\n      coins={coins}',
+  "game component coin prop"
+);
+
 console.log("Installing game dependencies...");
 run("npm", ["install", "--no-audit", "--no-fund", "--legacy-peer-deps"], sourceDir);
 
