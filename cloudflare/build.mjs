@@ -90,6 +90,13 @@ replaceOnce(
   "enable browser game audio"
 );
 
+replaceOnce(
+  join(sourceDir, "src/app/index.tsx"),
+  '            web: { position: "fixed" },',
+  '            web: { position: "absolute" },',
+  "keep game inside YouSound panel"
+);
+
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
