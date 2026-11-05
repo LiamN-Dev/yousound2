@@ -121,6 +121,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
         gameRoot = document.createElement('div');
         gameRoot.id = 'yousound-crossy-road-root';
         gameRoot.className = rootTemplate.className;
+        gameRoot.style.position = 'relative';
         gameRoot.style.width = '100%';
         gameRoot.style.height = '100%';
         if (cancelled || !mountRef.current) return;
