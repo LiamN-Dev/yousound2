@@ -82,6 +82,14 @@ replaceOnce(
   "game context defaults"
 );
 
+const audioPath = join(sourceDir, "src/AudioManager.ts");
+replaceOnce(
+  audioPath,
+  'const MUTED = process.env.EXPO_OS === "web";',
+  'const MUTED = false;',
+  "enable browser game audio"
+);
+
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
@@ -89,6 +97,25 @@ replaceOnce(
   '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\n      }\n      this.setState({ score: 0 });\n    };',
   "game-start event"
 );
+replaceOnce(
+  gameScreenPath,
+  '  async componentDidMount() {',
+  '  async componentDidMount() {\\n    window.addEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);',
+  "game unmount listener"
+);
+replaceOnce(
+  gameScreenPath,
+  '  componentWillUnmount() {\\n    cancelAnimationFrame(this.engine.raf);',
+  '  componentWillUnmount() {\\n    window.removeEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);\\n    cancelAnimationFrame(this.engine.raf);',
+  "game unmount cleanup"
+);
+replaceOnce(
+  gameScreenPath,
+  '  componentWillUnmount() {',
+  '  onCrossyUnmount = () => {\\n    cancelAnimationFrame(this.engine.raf);\\n  };\\n\\n  componentWillUnmount() {',
+  "game unmount handler"
+);
+
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
