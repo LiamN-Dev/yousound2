@@ -64,7 +64,7 @@ replaceOnce(
 replaceOnce(
   providerPath,
   '    parseModulesAsync();\n  }, []);',
-  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") {\n      window.addEventListener("message", onParentMessage);\n      if (window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:ready" }, "*");\n      }\n    }\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
+  '    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    parseModulesAsync().then(() => {\n      if (typeof window !== "undefined") {\n        window.addEventListener("message", onParentMessage);\n        if (window.parent && window.parent !== window) {\n          window.parent.postMessage({ type: "yousound-crossy-road:ready" }, "*");\n        }\n      }\n    });\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
   "parent account message listener"
 );
 replaceOnce(
