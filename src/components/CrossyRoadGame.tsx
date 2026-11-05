@@ -27,7 +27,6 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const statsRef = useRef<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
   const [stats, setStats] = useState<Stats>(statsRef.current);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -78,7 +77,6 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     finishedRunRef.current = true;
     runIdRef.current = null;
     busyRef.current = true;
-    setBusy(true);
     setMessage('Saving your run…');
 
     try {
@@ -98,7 +96,6 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       setError(err?.message || 'Your run could not be saved.');
     } finally {
       busyRef.current = false;
-      setBusy(false);
     }
   }, [refreshLeaderboard, sendAccountUpdate]);
 
