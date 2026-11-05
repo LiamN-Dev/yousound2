@@ -4,6 +4,8 @@ import { ArrowLeft, Crown, Trophy, Coins, RefreshCw } from 'lucide-react';
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
 
+const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/games/crossy-road' + path, {
     credentials: 'same-origin',
@@ -31,7 +33,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const sendAccountUpdate = useCallback((next: Stats) => {
     frameRef.current?.contentWindow?.postMessage(
       { type: 'yousound-crossy-road:account-update', ...next },
-      window.location.origin
+      CROSSY_ROAD_ORIGIN
     );
   }, []);
 
@@ -76,7 +78,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow) return;
+      if (event.source !== frameRef.current?.contentWindow || event.origin !== CROSSY_ROAD_ORIGIN) return;
       const type = event.data?.type;
       if (type === 'yousound-crossy-road:ready') {
         sendAccountUpdate(statsRef.current);
@@ -134,7 +136,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <iframe
             ref={frameRef}
             title="Crossy Road"
-            src="/crossy-road/"
+            src={CROSSY_ROAD_ORIGIN + "/crossy-road/"}
             className="block h-full w-full border-0 bg-[#87C6FF]"
             allow="autoplay; fullscreen; gamepad"
             allowFullScreen
