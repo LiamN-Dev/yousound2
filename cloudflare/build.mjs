@@ -167,11 +167,17 @@ function patchBundleFiles(directory) {
     const filePath = join(directory, entry.name);
     if (entry.isDirectory()) {
       patchBundleFiles(filePath);
-    } else if (entry.isFile() && entry.name.endsWith(".js")) {
+    } else if (entry.isFile() && (entry.name.endsWith(".js") || entry.name.endsWith(".css"))) {
       let source = readFileSync(filePath, "utf8");
-      source = source
-        .replaceAll('getElementById("root")', 'getElementById("yousound-crossy-road-root")')
-        .replaceAll("getElementById('root')", 'getElementById("yousound-crossy-road-root")');
+      if (entry.name.endsWith(".js")) {
+        source = source
+          .replaceAll('getElementById("root")', 'getElementById("yousound-crossy-road-root")')
+          .replaceAll("getElementById('root')", 'getElementById("yousound-crossy-road-root")');
+      } else {
+        // Expo's exported web CSS targets #root. The integration renames that
+        // node so it can coexist with YouSound's own app root; keep the styles attached.
+        source = source.replaceAll("#root", "#yousound-crossy-road-root");
+      }
       writeFileSync(filePath, source);
     }
   }
