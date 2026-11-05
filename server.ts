@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import crossyRoadRouter from './src/routes/crossyRoad.ts';
 import path from 'path';
 import fs from 'fs';
 import { createHash, createHmac, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual } from 'crypto';
@@ -276,6 +277,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
+app.use('/api/games/crossy-road', crossyRoadRouter);
 
 // Statically serve images and assets so covers never 404
 app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
