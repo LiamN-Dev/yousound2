@@ -178,7 +178,7 @@ const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
   '  transitionScreensValue = new Animated.Value(1);',
-  '  transitionScreensValue = new Animated.Value(1);\\n\\n  runStarted = false;',
+  '  transitionScreensValue = new Animated.Value(1);\n\n  runStarted = false;',
   "declare saved-run lifecycle state"
 );
 
