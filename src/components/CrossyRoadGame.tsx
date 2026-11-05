@@ -124,8 +124,17 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
         gameRoot.id = 'yousound-crossy-road-root';
         gameRoot.className = rootTemplate.className;
         gameRoot.style.position = 'relative';
+        gameRoot.style.display = 'flex';
+        gameRoot.style.alignItems = 'center';
+        gameRoot.style.justifyContent = 'center';
         gameRoot.style.width = '100%';
         gameRoot.style.height = '100%';
+        gameRoot.style.minWidth = '0';
+        gameRoot.style.minHeight = '0';
+        gameRoot.style.margin = '0';
+        gameRoot.style.padding = '0';
+        gameRoot.style.overflow = 'hidden';
+        gameRoot.style.inset = '0';
         if (cancelled || !mountRef.current) return;
         mountRef.current.appendChild(gameRoot);
 
