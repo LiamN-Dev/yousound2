@@ -52,7 +52,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
   }, [sendAccountUpdate]);
 
   const startRun = useCallback(async () => {
-    if (!url) return;
+    if (!url || runIdRef.current) return;
     try {
       const started = await api<{ runId: string }>('/start', { method: 'POST', body: '{}' });
       runIdRef.current = started.runId;
@@ -70,7 +70,12 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
       if (event.source !== frameRef.current?.contentWindow) return;
       let expectedOrigin = '';
       try { expectedOrigin = new URL(url).origin; } catch { return; }
-      if (event.origin !== expectedOrigin || event.data?.type !== 'yousound-crossy-road:run-finished') return;
+      if (event.origin !== expectedOrigin) return;
+      if (event.data?.type === 'yousound-crossy-road:run-started') {
+        if (!runIdRef.current && !busy) void startRun();
+        return;
+      }
+      if (event.data?.type !== 'yousound-crossy-road:run-finished') return;
       const runId = runIdRef.current;
       if (!runId || busy) return;
       runIdRef.current = null;
@@ -94,7 +99,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [busy, refreshLeaderboard, sendAccountUpdate, url]);
+  }, [busy, refreshLeaderboard, sendAccountUpdate, startRun, url]);
 
   if (!url) {
     return <div className="mx-auto max-w-6xl space-y-4 pb-24">
