@@ -132,7 +132,7 @@ replaceOnce(
 replaceOnce(
   gameScreenPath,
   '  onSwipe = (gestureName) => this.engine.moveWithDirection(gestureName);',
-  '  onSwipe = (gestureName) => {\\n    if (!this.runStarted) {\\n      this.runStarted = true;\\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\\n      }\\n    }\\n    this.engine.moveWithDirection(gestureName);\\n  };',
+  '  onSwipe = (gestureName) => {\n    if (!this.runStarted) {\n      this.runStarted = true;\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\n      }\n    }\n    this.engine.moveWithDirection(gestureName);\n  };',
   "start run after first player input"
 );
 
