@@ -142,7 +142,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
   if (selectedGame === 'rhythm') return <div className="space-y-4">{backButton(returnToMenu)}<RhythmGame/></div>;
   if (selectedGame === 'retro') return <ExternalGameEmbed title="Retro Bowl" url="https://www.miniplay.com/embed/retro-bowl" controls="Use the game’s on-screen or keyboard controls to manage your team and play offense." onBack={returnToMenu}/>;
   if (selectedGame === 'dash') return <ExternalGameEmbed title="Geometry Dash" url="https://www.miniplay.com/embed/geometry-dash-online" controls="Click, tap, or press Space to jump. This is a hosted Geometry Dash browser version." onBack={returnToMenu}/>;
-  if (selectedGame === 'crossy') return <CrossyRoadGame url={'https://yousound-game-assets.liamnystrom9.workers.dev/crossy-road/'} onBack={returnToMenu}/>
+  if (selectedGame === 'crossy') return <CrossyRoadGame onBack={returnToMenu}/>
 
   const cards = [
     { id:'retro' as const, title:'Retro Bowl', subtitle:'EMBEDDED BROWSER GAME', genre:'FOOTBALL · NEW STAR GAMES', desc:'Play Retro Bowl directly inside YouSong using the hosted browser-game player.', color:'amber', keys:'IN-PAGE EMBED', icon:<Trophy className="h-6 w-6"/> },
