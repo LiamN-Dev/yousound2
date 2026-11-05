@@ -64,7 +64,7 @@ replaceOnce(
 replaceOnce(
   providerPath,
   '    parseModulesAsync();\n  }, []);',
-  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") window.addEventListener("message", onParentMessage);\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
+  '    parseModulesAsync();\n    const onParentMessage = (event) => {\n      if (event.source !== window.parent) return;\\n      const data = event?.data;\n      if (data?.type === "yousound-crossy-road:account-update") {\n        setCoins(Math.max(0, Number(data.coins) || 0));\n        setHighscore(Math.max(0, Number(data.highScore) || 0));\n      }\n    };\n    if (typeof window !== "undefined") {\\n      window.addEventListener("message", onParentMessage);\\n      if (window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:ready" }, window.location.origin);\\n      }\\n    }\n    return () => { if (typeof window !== "undefined") window.removeEventListener("message", onParentMessage); };\n  }, []);',
   "parent account message listener"
 );
 replaceOnce(
@@ -80,48 +80,6 @@ replaceOnce(
   '  highscore: 0,\n  setHighscore() {},',
   '  highscore: 0,\n  setHighscore() {},\n  coins: 0,\n  setCoins() {},',
   "game context defaults"
-);
-
-const enginePath = join(sourceDir, "src/GameEngine.ts");
-replaceOnce(
-  enginePath,
-  `  updateScale = () => {
-    const { width, height, scale } = Dimensions.get("window");
-    if (this.camera) {
-      this.camera.updateScale({ width, height, scale });
-    }
-    if (this.renderer) {
-      this.renderer.setSize(width * scale, height * scale);
-    }
-  };`,
-  `  updateScale = () => {
-    const { scale = 1 } = Dimensions.get("window");
-    const canvas = this.gl?.canvas;
-    const rect = canvas?.getBoundingClientRect?.();
-    const width = Math.max(1, rect?.width || this.viewportWidth || Dimensions.get("window").width);
-    const height = Math.max(1, rect?.height || this.viewportHeight || Dimensions.get("window").height);
-    this.viewportWidth = width;
-    this.viewportHeight = height;
-    if (this.camera) {
-      this.camera.updateScale({ width, height, scale });
-    }
-    if (this.renderer) {
-      this.renderer.setSize(width * scale, height * scale);
-    }
-  };`,
-  "measure Crossy Road using its actual embedded canvas size"
-);
-replaceOnce(
-  enginePath,
-  `  _onGLContextCreate = async (gl) => {
-    const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;`,
-  `  _onGLContextCreate = async (gl) => {
-    this.gl = gl;
-    const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
-    const rect = gl.canvas?.getBoundingClientRect?.();
-    this.viewportWidth = rect?.width || width;
-    this.viewportHeight = rect?.height || height;`,
-  "track embedded GL canvas"
 );
 
 const scorePath = join(sourceDir, "src/components/ScoreText.tsx");
@@ -142,8 +100,26 @@ const audioPath = join(sourceDir, "src/AudioManager.ts");
 replaceOnce(
   audioPath,
   'const MUTED = process.env.EXPO_OS === "web";',
-  'const MUTED = process.env.EXPO_OS === "web";',
+  'const MUTED = false;',
   "enable browser game audio"
+);
+replaceOnce(
+  audioPath,
+  '  _soundCache: Record<number, AudioPlayer[]> = {};',
+  '  _soundCache: Record<number, AudioPlayer[]> = {};\\n\\n  webAudioUnlocked = process.env.EXPO_OS !== "web";',
+  "web audio gesture state"
+);
+replaceOnce(
+  audioPath,
+  '    if (MUTED) return;',
+  '    if (MUTED || !this.webAudioUnlocked) return;',
+  "prevent audio before browser interaction"
+);
+replaceOnce(
+  audioPath,
+  '  setupAsync = async () => {\\n    // noop -- maybe preload some common sounds upfront\\n    return true;\\n  };',
+  '  setupAsync = async () => {\\n    if (process.env.EXPO_OS === "web" && typeof window !== "undefined") {\\n      const unlock = () => {\\n        this.webAudioUnlocked = true;\\n        window.removeEventListener("pointerdown", unlock, true);\\n        window.removeEventListener("keydown", unlock, true);\\n        window.removeEventListener("touchstart", unlock, true);\\n      };\\n      window.addEventListener("pointerdown", unlock, true);\\n      window.addEventListener("keydown", unlock, true);\\n      window.addEventListener("touchstart", unlock, true);\\n    }\\n    return true;\\n  };',
+  "unlock audio on first player interaction"
 );
 
 replaceOnce(
@@ -157,7 +133,7 @@ const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameInit = () => {\n      this.setState({ score: 0 });\n    };',
-  '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\n      }\n      this.setState({ score: 0 });\n    };',
+  '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, window.location.origin);\n      }\n      this.setState({ score: 0 });\n    };',
   "game-start event"
 );
 replaceOnce(
@@ -182,7 +158,7 @@ replaceOnce(
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
-  '    this.engine.onGameEnded = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-finished", score: this.state.score }, "*");\n      }\n      this.setState({ gameState: State.Game.gameOver });',
+  '    this.engine.onGameEnded = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-finished", score: this.state.score }, window.location.origin);\n      }\n      this.setState({ gameState: State.Game.gameOver });',
   "game-over score event"
 );
 replaceOnce(
@@ -216,6 +192,7 @@ const htmlPath = join(outputDir, "index.html");
 let html = readFileSync(htmlPath, "utf8");
 if (!html.includes('id="root"')) throw new Error("Expected Expo root element was not found.");
 html = html.replace('id="root"', 'id="yousound-crossy-road-root"');
+html = html.replaceAll("#root", "#yousound-crossy-road-root");
 writeFileSync(htmlPath, html);
 
 function patchBundleFiles(directory) {
@@ -228,7 +205,8 @@ function patchBundleFiles(directory) {
       if (entry.name.endsWith(".js")) {
         source = source
           .replaceAll('getElementById("root")', 'getElementById("yousound-crossy-road-root")')
-          .replaceAll("getElementById('root')", 'getElementById("yousound-crossy-road-root")');
+          .replaceAll("getElementById('root')", 'getElementById("yousound-crossy-road-root")')
+          .replaceAll("#root", "#yousound-crossy-road-root");
       } else {
         // Expo's exported web CSS targets #root. The integration renames that
         // node so it can coexist with YouSound's own app root; keep the styles attached.
