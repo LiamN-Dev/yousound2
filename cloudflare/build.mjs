@@ -100,19 +100,19 @@ replaceOnce(
 replaceOnce(
   gameScreenPath,
   '  async componentDidMount() {',
-  '  async componentDidMount() {\\n    window.addEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);',
+  '  async componentDidMount() {\n    window.addEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);',
   "game unmount listener"
 );
 replaceOnce(
   gameScreenPath,
-  '  componentWillUnmount() {\\n    cancelAnimationFrame(this.engine.raf);',
-  '  componentWillUnmount() {\\n    window.removeEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);\\n    cancelAnimationFrame(this.engine.raf);',
+  '  componentWillUnmount() {\n    cancelAnimationFrame(this.engine.raf);',
+  '  componentWillUnmount() {\n    window.removeEventListener("yousound-crossy-road:unmount", this.onCrossyUnmount);\n    cancelAnimationFrame(this.engine.raf);',
   "game unmount cleanup"
 );
 replaceOnce(
   gameScreenPath,
   '  componentWillUnmount() {',
-  '  onCrossyUnmount = () => {\\n    cancelAnimationFrame(this.engine.raf);\\n  };\\n\\n  componentWillUnmount() {',
+  '  onCrossyUnmount = () => {\n    cancelAnimationFrame(this.engine.raf);\n  };\n\n  componentWillUnmount() {',
   "game unmount handler"
 );
 
