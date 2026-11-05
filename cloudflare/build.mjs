@@ -126,9 +126,16 @@ const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameInit = () => {\n      this.setState({ score: 0 });\n    };',
-  '    this.engine.onGameInit = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\n      }\n      this.setState({ score: 0 });\n    };',
+  '    this.engine.onGameInit = () => {\n      this.runStarted = false;\n      this.setState({ score: 0 });\n    };',
   "game-start event"
 );
+replaceOnce(
+  gameScreenPath,
+  '  onSwipe = (gestureName) => this.engine.moveWithDirection(gestureName);',
+  '  onSwipe = (gestureName) => {\\n    if (!this.runStarted) {\\n      this.runStarted = true;\\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\\n      }\\n    }\\n    this.engine.moveWithDirection(gestureName);\\n  };',
+  "start run after first player input"
+);
+
 replaceOnce(
   gameScreenPath,
   '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
