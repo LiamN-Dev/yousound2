@@ -85,6 +85,12 @@ replaceOnce(
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
+  '    this.engine.onGameInit = () => {\\n      this.setState({ score: 0 });\\n    };',
+  '    this.engine.onGameInit = () => {\\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\\n      }\\n      this.setState({ score: 0 });\\n    };',
+  "game-start event"
+);
+replaceOnce(
+  gameScreenPath,
   '    this.engine.onGameEnded = () => {\n      this.setState({ gameState: State.Game.gameOver });',
   '    this.engine.onGameEnded = () => {\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\n        window.parent.postMessage({ type: "yousound-crossy-road:run-finished", score: this.state.score }, "*");\n      }\n      this.setState({ gameState: State.Game.gameOver });',
   "game-over score event"
