@@ -4,6 +4,14 @@ import { checkSqlAvailability, createPool } from '../db/index.ts';
 
 const router = Router();
 
+router.use((req: any, res, next) => {
+  const user = req.authUser;
+  if (!user || (user.role !== 'admin' && !user.gamesEnabled)) {
+    return res.status(403).json({ success: false, error: 'Games access has not been enabled for this account.' });
+  }
+  next();
+});
+
 let schemaReady: Promise<void> | null = null;
 
 async function ensureCrossySchema() {
