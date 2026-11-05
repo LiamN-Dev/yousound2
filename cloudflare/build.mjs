@@ -177,6 +177,13 @@ replaceOnce(
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
+  '  transitionScreensValue = new Animated.Value(1);',
+  '  transitionScreensValue = new Animated.Value(1);\\n\\n  runStarted = false;',
+  "declare saved-run lifecycle state"
+);
+
+replaceOnce(
+  gameScreenPath,
   '    this.engine.onGameInit = () => {\n      this.setState({ score: 0 });\n    };',
   '    this.engine.onGameInit = () => {\n      this.runStarted = false;\n      this.setState({ score: 0 });\n    };',
   "game-start event"
