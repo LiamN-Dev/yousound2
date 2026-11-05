@@ -19,6 +19,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const runIdRef = useRef<string | null>(null);
+  const startPendingRef = useRef(false);
   const [stats, setStats] = useState<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -52,7 +53,8 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
   }, [sendAccountUpdate]);
 
   const startRun = useCallback(async () => {
-    if (!url || runIdRef.current) return;
+    if (!url || runIdRef.current || startPendingRef.current) return;
+    startPendingRef.current = true;
     try {
       const started = await api<{ runId: string }>('/start', { method: 'POST', body: '{}' });
       runIdRef.current = started.runId;
@@ -61,7 +63,7 @@ export const CrossyRoadGame: React.FC<Props> = ({ url, onBack }) => {
     } catch (err: any) {
       runIdRef.current = null;
       setError(err?.message || 'Could not start a saved game session.');
-    }
+    } finally { startPendingRef.current = false; }
   }, [sendAccountUpdate, stats, url]);
 
   useEffect(() => {
