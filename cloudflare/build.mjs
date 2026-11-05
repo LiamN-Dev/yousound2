@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -85,7 +85,7 @@ replaceOnce(
 const gameScreenPath = join(sourceDir, "src/app/index.tsx");
 replaceOnce(
   gameScreenPath,
-  '    this.engine.onGameInit = () => {\\n      this.setState({ score: 0 });\\n    };',
+  '    this.engine.onGameInit = () => {\n      this.setState({ score: 0 });\n    };',
   '    this.engine.onGameInit = () => {\\n      if (typeof window !== "undefined" && window.parent && window.parent !== window) {\\n        window.parent.postMessage({ type: "yousound-crossy-road:run-started" }, "*");\\n      }\\n      this.setState({ score: 0 });\\n    };',
   "game-start event"
 );
@@ -119,6 +119,28 @@ run("npm", ["install", "--no-audit", "--no-fund", "--legacy-peer-deps"], sourceD
 
 console.log("Building the browser version...");
 run("npx", ["expo", "export", "-p", "web", "--output-dir", "dist"], sourceDir);
+
+
+console.log("Preparing the Crossy Road app for direct in-page mounting...");
+const htmlPath = join(outputDir, "index.html");
+let html = readFileSync(htmlPath, "utf8");
+if (!html.includes('id="root"')) throw new Error("Expected Expo root element was not found.");
+html = html.replace('id="root"', 'id="yousound-crossy-road-root"');
+writeFileSync(htmlPath, html);
+
+function patchBundleFiles(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const filePath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      patchBundleFiles(filePath);
+    } else if (entry.isFile() && /\\.js$/.test(entry.name)) {
+      let source = readFileSync(filePath, "utf8");
+      source = source.replace(/getElementById\\((['"])root\\1\\)/g, 'getElementById("yousound-crossy-road-root")');
+      writeFileSync(filePath, source);
+    }
+  }
+}
+patchBundleFiles(outputDir);
 
 if (!existsSync(join(outputDir, "index.html"))) {
   throw new Error("Expo export did not produce dist/index.html; refusing to deploy an incomplete game.");
