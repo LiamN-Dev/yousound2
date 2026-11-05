@@ -82,6 +82,62 @@ replaceOnce(
   "game context defaults"
 );
 
+const enginePath = join(sourceDir, "src/GameEngine.ts");
+replaceOnce(
+  enginePath,
+  `  updateScale = () => {
+    const { width, height, scale } = Dimensions.get("window");
+    if (this.camera) {
+      this.camera.updateScale({ width, height, scale });
+    }
+    if (this.renderer) {
+      this.renderer.setSize(width * scale, height * scale);
+    }
+  };`,
+  `  updateScale = () => {
+    const { scale = 1 } = Dimensions.get("window");
+    const canvas = this.gl?.canvas;
+    const rect = canvas?.getBoundingClientRect?.();
+    const width = Math.max(1, rect?.width || this.viewportWidth || Dimensions.get("window").width);
+    const height = Math.max(1, rect?.height || this.viewportHeight || Dimensions.get("window").height);
+    this.viewportWidth = width;
+    this.viewportHeight = height;
+    if (this.camera) {
+      this.camera.updateScale({ width, height, scale });
+    }
+    if (this.renderer) {
+      this.renderer.setSize(width * scale, height * scale);
+    }
+  };`,
+  "measure Crossy Road using its actual embedded canvas size"
+);
+replaceOnce(
+  enginePath,
+  `  _onGLContextCreate = async (gl) => {
+    const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;`,
+  `  _onGLContextCreate = async (gl) => {
+    this.gl = gl;
+    const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
+    const rect = gl.canvas?.getBoundingClientRect?.();
+    this.viewportWidth = rect?.width || width;
+    this.viewportHeight = rect?.height || height;`,
+  "track embedded GL canvas"
+);
+
+const scorePath = join(sourceDir, "src/components/ScoreText.tsx");
+replaceOnce(
+  scorePath,
+  `  const { top, left } = useSafeArea();`,
+  `  const { bottom, left } = useSafeArea();`,
+  "score safe-area anchor"
+);
+replaceOnce(
+  scorePath,
+  `        { top: Math.max(top, 16), left: Math.max(left, 8) },`,
+  `        { bottom: Math.max(bottom, 16), left: Math.max(left, 8) },`,
+  "place score HUD at bottom left"
+);
+
 const audioPath = join(sourceDir, "src/AudioManager.ts");
 replaceOnce(
   audioPath,
