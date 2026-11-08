@@ -1299,8 +1299,6 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
             temporaryPasswordAssigned: updated.temporaryPasswordAssigned,
             chatBlocked: updated.chatBlocked || false,
             chatTrusted: !!updated.chatTrusted,
-
-            chatTrusted: !!u.chatTrusted,
             isSuspended: updated.isSuspended || false,
             isLocked: updated.isLocked || false,
             suspendedReason: updated.suspendedReason || null,
@@ -1729,7 +1727,8 @@ app.post('/api/admin/ai/legacy-facts/:id/promote', async (req: Request, res: Res
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const legacy = await getPersistentSettingDb<any>(LEGACY_AI_KNOWLEDGE_SETTING);
-    const item = Array.isArray(legacy?.entries) ? legacy.entries.find((entry: any) => String(entry.id) === req.params.id) : null;
+    const entries = Array.isArray(legacy?.entries) ? legacy.entries : [];
+    const item = entries.find((entry: any, index: number) => String(entry.id || ('legacy_' + index)) === req.params.id);
     if (!item) return res.status(404).json({ success: false, error: 'Legacy item not found.' });
     const title = typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim().slice(0, 120) : String(item.question || 'Legacy site fact').slice(0, 120);
     const content = typeof req.body?.content === 'string' && req.body.content.trim() ? req.body.content.trim().slice(0, 1200) : String(item.answer || '').slice(0, 1200);
@@ -1737,7 +1736,10 @@ app.post('/api/admin/ai/legacy-facts/:id/promote', async (req: Request, res: Res
     const facts = await getAiPermanentFacts();
     const next = [...facts, { id: 'aif_' + randomBytes(5).toString('hex'), title, content, updatedAt: new Date().toISOString() }].slice(-80);
     await setPersistentSettingDb(AI_FACTS_SETTING, next);
-    await setPersistentSettingDb(LEGACY_AI_KNOWLEDGE_SETTING, { ...legacy, entries: legacy.entries.filter((entry: any) => String(entry.id) !== req.params.id) });
+    await setPersistentSettingDb(LEGACY_AI_KNOWLEDGE_SETTING, {
+      ...legacy,
+      entries: entries.filter((entry: any, index: number) => String(entry.id || ('legacy_' + index)) !== req.params.id),
+    });
     return res.json({ success: true, facts: next });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: 'Could not promote this legacy item.' });
