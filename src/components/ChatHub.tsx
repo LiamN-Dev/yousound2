@@ -100,31 +100,34 @@ export const ChatHub: React.FC = () => {
     try {
       if (isAdmin && adminViewMode === 'oversight') {
         // Admin gets all requests, threads, live feed, blocks
-        const results = await Promise.allSettled([
+        // Fetch the safety queue independently: a slow or failed community feed
+        // must not prevent AI safety flags from appearing in the control room.
+        void (async () => {
+          try {
+            const flagResponse = await fetch('/api/admin/chat/moderation-flags', { credentials: 'same-origin', cache: 'no-store' });
+            const flagData = await flagResponse.json().catch(() => ({}));
+            if (!flagResponse.ok || !flagData.success) {
+              setModerationFlags([]);
+              setModerationError(flagData.error || 'The AI safety queue could not be loaded. Check administrator access and database connectivity.');
+            } else {
+              setModerationFlags(Array.isArray(flagData.flags) ? flagData.flags : []);
+              setModerationError('');
+            }
+          } catch (error: any) {
+            setModerationFlags([]);
+            setModerationError('The AI safety queue request failed: ' + String(error?.message || error || 'network error'));
+          }
+        })();
+        const [reqs, thrs, allMsgs, blocks] = await Promise.allSettled([
           storage.getChatRequests(),
           storage.getChatThreads(),
           storage.getAllChatMessages(),
           storage.getChatPairingBlocks(),
-          fetch('/api/admin/chat/moderation-flags', { credentials: 'same-origin', cache: 'no-store' }),
         ]);
-        const [reqs, thrs, allMsgs, blocks, flagResponse] = results;
         if (reqs.status === 'fulfilled') setRequests(reqs.value);
         if (thrs.status === 'fulfilled') setThreads(thrs.value);
         if (allMsgs.status === 'fulfilled') setAllModerationMessages(allMsgs.value);
         if (blocks.status === 'fulfilled') setPairingBlocks(blocks.value);
-        if (flagResponse.status === 'fulfilled') {
-          const flagData = await flagResponse.value.json().catch(() => ({}));
-          if (!flagResponse.value.ok || !flagData.success) {
-            setModerationFlags([]);
-            setModerationError(flagData.error || 'The AI safety queue could not be loaded. Check administrator access and database connectivity.');
-          } else {
-            setModerationFlags(Array.isArray(flagData.flags) ? flagData.flags : []);
-            setModerationError('');
-          }
-        } else {
-          setModerationFlags([]);
-          setModerationError('The AI safety queue request failed: ' + String(flagResponse.reason?.message || flagResponse.reason || 'network error'));
-        }
       } else {
         // Standard user or Admin in Personal mode gets their own requests and threads
         const [reqs, thrs] = await Promise.all([
