@@ -121,7 +121,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ onOpenPlaylistModa
   };
 
   return (
-    <div className="animate-in fade-in pb-24">
+    <div className="ys-playlists-view animate-in fade-in pb-24">
       {selectedPlaylist ? (
         /* Single Playlist Detail View */
         <div>
