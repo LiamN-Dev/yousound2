@@ -198,7 +198,6 @@
       let saved = loadSave();
       let coins = saved.coins;
       let best = saved.best;
-      let accountManaged = false;
       let parentOrigin = '';
       try {
         const suppliedOrigin = new URLSearchParams(window.location.search).get('yousoundParentOrigin') || '';
@@ -654,7 +653,6 @@
         if (event.source !== window.parent || !parentOrigin || event.origin !== parentOrigin) return;
         const data = event.data || {};
         if (data.type === 'yousound-crossy-road:account-update') {
-          accountManaged = true;
           coins = Math.max(0, Number(data.coins) || 0);
           best = Math.max(0, Number(data.highScore) || 0);
           updateHud();
