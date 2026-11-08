@@ -123,6 +123,10 @@ export const AIStudio: React.FC = () => {
             <button type="button" onClick={() => void requestKnowledgeHelp()} disabled={requestBusy || !lastQuestion} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[.05] px-3 py-2 text-[10px] font-bold text-slate-200 disabled:opacity-40">{requestBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Ask an admin to answer this</button>
           </div>
         </div>}
+        {lastQuestion && !error && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-5 py-3">
+          <span className="text-[10px] text-slate-500">Need an administrator to confirm something?</span>
+          <button type="button" onClick={() => void requestKnowledgeHelp()} disabled={requestBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-200/15 bg-cyan-200/[.06] px-3 py-2 text-[10px] font-bold text-cyan-100 hover:bg-cyan-200/10 disabled:opacity-40">{requestBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Send question to admin</button>
+        </div>}
         {knowledgeFeedback && <div className="border-t border-cyan-300/15 bg-cyan-300/[.06] px-5 py-3 text-xs text-cyan-100">{knowledgeFeedback}</div>}
         <form onSubmit={event => { event.preventDefault(); void send(draft); }} className="flex items-end gap-2 border-t border-white/10 p-3 sm:p-4">
           <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1200} placeholder="Ask YouSound AI…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/40" />
