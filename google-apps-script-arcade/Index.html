@@ -575,7 +575,7 @@
           } else if(row.kind==='river'){
             row.objects.forEach(obj=>{if(obj.type==='log'){obj.x+=obj.speed*dt;if(obj.speed>0&&obj.x>COLS+obj.length)obj.x=-obj.length;if(obj.speed<0&&obj.x< -obj.length)obj.x=COLS+obj.length;}});
           } else if(row.kind==='train'){
-            if(row.warning>0){row.warning-=dt;if(row.warning<=0){row.trainActive=true;row.trainX=row.direction>0?-15:COLS+15;}}
+            if(row.warning>0 && Math.abs(row.z-player.z)<=10){row.warning-=dt;if(row.warning<=0){row.trainActive=true;row.trainX=row.direction>0?-15:COLS+15;}}
             if(row.trainActive){row.trainX+=row.direction*24*dt;if((row.direction>0&&row.trainX>COLS+15)||(row.direction<0&&row.trainX< -15)){row.trainActive=false;row.warning=99;}}
           }
         }
