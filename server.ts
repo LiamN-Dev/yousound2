@@ -3137,9 +3137,19 @@ app.post('/api/radio/duration', async (req: Request, res: Response) => {
     }
     const exact = Math.round(exactSeconds * 1000) / 1000;
     const rounded = Math.round(exact);
-    const state = await resolveRadioState(cleanRadioStationId(req.body?.stationId));
-    if (!state.enabled || String(state.currentSong?.id || '') !== songId) {
-      return res.status(409).json({ success: false, error: 'Duration can only be reported for the current live radio song.' });
+    const stationIds = req.body?.stationId
+      ? [cleanRadioStationId(req.body.stationId)]
+      : (await getRadioStationRegistry()).map((item) => item.id);
+    let state: any = null;
+    for (const stationId of stationIds) {
+      const candidate = await resolveRadioState(stationId);
+      if (candidate.enabled && String(candidate.currentSong?.id || '') === songId) {
+        state = candidate;
+        break;
+      }
+    }
+    if (!state) {
+      return res.status(409).json({ success: false, error: 'Duration can only be reported for a song currently playing on a live radio channel.' });
     }
     const currentExact = Number(state.currentSong?.durationExact) || Number(state.currentSong?.duration) || 0;
     if (!Number(state.currentSong?.durationExact) || Math.abs(currentExact - exact) >= 0.02) {
