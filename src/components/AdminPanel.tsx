@@ -13,6 +13,7 @@ import { AdminDatabaseWarning } from './AdminDatabaseWarning';
 import { ManualSongUploader } from './ManualSongUploader';
 import { AdminDatabaseManager } from './AdminDatabaseManager';
 import { AdminMediaIdManager } from './AdminMediaIdManager';
+import { AdminBetaAccess } from './AdminBetaAccess';
 import {
   Shield,
   Hash,
@@ -99,7 +100,7 @@ export const AdminPanel: React.FC = () => {
   const { allSongs, adminAllSongs, deleteSong, updateSong, playSong, clearAllSongs, autoTagRules } = useAudio();
 
   const [adminTab, setAdminTab] = useState<
-    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'maintenance' | 'popups' | 'database'
+    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'betas' | 'maintenance' | 'popups' | 'database'
   >('songs');
 
   // Edit Song Modal State
@@ -635,7 +636,15 @@ export const AdminPanel: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setAdminTab('maintenance')}
+            onClick={() => setAdminTab('betas')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${adminTab === 'betas' ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/20' : 'text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-600/10'}`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Beta Access
+          </button>
+
+          <button
+            onClick={() => setAdminTab('maintenance')
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
               adminTab === 'maintenance'
                 ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
@@ -1062,6 +1071,8 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {adminTab === 'betas' && <AdminBetaAccess users={allUsers} onUpdateUser={adminUpdateUser} />}
 
       {/* TAB 5: USERS & PASSWORDS */}
       {adminTab === 'users' && (
