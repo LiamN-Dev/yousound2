@@ -198,6 +198,9 @@
       let saved = loadSave();
       let coins = saved.coins;
       let best = saved.best;
+      let accountManaged = false;
+      let parentOrigin = '';
+      try { parentOrigin = new URL(document.referrer).origin; } catch (_) {}
       let unlocked = new Set(saved.unlocked);
       let characterId = saved.character || 'chick';
       if (!unlocked.has('chick')) unlocked.add('chick');
@@ -635,9 +638,24 @@
         else move(dy>0?'down':'up');
       });
 
+      window.addEventListener('message', event => {
+        if (event.source !== window.parent || !parentOrigin || event.origin !== parentOrigin) return;
+        const data = event.data || {};
+        if (data.type === 'yousound-crossy-road:account-update') {
+          accountManaged = true;
+          coins = Math.max(0, Number(data.coins) || 0);
+          best = Math.max(0, Number(data.highScore) || 0);
+          updateHud();
+          renderCharacters();
+          save();
+        }
+      });
       function initialize() {
         coinsNode.textContent=String(coins);bestNode.textContent=String(best);scoreNode.textContent='0';
         renderCharacters();resize();render();
+        if (window.parent && window.parent !== window) {
+          try { window.parent.postMessage({ type: 'yousound-crossy-road:ready' }, '*'); } catch (_) {}
+        }
         if(window.google&&google.script&&google.script.run){
           google.script.run.withSuccessHandler(result=>{
             runtimeNode.textContent=result&&result.ok?'APPS SCRIPT SERVER ONLINE':'RUNTIME RESPONSE UNEXPECTED';
