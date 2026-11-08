@@ -1564,9 +1564,13 @@ function safeGeminiHistory(raw: unknown): any[] {
       result.push(entry);
     }
   }
-  if (result[0]?.role === 'model') result.shift();
-  if (result[result.length - 1]?.role === 'user') result.pop();
-  return result.slice(-8);
+  const recent = result.slice(-8);
+  // Trimming can change the first role even when the full history was valid.
+  // Gemini 3.8 requires the submitted history to begin with a user turn.
+  if (recent[0]?.role === 'model') recent.shift();
+  // The current user question is appended separately after this history.
+  if (recent[recent.length - 1]?.role === 'user') recent.pop();
+  return recent;
 }
 
 async function saveAiDiagnostic(requestId: string, error: any, statusCode: number | null): Promise<void> {
