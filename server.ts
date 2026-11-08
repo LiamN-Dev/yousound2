@@ -2815,6 +2815,7 @@ app.post('/api/settings/spotlight', async (req: Request, res: Response) => {
 
 // ----------------- LIVE RADIO -----------------
 const RADIO_CONFIG_SETTING = 'radio_config_v1';
+const RADIO_STATIONS_SETTING = 'radio_stations_v1';
 const RADIO_CHAT_BANS_SETTING = 'radio_chat_banned_users_v1';
 
 type RadioProgram = {
@@ -2857,6 +2858,38 @@ const DEFAULT_RADIO_CONFIG: RadioConfig = {
   syncRevision: 0,
 };
 
+type RadioStationSummary = { id: string; name: string; description: string; enabled: boolean; createdAt: string };
+function cleanRadioStationId(value: unknown): string {
+  const id = String(value || 'main').trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9_-]{0,39}$/.test(id) ? id : 'main';
+}
+function getRadioConfigKey(stationId: string): string {
+  return stationId === 'main' ? RADIO_CONFIG_SETTING : RADIO_CONFIG_SETTING + ':' + stationId;
+}
+async function getRadioConfig(stationId = 'main'): Promise<RadioConfig> {
+  const saved = await getPersistentSettingDb<RadioConfig>(getRadioConfigKey(stationId));
+  return saved ? { ...DEFAULT_RADIO_CONFIG, ...saved } : { ...DEFAULT_RADIO_CONFIG };
+}
+async function getRadioStationRegistry(): Promise<RadioStationSummary[]> {
+  const saved = await getPersistentSettingDb<RadioStationSummary[]>(RADIO_STATIONS_SETTING);
+  const stations = Array.isArray(saved) ? saved.filter((item) => item && /^[a-z0-9][a-z0-9_-]{0,39}$/.test(String(item.id || ''))) : [];
+  const mainConfig = await getRadioConfig('main');
+  const main: RadioStationSummary = { id: 'main', name: mainConfig.stationName || 'YouSong Radio', description: mainConfig.stationDescription || '', enabled: Boolean(mainConfig.enabled), createdAt: 'legacy' };
+  return [main, ...stations.filter((item) => item.id !== 'main')].slice(0, 12);
+}
+async function saveRadioConfig(stationId: string, config: RadioConfig): Promise<void> {
+  await setPersistentSettingDb(getRadioConfigKey(stationId), config);
+  const registry = await getRadioStationRegistry();
+  const next: RadioStationSummary = {
+    id: stationId, name: String(config.stationName || 'YouSong Radio').slice(0, 80),
+    description: String(config.stationDescription || '').slice(0, 240), enabled: Boolean(config.enabled),
+    createdAt: registry.find((item) => item.id === stationId)?.createdAt || new Date().toISOString(),
+  };
+  const updated = [next, ...registry.filter((item) => item.id !== stationId && item.id !== 'main')].slice(0, 12);
+  if (stationId !== 'main') updated.push(registry.find((item) => item.id === 'main')!);
+  await setPersistentSettingDb(RADIO_STATIONS_SETTING, updated);
+}
+
 function cleanRadioProgram(value: any): RadioProgram {
   const startsAtDate = value?.startsAt ? new Date(value.startsAt) : null;
   return {
@@ -2869,8 +2902,35 @@ function cleanRadioProgram(value: any): RadioProgram {
   };
 }
 
-async function resolveRadioState() {
-  let config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || { ...DEFAULT_RADIO_CONFIG };
+app.get('/api/radio/stations', async (_req: Request, res: Response) => {
+  try {
+    const stations = await getRadioStationRegistry();
+    return res.setHeader('Cache-Control', 'no-store').json({ success: true, stations });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error.message || 'Could not load radio stations.' });
+  }
+});
+app.post('/api/admin/radio/stations', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const name = String(req.body?.name || '').trim().slice(0, 80);
+    if (name.length < 2) return res.status(400).json({ success: false, error: 'Enter a station name with at least two characters.' });
+    const registry = await getRadioStationRegistry();
+    if (registry.length >= 12) return res.status(409).json({ success: false, error: 'You can create up to 12 radio stations.' });
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'station';
+    let id = base, suffix = 2;
+    while (registry.some((item) => item.id === id)) id = base + '-' + suffix++;
+    const config: RadioConfig = { ...DEFAULT_RADIO_CONFIG, stationName: name, stationDescription: '', currentProgram: { name: 'Now Playing', description: '', songIds: [] }, startedAt: new Date().toISOString(), enabled: false };
+    await saveRadioConfig(id, config);
+    return res.json({ success: true, station: { id, name, description: '', enabled: false } });
+  } catch (error: any) {
+    console.error('[Radio] Station creation failed:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Could not create radio station.' });
+  }
+});
+
+async function resolveRadioState(stationId = 'main') {
+  let config = await getRadioConfig(stationId);
   let now = await getPersistentDbNowMs();
   const playbackRate = Math.min(2, Math.max(0.5, Number(config.playbackRate) || 1));
   const nextStartsAt = config.nextProgram?.startsAt ? new Date(config.nextProgram.startsAt).getTime() : NaN;
@@ -2889,8 +2949,8 @@ async function resolveRadioState() {
       syncTrackId: null,
       syncAtServerMs: now + 1000,
     };
-    const promoted = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, promotedConfig);
-    if (!promoted) return resolveRadioState();
+    const promoted = await compareAndSetPersistentSettingDb(getRadioConfigKey(stationId), config, promotedConfig);
+    if (!promoted) return resolveRadioState(stationId);
     config = promotedConfig;
     await clearRadioChatMessagesDb();
   }
@@ -2918,7 +2978,7 @@ async function resolveRadioState() {
     if (!config.pausedAt && !config.loopPlaylist && programElapsedSeconds >= totalDuration) {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
-      await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
+      await saveRadioConfig(stationId, config);
       await clearRadioChatMessagesDb();
     }
     let offset = config.loopPlaylist ? programElapsedSeconds % totalDuration : Math.min(programElapsedSeconds, Math.max(0, totalDuration - 0.25));
@@ -2947,8 +3007,8 @@ async function resolveRadioState() {
         syncTrackId: currentTrackId,
         syncAtServerMs: now + 1000,
       };
-      const saved = await compareAndSetPersistentSettingDb(RADIO_CONFIG_SETTING, config, nextConfig);
-      if (!saved) return resolveRadioState();
+      const saved = await compareAndSetPersistentSettingDb(getRadioConfigKey(stationId), config, nextConfig);
+      if (!saved) return resolveRadioState(stationId);
       config = nextConfig;
     }
   }
@@ -2981,7 +3041,9 @@ app.get('/api/radio/state', async (req: Request, res: Response) => {
   const serverReceivedAtMs = Date.now();
   try {
     res.setHeader('Cache-Control', 'no-store');
-    const state = await resolveRadioState();
+    const stationId = cleanRadioStationId(req.query.stationId);
+    const state = await resolveRadioState(stationId);
+    (state as any).stationId = stationId;
     // Listeners can see upcoming program details, but never the station playlist or
     // the current program's private song lineup.
     if (!isAdminReq(req)) {
@@ -3019,7 +3081,7 @@ app.post('/api/radio/duration', async (req: Request, res: Response) => {
     }
     const exact = Math.round(exactSeconds * 1000) / 1000;
     const rounded = Math.round(exact);
-    const state = await resolveRadioState();
+    const state = await resolveRadioState(cleanRadioStationId(req.body?.stationId));
     if (!state.enabled || String(state.currentSong?.id || '') !== songId) {
       return res.status(409).json({ success: false, error: 'Duration can only be reported for the current live radio song.' });
     }
@@ -3036,8 +3098,9 @@ app.post('/api/radio/duration', async (req: Request, res: Response) => {
 app.get('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-    const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
-    return res.json({ success: true, config });
+    const stationId = cleanRadioStationId(req.query.stationId);
+    const config = await getRadioConfig(stationId);
+    return res.json({ success: true, stationId, config });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load radio settings.' });
   }
@@ -3047,8 +3110,9 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const body = req.body || {};
+    const stationId = cleanRadioStationId(body.stationId);
     const sharedNowMs = await getPersistentDbNowMs();
-    const existing = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const existing = await getRadioConfig(stationId);
     const currentProgram = cleanRadioProgram(body.currentProgram || existing.currentProgram);
     const nextProgram = body.nextProgram ? cleanRadioProgram(body.nextProgram) : null;
     const allSongs = await getSongsPersistentDb();
@@ -3087,7 +3151,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       syncTrackId: startNow ? null : (existing.syncTrackId || null),
       syncAtServerMs: !body.enabled ? null : (startNow ? sharedNowMs + 1000 : (existing.syncAtServerMs ?? null)),
     };
-    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
+    await saveRadioConfig(stationId, config);
     if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
     return res.json({ success: true, config });
   } catch (error: any) {
@@ -3101,7 +3165,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = String(req.body?.action || '');
-    const config = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || DEFAULT_RADIO_CONFIG;
+    const stationId = cleanRadioStationId(req.body?.stationId);
+    const config = await getRadioConfig(stationId);
     const commandNowMs = await getPersistentDbNowMs();
     if (action === 'toggle-pause') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to pause or resume.' });
@@ -3129,7 +3194,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       }
     } else if (action === 'seek') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast to seek.' });
-      const state = await resolveRadioState();
+      const state = await resolveRadioState(stationId);
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to seek.' });
@@ -3148,7 +3213,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       if (!Number.isFinite(requestedRate) || requestedRate < 0.5 || requestedRate > 2) {
         return res.status(400).json({ success: false, error: 'Broadcast speed must be between 0.5x and 2x.' });
       }
-      const state = await resolveRadioState();
+      const state = await resolveRadioState(stationId);
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       const index = Number(state.currentIndex);
       if (!state.currentSong || !playlist[index]) return res.status(409).json({ success: false, error: 'There is no current song to change speed.' });
@@ -3159,7 +3224,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       config.startedAt = new Date(anchor - (programOffset / requestedRate) * 1000).toISOString();
     } else if (action === 'next') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'There is no active broadcast.' });
-      const state = await resolveRadioState();
+      const state = await resolveRadioState(stationId);
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
       if (!state.currentSong || !playlist.length) return res.status(409).json({ success: false, error: 'There is no current song to skip.' });
       const nextIndex = Number(state.currentIndex) + 1;
@@ -3177,12 +3242,12 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       }
     } else if (action === 'reorder-queue') {
       if (!config.enabled) return res.status(409).json({ success: false, error: 'Start the broadcast before rearranging its live queue.' });
-      const state = await resolveRadioState();
+      const state = await resolveRadioState(stationId);
       if (!state.currentSong) return res.status(409).json({ success: false, error: 'There is no current song to anchor the queue reorder.' });
 
       // Re-read after resolveRadioState because it may have promoted a schedule or
       // recorded a natural track transition while this request was in flight.
-      const latestConfig = await getPersistentSettingDb<RadioConfig>(RADIO_CONFIG_SETTING) || config;
+      const latestConfig = await getRadioConfig(stationId) || config;
       Object.assign(config, latestConfig);
 
       const playlist = Array.isArray(state.playlist) ? state.playlist : [];
@@ -3233,8 +3298,8 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       config.syncRevision = Math.max(0, Number(config.syncRevision) || 0) + 1;
       config.syncAtServerMs = config.enabled && !config.pausedAt ? commandNowMs + 1000 : null;
     }
-    await setPersistentSettingDb(RADIO_CONFIG_SETTING, config);
-    const state = await resolveRadioState();
+    await saveRadioConfig(stationId, config);
+    const state = await resolveRadioState(stationId);
     // Bracket a PostgreSQL clock read with app-server timestamps so the
     // browser clock can be translated to the authoritative database clock.
     const dbClockRequestStartedAtMs = Date.now();
@@ -3297,7 +3362,7 @@ app.get('/api/radio/chat', async (req: Request, res: Response) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to join radio chat.' });
     await ensureRadioBanMigration();
-    const station = await resolveRadioState();
+    const station = await resolveRadioState(cleanRadioStationId(req.query.stationId));
     const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
     const messages = station.enabled && canChat ? await getRadioChatMessagesDb(60) : [];
@@ -3320,7 +3385,7 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ success: false, error: 'Log in to chat.' });
     await ensureRadioBanMigration();
-    const station = await resolveRadioState();
+    const station = await resolveRadioState(cleanRadioStationId(req.body?.stationId));
     if (!station.enabled) return res.status(409).json({ success: false, error: 'Radio chat is closed because there is no active broadcast.' });
     const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     if (user.role !== 'admin' && (banned || user.chatBlocked)) {
