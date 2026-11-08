@@ -367,7 +367,7 @@ const MainAppContent: React.FC = () => {
             refreshSongLibrary={refreshSongLibrary}
           />
         )}
-        {activeTab === 'ai' && (isAdmin || currentUser.aiBetaEnabled) && <AIStudio />}
+        {activeTab === 'ai' && (isAdmin || currentUser?.aiBetaEnabled === true) && <AIStudio />}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
