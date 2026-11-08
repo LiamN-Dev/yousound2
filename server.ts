@@ -1414,12 +1414,120 @@ app.delete('/api/users/:uid', async (req: Request, res: Response) => {
 });
 
 
+type AiPermanentFact = { id: string; title: string; content: string; updatedAt: string };
+type AiKnowledgeRequest = { id: string; uid: string; username: string; question: string; status: 'pending' | 'answered' | 'dismissed'; createdAt: string; answer?: string; reviewedAt?: string };
+type AiDiagnostic = { requestId: string; createdAt: string; model: string; statusCode: number | null; errorName: string; message: string };
+type BetterStackStatus = {
+  available: boolean; pageUrl: string; fetchedAt?: string; aggregateState?: string; announcement?: string | null;
+  resources?: Array<{ name: string; status: string; explanation?: string }>;
+  activeReports?: Array<{ title: string; state: string; startedAt?: string | null; endsAt?: string | null; updates: string[] }>;
+  upcomingMaintenance?: Array<{ title: string; startsAt?: string | null; endsAt?: string | null }>;
+  error?: string;
+};
+const AI_FACTS_SETTING = 'ai_site_facts_v1';
+const AI_REQUESTS_SETTING = 'ai_temporary_question_requests_v1';
+const AI_DIAGNOSTICS_SETTING = 'ai_provider_diagnostics_v1';
+const LEGACY_AI_KNOWLEDGE_SETTING = 'ai_site_knowledge_v1';
+let betterStackStatusCache: { expiresAt: number; value: BetterStackStatus } | null = null;
+
+function getBetterStackStatusPageUrl(): string {
+  const raw = String(process.env.BETTERSTACK_STATUS_URL || process.env.BETTERUPTIME_STATUS_URL || 'https://yousound.betteruptime.com').trim();
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') throw new Error('HTTPS required');
+    url.search = '';
+    url.hash = '';
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    const base = url.toString().replace(/\/+$/, '');
+    return base.endsWith('/index.json') ? base : base + '/index.json';
+  } catch {
+    return 'https://yousound.betteruptime.com/index.json';
+  }
+}
+
+function cleanStatusText(value: unknown, limit = 400): string {
+  return typeof value === 'string' ? value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit) : '';
+}
+
+async function getBetterStackLiveStatus(forceRefresh = false): Promise<BetterStackStatus> {
+  const jsonUrl = getBetterStackStatusPageUrl();
+  const pageUrl = jsonUrl.replace(/\/index\.json$/, '');
+  if (!forceRefresh && betterStackStatusCache && betterStackStatusCache.expiresAt > Date.now()) return betterStackStatusCache.value;
+  try {
+    const response = await fetch(jsonUrl, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(7000),
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Better Stack returned HTTP ' + response.status + '.');
+    const payload: any = await response.json();
+    const page = payload?.data?.type === 'status_page'
+      ? payload.data
+      : Array.isArray(payload?.data) ? payload.data.find((item: any) => item?.type === 'status_page') : null;
+    if (!page?.attributes) throw new Error('The public status feed did not contain status-page data.');
+
+    const included = Array.isArray(payload.included) ? payload.included : [];
+    const updateById = new Map<string, string>();
+    included.filter((item: any) => item?.type === 'status_update').forEach((item: any) => {
+      const message = cleanStatusText(item?.attributes?.message, 800);
+      if (message) updateById.set(String(item.id), message);
+    });
+    const resources = included.filter((item: any) => item?.type === 'status_page_resource').map((item: any) => ({
+      name: cleanStatusText(item?.attributes?.public_name || item?.attributes?.name, 100) || 'Unnamed service',
+      status: cleanStatusText(item?.attributes?.status, 40) || 'unknown',
+      explanation: cleanStatusText(item?.attributes?.explanation, 220) || undefined,
+    })).slice(0, 40);
+
+    const now = Date.now();
+    const activeReports: NonNullable<BetterStackStatus['activeReports']> = [];
+    const upcomingMaintenance: NonNullable<BetterStackStatus['upcomingMaintenance']> = [];
+    included.filter((item: any) => item?.type === 'status_report').forEach((item: any) => {
+      const a = item.attributes || {};
+      const startsAt = a.starts_at ? Date.parse(a.starts_at) : NaN;
+      const endsAt = a.ends_at ? Date.parse(a.ends_at) : NaN;
+      const state = cleanStatusText(a.aggregate_state, 40) || 'unknown';
+      const title = cleanStatusText(a.title, 180) || 'Untitled report';
+      const updates = (item?.relationships?.status_updates?.data || [])
+        .map((entry: any) => updateById.get(String(entry.id))).filter(Boolean).slice(-3) as string[];
+      if (a.report_type === 'maintenance' && Number.isFinite(startsAt) && startsAt > now) {
+        upcomingMaintenance.push({ title, startsAt: a.starts_at || null, endsAt: a.ends_at || null });
+      } else if (!['resolved', 'operational'].includes(state.toLowerCase()) && (!Number.isFinite(endsAt) || endsAt > now) && (!Number.isFinite(startsAt) || startsAt <= now)) {
+        activeReports.push({ title, state, startedAt: a.starts_at || null, endsAt: a.ends_at || null, updates });
+      }
+    });
+    const announcement = typeof page.attributes.announcement === 'string'
+      ? cleanStatusText(page.attributes.announcement, 800) || null
+      : cleanStatusText(page.attributes.announcement?.message || page.attributes.announcement?.body, 800) || null;
+    const value: BetterStackStatus = {
+      available: true, pageUrl, fetchedAt: new Date().toISOString(),
+      aggregateState: cleanStatusText(page.attributes.aggregate_state, 40) || 'unknown',
+      announcement, resources, activeReports: activeReports.slice(0, 20), upcomingMaintenance: upcomingMaintenance.slice(0, 10),
+    };
+    betterStackStatusCache = { expiresAt: now + 30000, value };
+    return value;
+  } catch (error: any) {
+    const value: BetterStackStatus = {
+      available: false, pageUrl, fetchedAt: new Date().toISOString(),
+      error: String(error?.message || 'The live status feed could not be reached.').slice(0, 220),
+    };
+    betterStackStatusCache = { expiresAt: Date.now() + 10000, value };
+    return value;
+  }
+}
+
+async function getAiPermanentFacts(): Promise<AiPermanentFact[]> {
+  const facts = await getPersistentSettingDb<AiPermanentFact[]>(AI_FACTS_SETTING);
+  return Array.isArray(facts) ? facts.filter((item) => item && item.title && item.content).slice(-80) : [];
+}
+async function getAiTemporaryRequests(): Promise<AiKnowledgeRequest[]> {
+  const requests = await getPersistentSettingDb<AiKnowledgeRequest[]>(AI_REQUESTS_SETTING);
+  return Array.isArray(requests) ? requests.slice(-500) : [];
+}
+
 /* ----------------- YOUSOUND AI: PRIVATE BETA ----------------- */
 type AiKnowledgeEntry = { id: string; question: string; answer: string; updatedAt: string };
 type AiKnowledgeRequest = { id: string; uid: string; username: string; question: string; status: 'pending' | 'resolved' | 'dismissed'; createdAt: string; answer?: string; reviewedAt?: string };
 type AiKnowledgeStore = { siteStatus: string; entries: AiKnowledgeEntry[] };
-const AI_KNOWLEDGE_SETTING = 'ai_site_knowledge_v1';
-const AI_KNOWLEDGE_REQUESTS_SETTING = 'ai_knowledge_requests_v1';
 const aiAssistantRateLimit = new Map<string, number[]>();
 app.post('/api/ai/assistant', async (req: Request, res: Response) => {
   try {
