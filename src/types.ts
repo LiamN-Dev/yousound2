@@ -14,6 +14,8 @@ export interface User {
   lastSongListened?: string;
   lastSongListenedAt?: string;
   chatBlocked?: boolean;
+  /** Trusted status is granted only by an administrator and permits narrowly-scoped AI pre-approval. */
+  chatTrusted?: boolean;
   isSuspended?: boolean;
   suspendedReason?: string;
   adminNote?: string;
