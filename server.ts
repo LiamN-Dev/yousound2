@@ -5354,6 +5354,88 @@ app.post('/api/admin/maintenance', async (req: Request, res: Response) => {
   }
 });
 
+type ChatAIModerationFlag = {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderUsername: string;
+  receiverId: string;
+  category: string;
+  severity: 'high' | 'medium' | 'unverified';
+  reason: string;
+  excerpt: string;
+  createdAt: string;
+  status: 'open' | 'dismissed';
+};
+const CHAT_AI_FLAGS_SETTING = 'chat_ai_moderation_flags_v1';
+
+async function getChatAIModerationFlags(): Promise<ChatAIModerationFlag[]> {
+  const flags = await getPersistentSettingDb<ChatAIModerationFlag[]>(CHAT_AI_FLAGS_SETTING);
+  return Array.isArray(flags) ? flags.slice(-500) : [];
+}
+async function addChatAIModerationFlag(flag: Omit<ChatAIModerationFlag, 'id' | 'createdAt' | 'status'>): Promise<ChatAIModerationFlag> {
+  const all = await getChatAIModerationFlags();
+  const item: ChatAIModerationFlag = {
+    ...flag,
+    id: 'chatflag_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+    createdAt: new Date().toISOString(),
+    status: 'open',
+  };
+  await setPersistentSettingDb(CHAT_AI_FLAGS_SETTING, [...all, item].slice(-500));
+  return item;
+}
+async function reviewTrustedChatRequest(reason: string): Promise<{ approved: boolean; confidence: number; reason: string }> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey || reason.trim().length < 12) return { approved: false, confidence: 0, reason: 'No clear reason supplied or AI review unavailable.' };
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: 'Review this chat-request reason. Decide whether it clearly describes a harmless, appropriate reason for a school-appropriate peer conversation. Approve only ordinary collaboration such as a class project, study group, or sharing music. Send anything vague, coercive, threatening, harassing, sexual, secretive, or asking for personal contact information to human review. Return JSON only: {"decision":"approve or review","confidence":0.0,"reason":"brief explanation"}. Reason: ' + reason.slice(0, 500),
+      config: { responseMimeType: 'application/json', maxOutputTokens: 160 },
+    });
+    const parsed = JSON.parse(String(response.text || '{}').trim());
+    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
+    return {
+      approved: parsed.decision === 'approve' && confidence >= 0.95,
+      confidence,
+      reason: String(parsed.reason || 'Not sufficiently clear for automatic approval.').slice(0, 180),
+    };
+  } catch (error: any) {
+    console.warn('[Chat AI] Trusted request review unavailable:', error?.message || error);
+    return { approved: false, confidence: 0, reason: 'Automated review unavailable; sent to administrator.' };
+  }
+}
+async function reviewPrivateChatMessage(content: string): Promise<{
+  decision: 'allow' | 'review' | 'block' | 'unavailable';
+  confidence: number;
+  category: string;
+  reason: string;
+}> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) return { decision: 'unavailable', confidence: 0, category: 'screening-unavailable', reason: 'Automated screening is not configured.' };
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: 'Screen this private chat message for serious safety concerns. Flag threats, targeted harassment/bullying, sexual solicitation/content, coercion, requests for addresses/phone numbers/passwords or other sensitive personal information, and dangerous wrongdoing. A normal disagreement, harmless joke, or ordinary school conversation is allowed. Use "block" only when there is a clear and serious concern; use "review" for plausible but uncertain concerns. Return JSON only: {"decision":"allow, review, or block","confidence":0.0,"category":"none, threat, bullying, sexual_content, personal_information, coercion, dangerous_request, or other","reason":"brief explanation"}. Message: ' + content.slice(0, 2000),
+      config: { responseMimeType: 'application/json', maxOutputTokens: 180 },
+    });
+    const parsed = JSON.parse(String(response.text || '{}').trim());
+    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
+    const decision = ['allow', 'review', 'block'].includes(parsed.decision) ? parsed.decision : 'review';
+    return {
+      decision: confidence < 0.55 && decision === 'block' ? 'review' : decision,
+      confidence,
+      category: String(parsed.category || 'other').slice(0, 48),
+      reason: String(parsed.reason || 'Needs administrator review.').slice(0, 180),
+    };
+  } catch (error: any) {
+    console.warn('[Chat AI] Message review unavailable:', error?.message || error);
+    return { decision: 'unavailable', confidence: 0, category: 'screening-unavailable', reason: 'Automated screening did not complete.' };
+  }
+}
+
 // ----------------- CHAT SYSTEM (WITH STRICT ADMIN APPROVAL & OVERSIGHT) -----------------
 // 1. Chat Requests
 app.get('/api/chat/requests', async (req: Request, res: Response) => {
