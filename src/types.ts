@@ -25,6 +25,10 @@ export interface User {
   christmasMode?: boolean;
   /** Enabled only by an administrator for this account. */
   gamesEnabled?: boolean;
+  /** Enabled only by an administrator for this account. */
+  aiBetaEnabled?: boolean;
+  /** Enabled only by an administrator for this account. */
+  redesignBetaEnabled?: boolean;
 }
 
 export type SongBadgeType = 'none' | 'hot' | 'new' | 'top' | 'pinned' | 'admin-pick' | 'limited' | 'custom' | 'spotlight';
