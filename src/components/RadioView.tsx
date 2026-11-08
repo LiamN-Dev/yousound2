@@ -43,6 +43,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [station, setStation] = useState<Station | null>(null);
   const [radioStations, setRadioStations] = useState<RadioStationOption[]>([]);
   const [selectedStationId, setSelectedStationId] = useState('main');
+  const selectedStationIdRef = useRef('main');
   const [newStationName, setNewStationName] = useState('');
   const [stationCreateError, setStationCreateError] = useState('');
   const [creatingStation, setCreatingStation] = useState(false);
@@ -113,6 +114,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       if (!response.ok || !data.success || !data.station?.id) throw new Error(data.error || 'Could not create the radio station.');
       setNewStationName('');
       await refreshStations();
+      selectedStationIdRef.current = String(data.station.id);
       setSelectedStationId(String(data.station.id));
       setStation(null);
       setStationCreateError('Station created. Build its playlist and start it independently.');
@@ -161,11 +163,13 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (stationFetchInFlight.current) return;
     stationFetchInFlight.current = true;
     try {
+      const requestedStationId = selectedStationId;
       const requestStartedAt = performance.now();
-      const response = await fetch('/api/radio/state?stationId=' + encodeURIComponent(selectedStationId), { credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch('/api/radio/state?stationId=' + encodeURIComponent(requestedStationId), { credentials: 'same-origin', cache: 'no-store' });
       const receivedAt = performance.now();
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio is unavailable.');
+      if (selectedStationIdRef.current !== requestedStationId) return;
       const state = data.state as Station;
       const serverTime = Date.parse(state.serverNow || '');
       // Reject stale responses, but never compare the server clock to the device clock.
@@ -642,7 +646,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     <section className="ys-radio-view space-y-4 pb-28">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/80 p-3 text-white">
         <label className="min-w-0 flex-1 text-[10px] font-semibold text-slate-300">Choose a radio channel
-          <select value={selectedStationId} onChange={(event) => { if (joined) leave(); setSelectedStationId(event.target.value); }} className="mt-1 block w-full max-w-md rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white">
+          <select value={selectedStationId} onChange={(event) => { if (joined) leave(); selectedStationIdRef.current = event.target.value; setSelectedStationId(event.target.value); setStation(null); }} className="mt-1 block w-full max-w-md rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white">
             {radioStations.map((item) => <option key={item.id} value={item.id}>{item.name}{item.enabled ? ' · LIVE' : ' · OFF AIR'}</option>)}
           </select>
         </label>
