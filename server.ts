@@ -1761,6 +1761,20 @@ app.post('/api/admin/ai/legacy-facts/:id/promote', async (req: Request, res: Res
   }
 });
 
+app.delete('/api/admin/ai/legacy-facts/:id', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const legacy = await getPersistentSettingDb<any>(LEGACY_AI_KNOWLEDGE_SETTING);
+    const entries = Array.isArray(legacy?.entries) ? legacy.entries : [];
+    const next = entries.filter((entry: any, index: number) => String(entry.id || ('legacy_' + index)) !== req.params.id);
+    if (next.length === entries.length) return res.status(404).json({ success: false, error: 'Legacy item not found.' });
+    await setPersistentSettingDb(LEGACY_AI_KNOWLEDGE_SETTING, { ...(legacy || {}), entries: next });
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: 'Could not discard this legacy entry.' });
+  }
+});
+
 app.patch('/api/admin/ai/knowledge-requests/:id', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
