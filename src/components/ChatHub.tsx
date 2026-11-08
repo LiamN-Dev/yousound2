@@ -1690,12 +1690,18 @@ export const ChatHub: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  2. Purpose / Reason for Chat (Optional)
+                  2. Purpose / Reason for Chat {currentUser?.chatTrusted ? '(Required for AI review)' : '(Optional)'}
                 </label>
+                <p className="mb-2 text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+                  {currentUser?.chatTrusted
+                    ? 'Your trusted status allows YouSound AI to fast-track a clear, appropriate reason. Unclear reasons or unavailable AI checks still go to an administrator.'
+                    : 'A clear reason helps an administrator decide whether this conversation should be approved.'}
+                </p>
                 <textarea
                   value={requestReason}
                   onChange={(e) => setRequestReason(e.target.value)}
                   placeholder="e.g. Study group discussion for chemistry, sharing playlists, school project..."
+                  required={!!currentUser?.chatTrusted}
                   rows={2}
                   className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white resize-none"
                 />
@@ -1714,7 +1720,7 @@ export const ChatHub: React.FC = () => {
                   disabled={!selectedTargetUser || isSubmittingRequest}
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs shadow-md transition-all"
                 >
-                  {isSubmittingRequest ? 'Submitting...' : 'Send Request for Approval'}
+                  {isSubmittingRequest ? 'Submitting...' : currentUser?.chatTrusted ? 'Send Trusted Request' : 'Send Request for Approval'}
                 </button>
               </div>
             </form>
