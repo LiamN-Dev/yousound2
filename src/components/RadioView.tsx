@@ -92,6 +92,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       const next = Array.isArray(data.stations) ? data.stations as RadioStationOption[] : [];
       setRadioStations(next);
       if (selectedStationId !== 'main' && !next.some((item) => item.id === selectedStationId)) {
+        selectedStationIdRef.current = 'main';
         setSelectedStationId('main');
         setStation(null);
       }
