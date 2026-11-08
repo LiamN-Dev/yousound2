@@ -1361,3 +1361,288 @@ html:not(.dark) .ys-main-content .admin-studio .liquid-glass-surface :not(button
 @media (prefers-reduced-motion: reduce) {
   .ys-radio-view, .ys-eq-panel { animation: none !important; }
 }
+
+
+/* ================================================================
+   COSMIC INTERFACE REFRESH
+   Dark teal glass, geometric light, and restrained HUD details.
+   ================================================================ */
+:root {
+  --ys-cosmic-ink: #061014;
+  --ys-cosmic-panel: rgba(7, 22, 26, .82);
+  --ys-cosmic-line: rgba(91, 225, 209, .22);
+  --ys-cosmic-cyan: #79f5e3;
+  --ys-cosmic-teal: #22c9bd;
+}
+html.dark body {
+  background-color: #050b0e;
+  color: #e8fbf8;
+}
+html.dark .ys-app-shell {
+  background:
+    radial-gradient(ellipse at 51% 0%, rgba(25, 178, 164, .13), transparent 38rem),
+    radial-gradient(ellipse at 100% 31%, rgba(20, 104, 112, .11), transparent 33rem),
+    radial-gradient(ellipse at 0% 72%, rgba(9, 71, 81, .12), transparent 36rem),
+    linear-gradient(180deg, #050b0e 0%, #071216 48%, #050b0e 100%);
+}
+html.dark .ys-ambient-backdrop {
+  opacity: .34;
+  background-image:
+    radial-gradient(rgba(126, 244, 226, .3) .65px, transparent .75px),
+    linear-gradient(rgba(73, 179, 172, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(73, 179, 172, .045) 1px, transparent 1px);
+  background-size: 31px 31px, 74px 74px, 74px 74px;
+  mask-image: linear-gradient(to bottom, black, transparent 86%);
+}
+html.dark .ys-site-header {
+  background: rgba(4, 13, 16, .9) !important;
+  border-bottom-color: rgba(102, 237, 216, .18) !important;
+  box-shadow: 0 12px 38px rgba(0, 0, 0, .36), 0 1px 0 rgba(103, 239, 220, .05);
+  backdrop-filter: blur(26px) saturate(1.45);
+}
+html.dark .ys-site-header::after {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(91, 231, 210, .9), rgba(50, 148, 156, .48), transparent);
+  opacity: .75;
+}
+html.dark .ys-site-header nav > div {
+  background: rgba(3, 15, 18, .88) !important;
+  border-color: rgba(111, 228, 211, .19) !important;
+  box-shadow: inset 0 1px 0 rgba(199, 255, 245, .045), 0 8px 26px rgba(0, 0, 0, .2);
+}
+html.dark .ys-site-header nav button {
+  border-radius: 10px;
+  letter-spacing: .025em;
+  transition: color .22s ease, background .22s ease, border-color .22s ease, box-shadow .22s ease, transform .22s ease;
+}
+html.dark .ys-site-header nav button:hover:not(:disabled) {
+  color: #d9fff8 !important;
+  background: rgba(66, 211, 193, .09);
+  border-color: rgba(91, 231, 210, .2);
+}
+html.dark .ys-site-header nav button[class*="bg-blue-600"],
+html.dark .ys-site-header nav button[class*="bg-cyan-600"] {
+  color: #041416 !important;
+  background: linear-gradient(135deg, #a4fff0, #45d7c7 58%, #229b9e) !important;
+  border-color: rgba(166, 255, 242, .72) !important;
+  box-shadow: 0 0 20px rgba(49, 220, 201, .18), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+html.dark .ys-site-header input {
+  background: rgba(2, 13, 16, .78) !important;
+  border-color: rgba(108, 223, 209, .2) !important;
+}
+html.dark .ys-site-header input:focus {
+  border-color: rgba(103, 247, 225, .72) !important;
+  box-shadow: 0 0 0 3px rgba(55, 203, 188, .1);
+}
+html.dark .ys-main-content { max-width: 90rem; }
+html.dark .liquid-glass-surface {
+  background: linear-gradient(145deg, rgba(12, 31, 35, .86), rgba(7, 20, 25, .82));
+  border-color: rgba(105, 225, 211, .13);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(200, 255, 248, .035);
+}
+html.dark .liquid-glass-card,
+html.dark .ys-song-card {
+  background: linear-gradient(145deg, rgba(12, 30, 35, .88), rgba(7, 19, 24, .9));
+  border-color: rgba(99, 220, 207, .15);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .2), inset 0 1px 0 rgba(218, 255, 251, .035);
+}
+html.dark .liquid-glass-card:hover,
+html.dark .ys-song-card:hover {
+  background: linear-gradient(145deg, rgba(15, 43, 47, .96), rgba(8, 25, 30, .96));
+  border-color: rgba(103, 245, 224, .45);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .31), 0 0 24px rgba(49, 210, 191, .075);
+}
+html.dark .ys-player-shell {
+  background: rgba(4, 16, 20, .94) !important;
+  border-color: rgba(103, 235, 216, .24) !important;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, .48), 0 0 28px rgba(24, 194, 177, .08) !important;
+}
+html.dark .ys-genre-pill,
+html.dark .ys-tags-summary {
+  border-color: rgba(97, 222, 207, .28);
+  background: rgba(17, 53, 56, .76);
+  color: #d7fff7;
+}
+html.dark .ys-tag-list {
+  border-color: rgba(97, 222, 207, .3);
+  background: #07191d;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, .5);
+}
+html.dark .ys-tag-chip {
+  border-color: rgba(97, 222, 207, .22);
+  background: rgba(15, 49, 54, .9);
+  color: #d7fff7;
+}
+
+/* Main library hero */
+.ys-cosmic-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 340px;
+  padding: clamp(19px, 3.2vw, 34px) clamp(20px, 4vw, 48px) 18px;
+  border: 1px solid rgba(105, 235, 216, .28);
+  border-radius: 27px;
+  color: #e9fffb;
+  background:
+    radial-gradient(ellipse at 76% 47%, rgba(29, 171, 157, .17), transparent 24rem),
+    radial-gradient(ellipse at 10% 100%, rgba(10, 91, 100, .2), transparent 26rem),
+    linear-gradient(115deg, #061316 0%, #081b20 48%, #071216 100%);
+  box-shadow: 0 26px 72px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(224, 255, 250, .06);
+  animation: ysCosmicEnter .72s cubic-bezier(.2,.75,.25,1) both;
+}
+.ys-cosmic-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .5;
+  background-image:
+    linear-gradient(rgba(103, 221, 206, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 221, 206, .055) 1px, transparent 1px),
+    radial-gradient(rgba(195, 255, 247, .68) .65px, transparent .8px);
+  background-size: 58px 58px, 58px 58px, 43px 43px;
+  mask-image: linear-gradient(90deg, black, rgba(0,0,0,.65) 58%, transparent);
+}
+.ys-cosmic-hero::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(115, 255, 231, .75), rgba(36, 150, 157, .48), transparent);
+}
+.ys-cosmic-grid-glow {
+  position: absolute;
+  top: -46%;
+  right: 4%;
+  width: 49%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  background: rgba(46, 221, 198, .09);
+  filter: blur(72px);
+  animation: ysCosmicBreath 8s ease-in-out infinite;
+}
+.ys-cosmic-corner { position: absolute; width: 22px; height: 22px; opacity: .8; pointer-events: none; }
+.ys-cosmic-corner-tl { top: 12px; left: 12px; border-top: 1px solid #6eead7; border-left: 1px solid #6eead7; }
+.ys-cosmic-corner-br { right: 12px; bottom: 12px; border-right: 1px solid rgba(110, 234, 215, .65); border-bottom: 1px solid rgba(110, 234, 215, .65); }
+.ys-cosmic-topline, .ys-cosmic-footerline {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: rgba(190, 230, 225, .66);
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .2em;
+}
+.ys-cosmic-topline > span, .ys-cosmic-transmission { display: inline-flex; align-items: center; gap: 9px; }
+.ys-cosmic-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #70f5df;
+  box-shadow: 0 0 12px rgba(112, 245, 223, .9);
+  animation: ysCosmicPulse 2.4s ease-in-out infinite;
+}
+.ys-cosmic-topline-separator { color: rgba(100, 242, 218, .55); }
+.ys-cosmic-transmission { color: #85eadb; letter-spacing: .13em; }
+.ys-cosmic-layout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(290px, .92fr);
+  align-items: center;
+  gap: clamp(12px, 3vw, 46px);
+  min-height: 260px;
+  padding: 18px 0 16px;
+}
+.ys-cosmic-copy { position: relative; z-index: 2; max-width: 590px; }
+.ys-cosmic-eyebrow { display: inline-flex; align-items: center; gap: 8px; color: #8df4e3; font-size: 10px; font-weight: 850; letter-spacing: .18em; }
+.ys-cosmic-index { margin: 17px 0 8px; color: rgba(185, 220, 215, .55); font-size: 9px; font-weight: 800; letter-spacing: .22em; }
+.ys-cosmic-index span { color: #63ddcb; margin: 0 4px; }
+.ys-cosmic-title { margin: 0; color: #f0fffc; font-size: clamp(42px, 6.1vw, 76px); font-weight: 650; line-height: .98; letter-spacing: -.065em; text-shadow: 0 8px 30px rgba(0, 0, 0, .22); }
+.ys-cosmic-title span { color: #72ead8; font-weight: 480; text-shadow: 0 0 30px rgba(64, 220, 199, .14); }
+.ys-cosmic-description { max-width: 440px; margin: 15px 0 0; color: rgba(218, 241, 237, .72); font-size: 13px; line-height: 1.8; }
+.ys-cosmic-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; }
+.ys-cosmic-primary, .ys-cosmic-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 9px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .13em;
+  transition: transform .22s ease, box-shadow .22s ease, background .22s ease, border-color .22s ease;
+}
+.ys-cosmic-primary { color: #041719; border: 1px solid rgba(191, 255, 245, .8); background: linear-gradient(120deg, #c9fff6, #70e9d7 58%, #40c6bd); box-shadow: 0 8px 24px rgba(43, 206, 187, .15), inset 0 1px 0 rgba(255,255,255,.65); }
+.ys-cosmic-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(43, 206, 187, .27); }
+.ys-cosmic-secondary { color: #c8f4ed; border: 1px solid rgba(132, 222, 210, .28); background: rgba(255, 255, 255, .035); }
+.ys-cosmic-secondary:hover { transform: translateY(-2px); border-color: rgba(132, 245, 226, .64); background: rgba(67, 207, 191, .1); }
+.ys-cosmic-stats { display: flex; align-items: center; gap: clamp(16px, 3vw, 32px); margin-top: 25px; }
+.ys-cosmic-stats > div { display: flex; align-items: center; gap: 8px; }
+.ys-cosmic-stat-number { color: #78e8d8; font-size: 15px; font-weight: 550; letter-spacing: -.04em; }
+.ys-cosmic-stat-label { color: rgba(192, 225, 220, .57); font-size: 8px; font-weight: 850; letter-spacing: .14em; }
+.ys-cosmic-visual { position: relative; display: grid; place-items: center; min-height: 275px; perspective: 900px; }
+.ys-cosmic-sphere { position: relative; z-index: 1; width: clamp(220px, 27vw, 330px); aspect-ratio: 1; border-radius: 50%; filter: drop-shadow(0 0 28px rgba(47, 220, 202, .14)); animation: ysCosmicFloat 7s ease-in-out infinite; }
+.ys-cosmic-sphere svg { width: 100%; height: 100%; overflow: visible; animation: ysCosmicSlowSpin 70s linear infinite; }
+.ys-cosmic-orb-flare { position: absolute; top: 50%; left: 50%; width: 26%; height: 26%; border-radius: 50%; transform: translate(-50%, -50%); background: rgba(142, 255, 239, .22); filter: blur(24px); pointer-events: none; }
+.ys-cosmic-orbit { position: absolute; z-index: 0; width: min(92%, 410px); aspect-ratio: 1; border: 1px solid rgba(90, 224, 207, .22); border-radius: 50%; pointer-events: none; }
+.ys-cosmic-orbit-one { transform: rotateX(69deg) rotateZ(-17deg); animation: ysCosmicOrbit 25s linear infinite; }
+.ys-cosmic-orbit-two { width: min(78%, 350px); transform: rotateX(70deg) rotateZ(48deg); border-color: rgba(145, 248, 232, .17); animation: ysCosmicOrbitReverse 32s linear infinite; }
+.ys-cosmic-orbit-three { width: min(70%, 310px); border-style: dashed; border-color: rgba(90, 224, 207, .12); animation: ysCosmicSlowSpin 90s linear infinite; }
+.ys-cosmic-visual-label { position: absolute; z-index: 2; display: grid; gap: 4px; color: rgba(169, 219, 211, .48); font-size: 7px; font-weight: 850; letter-spacing: .18em; }
+.ys-cosmic-visual-label span { color: #9cf2e4; font-size: 9px; letter-spacing: .12em; }
+.ys-cosmic-visual-label-top { top: 10px; right: 3%; text-align: right; }
+.ys-cosmic-visual-label-bottom { bottom: 9px; left: 1%; }
+.ys-cosmic-crosshair { position: absolute; top: 50%; width: 15px; height: 15px; border-top: 1px solid rgba(124, 241, 221, .5); border-bottom: 1px solid rgba(124, 241, 221, .5); transform: translateY(-50%); opacity: .65; }
+.ys-cosmic-crosshair-left { left: 0; }
+.ys-cosmic-crosshair-right { right: 0; }
+.ys-cosmic-footerline { padding-top: 11px; border-top: 1px solid rgba(124, 241, 221, .13); color: rgba(171, 209, 204, .44); font-size: 7px; letter-spacing: .18em; }
+.ys-cosmic-footer-dot { color: #73f1db; }
+@keyframes ysCosmicEnter { from { opacity: 0; transform: translateY(13px) scale(.992); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes ysCosmicFloat { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(6px); } }
+@keyframes ysCosmicSlowSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes ysCosmicOrbit { from { transform: rotateX(69deg) rotateZ(-17deg); } to { transform: rotateX(69deg) rotateZ(343deg); } }
+@keyframes ysCosmicOrbitReverse { from { transform: rotateX(70deg) rotateZ(48deg); } to { transform: rotateX(70deg) rotateZ(-312deg); } }
+@keyframes ysCosmicPulse { 0%, 100% { opacity: .65; box-shadow: 0 0 5px rgba(112, 245, 223, .5); } 50% { opacity: 1; box-shadow: 0 0 15px rgba(112, 245, 223, 1); } }
+@keyframes ysCosmicBreath { 0%, 100% { opacity: .45; transform: scale(.92); } 50% { opacity: .95; transform: scale(1.08); } }
+@media (max-width: 760px) {
+  .ys-cosmic-hero { min-height: 0; padding: 17px 18px 14px; border-radius: 21px; }
+  .ys-cosmic-topline { font-size: 7px; letter-spacing: .11em; }
+  .ys-cosmic-transmission { font-size: 7px; }
+  .ys-cosmic-layout { grid-template-columns: 1fr; gap: 0; padding: 22px 0 8px; }
+  .ys-cosmic-copy { max-width: none; }
+  .ys-cosmic-title { font-size: clamp(48px, 13vw, 68px); }
+  .ys-cosmic-visual { min-height: 230px; margin-top: -4px; }
+  .ys-cosmic-sphere { width: 225px; }
+  .ys-cosmic-orbit-one { width: 250px; }
+  .ys-cosmic-orbit-two { width: 220px; }
+  .ys-cosmic-orbit-three { width: 190px; }
+  .ys-cosmic-visual-label-top { top: 0; right: 4%; }
+  .ys-cosmic-visual-label-bottom { bottom: 0; left: 4%; }
+  .ys-cosmic-footerline { font-size: 6px; letter-spacing: .1em; }
+}
+@media (max-width: 420px) {
+  .ys-cosmic-topline > span:first-child { gap: 5px; letter-spacing: .09em; }
+  .ys-cosmic-transmission { display: none; }
+  .ys-cosmic-stats { gap: 12px; }
+  .ys-cosmic-stat-label { font-size: 7px; letter-spacing: .08em; }
+  .ys-cosmic-primary, .ys-cosmic-secondary { min-height: 39px; padding: 0 11px; font-size: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ys-cosmic-hero, .ys-cosmic-status-dot, .ys-cosmic-grid-glow, .ys-cosmic-sphere, .ys-cosmic-sphere svg, .ys-cosmic-orbit {
+    animation: none !important;
+  }
+}
