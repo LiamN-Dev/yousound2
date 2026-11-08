@@ -5408,6 +5408,15 @@ type ChatAIModerationFlag = {
   lockedByAi?: boolean;
 };
 const CHAT_AI_FLAGS_SETTING = 'chat_ai_moderation_flags_v1';
+const chatRequestRateLimit = new Map<string, number[]>();
+function allowChatRequest(uid: string): boolean {
+  const now = Date.now();
+  const recent = (chatRequestRateLimit.get(uid) || []).filter((time) => now - time < 10 * 60 * 1000);
+  if (recent.length >= 5) return false;
+  recent.push(now);
+  chatRequestRateLimit.set(uid, recent);
+  return true;
+}
 const chatMessageRateLimit = new Map<string, number[]>();
 function allowChatMessage(uid: string): boolean {
   const now = Date.now();
@@ -5520,6 +5529,9 @@ app.post('/api/chat/requests', async (req: Request, res: Response) => {
     const sender = await getUserByUid(session.uid);
     if (!sender || !sender.isApproved || sender.isSuspended || sender.isLocked || sender.chatBlocked) {
       return res.status(403).json({ success: false, error: 'This account cannot request a chat.' });
+    }
+    if (!allowChatRequest(sender.uid)) {
+      return res.status(429).json({ success: false, error: 'You can submit up to five chat requests every ten minutes.' });
     }
     const receiverId = String(req.body?.receiverId || '').trim();
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
