@@ -5827,7 +5827,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     if (!thread) return res.status(404).json({ error: 'Conversation thread not found.' });
     if (thread.isTerminated) return res.status(409).json({ error: 'This conversation has been locked by an administrator.' });
     if (!thread.isApproved && !thread.isAppealThread) return res.status(403).json({ error: 'This conversation has not been approved.' });
-    if (me.role !== 'admin' && thread.user1Id !== me.uid && thread.user2Id !== me.uid) return res.status(403).json({ error: 'You are not part of this conversation.' });
+    if (thread.user1Id !== me.uid && thread.user2Id !== me.uid) return res.status(403).json({ error: 'You are not a participant in this conversation.' });
     const receiverId = thread.user1Id === me.uid ? thread.user2Id : thread.user1Id;
 
     if (thread.isAppealThread) {
