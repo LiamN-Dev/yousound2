@@ -36,8 +36,11 @@ import { ChristmasEffects } from './components/ChristmasEffects';
 import { StatusView } from './components/StatusView';
 import { BetterStackAnnouncement } from './components/BetterStackAnnouncement';
 import { CosmicHero } from './components/CosmicHero';
+import { CosmicBackdrop } from './components/CosmicBackdrop';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 
 const MainAppContent: React.FC = () => {
+  const reduceMotion = useReducedMotion();
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
   const { allSongs, adminAllSongs, spotlightConfig, bulkUpdateSongs, refreshSongLibrary, updateSong } = useAudio();
   const christmasMode = !!currentUser?.christmasMode;
@@ -188,6 +191,7 @@ const MainAppContent: React.FC = () => {
 
   return (
     <div className="ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors">
+      <CosmicBackdrop />
       {christmasMode && <ChristmasEffects />}
       <div className="ys-ambient-backdrop fixed inset-0 overflow-hidden pointer-events-none z-0" />
       {/* Subtle Studio Ambient Lighting in Dark Mode */}
@@ -213,6 +217,15 @@ const MainAppContent: React.FC = () => {
 
       {/* Main View Area */}
       <main className="ys-main-content relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={activeTab}
+          className="ys-page-transition"
+          initial={reduceMotion ? false : { opacity: 0, y: 18, scale: 0.992 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -10, scale: 0.996 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.38, ease: [0.22, 1, 0.36, 1] }}
+        >
         {activeMaintenance?.enabled && !isAdmin ? (
           <SectionMaintenanceNotice title={activeMaintenanceTitle} message={activeMaintenance.message} />
         ) : (
@@ -345,6 +358,8 @@ const MainAppContent: React.FC = () => {
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
+        </motion.div>
+        </AnimatePresence>
         <RadioView active={activeTab === 'radio'} />
       </main>
 
