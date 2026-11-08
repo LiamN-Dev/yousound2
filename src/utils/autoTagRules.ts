@@ -122,7 +122,7 @@ export function testRuleMatch(song: Song, rule: AutoTagRule, nowMs: number = Dat
       const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
       const weekKey = `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
       const isThisWeek = song.weeklyPlaysResetDate === weekKey;
-      const weeklyCount = isThisWeek ? (song.weeklyPlays || 0) : (song.weeklyPlays || 0);
+      const weeklyCount = isThisWeek ? (song.weeklyPlays || 0) : 0;
       const threshold = Number(rule.conditionValue) || 10;
       return weeklyCount >= threshold;
     }
