@@ -87,6 +87,8 @@ export async function ensureTables(): Promise<void> {
     ['users', 'session_version INTEGER NOT NULL DEFAULT 0'],
     ['users', 'christmas_mode BOOLEAN NOT NULL DEFAULT false'],
     ['users', 'games_enabled BOOLEAN NOT NULL DEFAULT false'],
+    ['users', 'ai_beta_enabled BOOLEAN NOT NULL DEFAULT false'],
+    ['users', 'redesign_beta_enabled BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'is_approved BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'is_terminated BOOLEAN NOT NULL DEFAULT false'],
     ['chat_threads', 'terminated_reason TEXT'],
