@@ -1574,6 +1574,7 @@ function safeGeminiHistory(raw: unknown): any[] {
 }
 
 const GEMINI_FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'];
+const YOUSOUND_AI_TIMEOUT_MS = 12000;
 
 function isRetryableGeminiError(error: any): boolean {
   const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
@@ -1599,7 +1600,22 @@ async function generateGeminiWithFallback(ai: GoogleGenAI, request: any): Promis
 
   for (const model of models) {
     try {
-      return { response: await ai.models.generateContent({ ...request, model }), model };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const response = await Promise.race([
+          ai.models.generateContent({ ...request, model }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              const timeout: any = new Error('Gemini request timed out after ' + YOUSOUND_AI_TIMEOUT_MS + 'ms.');
+              timeout.status = 504;
+              reject(timeout);
+            }, YOUSOUND_AI_TIMEOUT_MS);
+          }),
+        ]);
+        return { response, model };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     } catch (error: any) {
       lastError = error;
       if (!isRetryableGeminiError(error)) throw error;
@@ -1615,7 +1631,7 @@ async function generateGeminiWithFallback(ai: GoogleGenAI, request: any): Promis
 
 async function saveAiDiagnostic(requestId: string, error: any, statusCode: number | null, model = 'gemini-3.8-flash'): Promise<void> {
   try {
-    const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+    const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
     let message = String(error?.message || 'Unknown provider error');
     if (key) message = message.split(key).join('[REDACTED]');
     const entries = await getPersistentSettingDb<AiDiagnostic[]>(AI_DIAGNOSTICS_SETTING) || [];
@@ -1632,6 +1648,28 @@ async function saveAiDiagnostic(requestId: string, error: any, statusCode: numbe
     console.error('[YouSound AI] Could not persist diagnostic:', saveError?.message || saveError);
   }
 }
+
+app.get('/api/ai/health', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const account = await getUserByUid(session.uid);
+    if (!account || !account.isApproved || account.isSuspended || account.isLocked) {
+      return res.status(403).json({ success: false, error: 'This account is not allowed to use YouSound AI.' });
+    }
+    const enabled = account.role === 'admin' || account.aiBetaEnabled === true;
+    const apiKeyConfigured = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+    return res.setHeader('Cache-Control', 'no-store').json({
+      success: true,
+      enabled,
+      apiKeyConfigured,
+      model: String(process.env.YOUSOUND_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-3.8-flash').slice(0, 80),
+      message: !enabled ? 'YouSound AI has not been enabled for this account yet.' : !apiKeyConfigured ? 'The Render server is missing GEMINI_API_KEY (or GOOGLE_API_KEY).' : 'AI access and server key are configured. Provider availability is checked when you send a message.',
+    });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error.message || 'Could not check YouSound AI configuration.' });
+  }
+});
 
 app.post('/api/ai/assistant', async (req: Request, res: Response) => {
   const requestId = randomBytes(5).toString('hex');
@@ -1650,10 +1688,10 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     previous.push(now);
     aiAssistantRateLimit.set(account.uid, previous);
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) return res.status(503).json({ success: false, error: 'The AI service is not configured yet. Add GEMINI_API_KEY to the Render environment.' });
 
-    const allSongsForAI = await getSongsDb();
+    const allSongsForAI = await getSongsDb().catch((error: any) => { console.warn('[YouSound AI] Catalogue context unavailable:', error?.message || error); return []; });
     const username = String(account.username || '').toLowerCase();
     const visibleSongs = (allSongsForAI as any[]).filter((song) => {
       const hiddenFrom = Array.isArray(song.hiddenFrom) ? song.hiddenFrom.map((value: unknown) => String(value)) : [];
@@ -1667,7 +1705,7 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     }));
 
     const [facts, liveStatus] = await Promise.all([
-      getAiPermanentFacts(),
+      getAiPermanentFacts().catch((error: any) => { console.warn('[YouSound AI] Permanent facts unavailable:', error?.message || error); return []; }),
       getBetterStackLiveStatus(),
     ]);
     const history = safeGeminiHistory(req.body?.history);
@@ -5585,7 +5623,7 @@ async function addChatAIModerationFlag(flag: Omit<ChatAIModerationFlag, 'id' | '
   return item;
 }
 async function reviewTrustedChatRequest(reason: string): Promise<{ approved: boolean; confidence: number; reason: string }> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey || reason.trim().length < 12) return { approved: false, confidence: 0, reason: 'No clear reason supplied or AI review unavailable.' };
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -5598,7 +5636,7 @@ async function reviewTrustedChatRequest(reason: string): Promise<{ approved: boo
     const parsed = JSON.parse(String(response.text || '{}').trim());
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
     return {
-      approved: parsed.decision === 'approve' && confidence >= 0.95,
+      approved: parsed.decision === 'approve' && confidence >= 0.85,
       confidence,
       reason: String(parsed.reason || 'Not sufficiently clear for automatic approval.').slice(0, 180),
     };
@@ -5613,7 +5651,7 @@ async function reviewPrivateChatMessage(content: string): Promise<{
   category: string;
   reason: string;
 }> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) return { decision: 'unavailable', confidence: 0, category: 'screening-unavailable', reason: 'Automated screening is not configured.' };
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -5714,7 +5752,8 @@ app.post('/api/chat/requests', async (req: Request, res: Response) => {
     return res.json({
       success: true,
       request: created,
-      autoReview: sender.chatTrusted === true ? 'manual-review-required' : undefined,
+      autoReview: 'manual-review-required',
+      aiReviewReason: aiReview?.reason || 'This account is not designated for AI pre-approval.',
     });
   } catch (error: any) {
     console.error('Create chat request error:', error);
