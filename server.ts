@@ -976,6 +976,8 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
       chatTrusted: !!user.chatTrusted,
       christmasMode: !!user.christmasMode,
       gamesEnabled: !!user.gamesEnabled,
+      aiBetaEnabled: !!user.aiBetaEnabled,
+      redesignBetaEnabled: !!user.redesignBetaEnabled,
     },
   });
 });
