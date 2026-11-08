@@ -297,10 +297,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
   useEffect(() => {
     if (!isAdmin) return;
+    const requestedStationId = selectedStationId;
     void (async () => {
       try {
-        const configRes = await fetch('/api/admin/radio/config?stationId=' + encodeURIComponent(selectedStationId), { credentials: 'same-origin', cache: 'no-store' });
+        const configRes = await fetch('/api/admin/radio/config?stationId=' + encodeURIComponent(requestedStationId), { credentials: 'same-origin', cache: 'no-store' });
         const configData = await configRes.json().catch(() => ({}));
+        if (selectedStationIdRef.current !== requestedStationId) return;
         const config = configData.config;
         if (config) {
           setStationName(config.stationName || 'YouSong Radio');
