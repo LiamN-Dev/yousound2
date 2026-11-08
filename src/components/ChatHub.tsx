@@ -253,13 +253,19 @@ export const ChatHub: React.FC = () => {
     setIsSubmittingRequest(false);
 
     if (res.success) {
-      setRequestFeedback('✓ Chat request submitted! Awaiting Administrator approval.');
+      if (res.autoApproved && res.thread) {
+        setRequestFeedback('✓ YouSound AI approved this trusted request. Your conversation is ready.');
+        await loadChatData();
+        setActiveThreadId(res.thread.id);
+      } else {
+        setRequestFeedback('✓ Chat request submitted! Awaiting Administrator approval.');
+      }
       setTimeout(() => {
         setIsRequestModalOpen(false);
         setSelectedTargetUser(null);
         setRequestReason('');
         setRequestFeedback(null);
-        loadChatData();
+        void loadChatData();
       }, 1800);
     } else {
       setRequestFeedback(`❌ ${res.error || 'Request could not be submitted'}`);
