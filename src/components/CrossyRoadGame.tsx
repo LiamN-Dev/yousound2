@@ -6,10 +6,22 @@ type LeaderboardEntry = { rank: number; username: string; highScore: number; tot
 
 const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
 const GOOGLE_CROSSY_ROAD_URL = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_URL || '').trim();
-const CROSSY_ROAD_SRC = GOOGLE_CROSSY_ROAD_URL || (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-google-build');
+const YOUSOUND_PARENT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
+const CROSSY_ROAD_SRC = GOOGLE_CROSSY_ROAD_URL
+  ? (() => {
+      try {
+        const url = new URL(GOOGLE_CROSSY_ROAD_URL);
+        url.searchParams.set('yousoundParentOrigin', YOUSOUND_PARENT_ORIGIN);
+        return url.toString();
+      } catch { return GOOGLE_CROSSY_ROAD_URL; }
+    })()
+  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-google-build');
 const GOOGLE_SCRIPT_ORIGINS = ['https://script.google.com', 'https://script.googleusercontent.com'];
 const GOOGLE_CONFIGURED_ORIGIN = (() => {
-  try { return GOOGLE_CROSSY_ROAD_URL ? new URL(GOOGLE_CROSSY_ROAD_URL).origin : ''; } catch { return ''; }
+  try {
+    const url = GOOGLE_CROSSY_ROAD_URL ? new URL(GOOGLE_CROSSY_ROAD_URL) : null;
+    return url && GOOGLE_SCRIPT_ORIGINS.includes(url.origin) ? url.origin : '';
+  } catch { return ''; }
 })();
 const CROSSY_ROAD_ALLOWED_ORIGINS = new Set(GOOGLE_CROSSY_ROAD_URL
   ? [...GOOGLE_SCRIPT_ORIGINS, GOOGLE_CONFIGURED_ORIGIN]
