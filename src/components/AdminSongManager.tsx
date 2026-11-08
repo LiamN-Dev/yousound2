@@ -815,6 +815,39 @@ export const AdminSongManager: React.FC<AdminSongManagerProps> = ({ allSongs, al
               <span>Visibility & Hiding</span>
             </button>
 
+            {/* Seasonal song controls belong in Song Studio, not the Arcade. */}
+            <button
+              type="button"
+              onClick={async () => {
+                const count = selectedSongIds.length;
+                if (await runBulkUpdate(selectedSongIds, { isChristmasEdition: true })) {
+                  setFeedback(`Enabled Christmas Edition for ${count} selected song(s).`);
+                  setSelectedSongIds([]);
+                  setTimeout(() => setFeedback(null), 3500);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-400/30 font-semibold transition-all"
+              title="Mark all selected tracks as Christmas Edition"
+            >
+              <span aria-hidden="true">🎄</span>
+              <span>Christmas Edition</span>
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const count = selectedSongIds.length;
+                if (await runBulkUpdate(selectedSongIds, { isChristmasEdition: false })) {
+                  setFeedback(`Removed Christmas Edition from ${count} selected song(s).`);
+                  setSelectedSongIds([]);
+                  setTimeout(() => setFeedback(null), 3500);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 font-semibold transition-all"
+              title="Remove Christmas Edition from all selected tracks"
+            >
+              <span>Remove Christmas</span>
+            </button>
+
             {/* Bulk Spotlight Toggle */}
             <button
               type="button"
