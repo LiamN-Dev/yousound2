@@ -5,6 +5,9 @@ type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
 
 const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
+const GOOGLE_CROSSY_ROAD_URL = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_URL || '').trim();
+const CROSSY_ROAD_SRC = GOOGLE_CROSSY_ROAD_URL || (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-google-build');
+const CROSSY_ROAD_TARGET_ORIGIN = GOOGLE_CROSSY_ROAD_URL ? '*' : CROSSY_ROAD_ORIGIN;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/games/crossy-road' + path, {
@@ -35,7 +38,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const sendAccountUpdate = useCallback((next: Stats) => {
     frameRef.current?.contentWindow?.postMessage(
       { type: 'yousound-crossy-road:account-update', ...next },
-      CROSSY_ROAD_ORIGIN
+      CROSSY_ROAD_TARGET_ORIGIN
     );
   }, []);
 
@@ -124,7 +127,8 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow || event.origin !== CROSSY_ROAD_ORIGIN) return;
+      if (event.source !== frameRef.current?.contentWindow) return;
+      if (!GOOGLE_CROSSY_ROAD_URL && event.origin !== CROSSY_ROAD_ORIGIN) return;
       const type = event.data?.type;
 
       if (type === 'yousound-crossy-road:ready') {
@@ -167,7 +171,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <iframe
             ref={frameRef}
             title="Crossy Road"
-            src={CROSSY_ROAD_ORIGIN + "/crossy-road/?v=20261105-ultimate-fix-1"}
+            src={CROSSY_ROAD_SRC}
             className="block h-full w-full border-0 bg-[#87C6FF]"
             allow="autoplay; fullscreen; gamepad"
             allowFullScreen
