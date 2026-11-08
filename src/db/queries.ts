@@ -1465,6 +1465,23 @@ export async function getPersistentSettingDb<T = any>(key: string): Promise<T | 
   }
 }
 
+export async function ensurePersistentSettingDb(key: string, value: any): Promise<void> {
+  if (!(await checkSqlAvailability())) {
+    throw new Error('Persistent PostgreSQL/Supabase storage is unavailable. A durable setting cannot be initialized.');
+  }
+  const serialized = JSON.stringify(value);
+  const stringified = serialized === undefined ? 'null' : serialized;
+  try {
+    await db
+      .insert(systemSettings)
+      .values({ key, value: stringified, updatedAt: new Date() })
+      .onConflictDoNothing({ target: systemSettings.key });
+  } catch (error) {
+    noteDbError('ensurePersistentSettingDb', error);
+    throw new Error('Could not initialize the persistent setting in PostgreSQL/Supabase.');
+  }
+}
+
 export async function setPersistentSettingDb(key: string, value: any): Promise<void> {
   if (!(await checkSqlAvailability())) {
     throw new Error('Persistent PostgreSQL/Supabase storage is unavailable. Connect the database before linking Google Drive.');
