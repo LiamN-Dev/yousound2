@@ -5384,6 +5384,20 @@ type ChatAIModerationFlag = {
   lockedByAi?: boolean;
 };
 const CHAT_AI_FLAGS_SETTING = 'chat_ai_moderation_flags_v1';
+const chatMessageRateLimit = new Map<string, number[]>();
+function allowChatMessage(uid: string): boolean {
+  const now = Date.now();
+  const recent = (chatMessageRateLimit.get(uid) || []).filter((time) => now - time < 60000);
+  if (recent.length >= 20) return false;
+  recent.push(now);
+  chatMessageRateLimit.set(uid, recent);
+  if (chatMessageRateLimit.size > 5000) {
+    for (const [key, times] of chatMessageRateLimit) {
+      if (!times.some((time) => now - time < 60000)) chatMessageRateLimit.delete(key);
+    }
+  }
+  return true;
+}
 
 async function getChatAIModerationFlags(): Promise<ChatAIModerationFlag[]> {
   const flags = await getPersistentSettingDb<ChatAIModerationFlag[]>(CHAT_AI_FLAGS_SETTING);
@@ -5797,6 +5811,18 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     if (!sender) return res.status(401).json({ error: 'Your account could not be verified. Sign in again.' });
     if (sender.isSuspended && !thread.isAppealThread) return res.status(403).json({ error: 'Your account is suspended. Please use the suspension appeal screen.' });
     if (sender.chatBlocked && !thread.isAppealThread) return res.status(403).json({ error: 'Your chat privileges have been disabled by Administrator.' });
+    if (!thread.isAppealThread) {
+      const receiver = await getUserByUid(receiverId);
+      if (!receiver || !receiver.isApproved || receiver.isSuspended || receiver.isLocked || receiver.chatBlocked) {
+        return res.status(409).json({ error: 'The other account is not currently eligible to receive chat messages.' });
+      }
+      if (await isChatPairingBlockedDb(sender.uid, receiver.uid)) {
+        return res.status(403).json({ error: 'Communication between these two accounts is restricted by Administrator.' });
+      }
+    }
+    if (sender.role !== 'admin' && !thread.isAppealThread && !allowChatMessage(sender.uid)) {
+      return res.status(429).json({ error: 'You are sending messages too quickly. Wait a moment and try again.' });
+    }
 
     let screening: 'checked' | 'flagged' | 'unavailable' | 'not-required' = 'not-required';
     if (sender.role !== 'admin' && !thread.isAppealThread) {
