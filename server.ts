@@ -1530,7 +1530,11 @@ async function getAiTemporaryRequests(): Promise<AiKnowledgeRequest[]> {
     uid: String(item.uid || item.userId || ''),
     username: String(item.username || item.senderUsername || 'User').slice(0, 40),
     question: String(item.question || '').slice(0, 500),
-    status: item.status === 'resolved' || item.status === 'answered' ? 'answered' : item.status === 'dismissed' || item.status === 'declined' ? 'dismissed' : 'pending',
+    status: (item.status === 'resolved' || item.status === 'answered'
+      ? 'answered'
+      : item.status === 'dismissed' || item.status === 'declined'
+        ? 'dismissed'
+        : 'pending') as AiKnowledgeRequest['status'],
     createdAt: String(item.createdAt || item.created_at || new Date().toISOString()),
     answer: typeof item.answer === 'string' ? item.answer.slice(0, 1400) : undefined,
     reviewedAt: item.reviewedAt ? String(item.reviewedAt) : undefined,
