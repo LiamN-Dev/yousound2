@@ -2043,7 +2043,7 @@ class StorageService {
     receiverId: string,
     receiverUsername: string,
     reason?: string
-  ): Promise<{ success: boolean; request?: ChatRequest; error?: string }> {
+  ): Promise<{ success: boolean; request?: ChatRequest; autoApproved?: boolean; thread?: ChatThread; error?: string }> {
     try {
       const res = await fetch('/api/chat/requests', {
         method: 'POST',
@@ -2058,7 +2058,12 @@ class StorageService {
       if (!data.success) {
         return { success: false, error: data.error || 'Failed to submit chat request' };
       }
-      return { success: true, request: data.request };
+      return {
+        success: true,
+        request: data.request,
+        autoApproved: data.autoApproved === true,
+        thread: data.thread,
+      };
     } catch (e: any) {
       return { success: false, error: e.message || 'Network error' };
     }
