@@ -117,6 +117,8 @@ export async function updateUserDb(
     sessionVersion?: number;
     christmasMode?: boolean;
     gamesEnabled?: boolean;
+    aiBetaEnabled?: boolean;
+    redesignBetaEnabled?: boolean;
   }
 ) {
   if (!(await checkSqlAvailability())) {

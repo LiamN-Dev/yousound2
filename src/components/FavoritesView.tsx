@@ -34,7 +34,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({ onOpenPlaylistModa
   };
 
   return (
-    <div className="animate-in fade-in pb-24">
+    <div className="ys-favorites-view animate-in fade-in pb-24">
       {/* Banner */}
       <div className="liquid-glass-surface rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-white/[0.08] mb-8 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6">
         <div className="flex items-center gap-4">

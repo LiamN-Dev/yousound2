@@ -1,26 +1,20 @@
 /**
- * YouSound Google-hosted Arcade compatibility test.
- *
- * This project serves a self-contained HTML game from Apps Script.
- * It intentionally has no external JavaScript, CSS, image, or game-host dependencies.
+ * YouSound Crossy Road-style arcade prototype.
+ * Self-contained HTML served through Google Apps Script.
+ * Scores/coins are stored in the player's browser for this standalone prototype.
  */
-
 function doGet() {
   return HtmlService
     .createHtmlOutputFromFile('Index')
-    .setTitle('YouSound // Google Arcade Test')
+    .setTitle('YouSound // Crossy Road')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * Confirms that the embedded page can call its Apps Script server.
- * Does not expose account or project information.
- */
 function arcadePing() {
   return {
     ok: true,
-    service: 'YouSound Google Arcade',
+    service: 'YouSound Crossy Road',
     timestamp: new Date().toISOString()
   };
 }

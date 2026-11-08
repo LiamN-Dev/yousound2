@@ -23,6 +23,8 @@ export const users = pgTable('users', {
   sessionVersion: integer('session_version').notNull().default(0),
   christmasMode: boolean('christmas_mode').notNull().default(false),
   gamesEnabled: boolean('games_enabled').notNull().default(false),
+  aiBetaEnabled: boolean('ai_beta_enabled').notNull().default(false),
+  redesignBetaEnabled: boolean('redesign_beta_enabled').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

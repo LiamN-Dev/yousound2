@@ -1,32 +1,17 @@
 import React, { useState, useSyncExternalStore } from 'react';
+import {
+  Activity, BrainCircuit, Gamepad2, Heart, Headphones, ListMusic, LogIn, LogOut,
+  MessageSquare, Moon, Music2, Plus, Search, Shield, Sun, X
+} from 'lucide-react';
 import { getFeedbackState, subscribeFeedback } from '../services/feedbackNotifications';
 import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { useTheme } from '../context/ThemeContext';
-import {
-  Music2,
-  Shield,
-  Search,
-  Heart,
-  ListMusic,
-  Radio,
-  ListPlus,
-  LogIn,
-  LogOut,
-  Sun,
-  Moon,
-  MessageSquare,
-  Lock,
-  X,
-  Volume2,
-  Activity,
-  Headphones,
-  Gamepad2,
-} from 'lucide-react';
 
+type TabId = 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin';
 interface HeaderProps {
-  activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin';
-  setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin') => void;
+  activeTab: TabId;
+  setActiveTab: (tab: TabId) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   selectedGenre: string;
@@ -36,508 +21,212 @@ interface HeaderProps {
   onOpenSongRequest: () => void;
 }
 
-const getBannerThemeClasses = (themeId?: string) => {
+const bannerTheme = (themeId?: string) => {
   switch (themeId) {
-    case 'emerald-cyber':
-      return 'from-emerald-600 via-teal-600 to-cyan-600';
-    case 'amber-rose':
-      return 'from-amber-600 via-orange-600 to-rose-600';
-    case 'sapphire-ice':
-      return 'from-blue-600 via-sky-600 to-cyan-500';
-    case 'ruby-glow':
-      return 'from-rose-600 via-red-600 to-pink-600';
-    case 'midnight-mono':
-      return 'from-slate-900 via-slate-800 to-indigo-950';
-    case 'cyan-violet':
-    default:
-      return 'from-cyan-600 via-indigo-600 to-violet-600';
+    case 'emerald-cyber': return 'from-emerald-600 via-teal-600 to-cyan-600';
+    case 'amber-rose': return 'from-amber-600 via-orange-600 to-rose-600';
+    case 'sapphire-ice': return 'from-blue-600 via-sky-600 to-cyan-500';
+    case 'ruby-glow': return 'from-rose-600 via-red-600 to-pink-600';
+    case 'midnight-mono': return 'from-slate-900 via-slate-800 to-indigo-950';
+    default: return 'from-cyan-600 via-indigo-600 to-violet-600';
   }
 };
 
+const navItems = [
+  { id: 'library' as const, label: 'Discover', icon: Music2, note: 'YOUR LIBRARY' },
+  { id: 'radio' as const, label: 'Live Radio', icon: Headphones, note: 'LIVE SIGNAL' },
+  { id: 'playlists' as const, label: 'Playlists', icon: ListMusic, note: 'YOUR MIXES' },
+  { id: 'favorites' as const, label: 'Favorites', icon: Heart, note: 'SAVED TRACKS' },
+  { id: 'chat' as const, label: 'Community', icon: MessageSquare, note: 'COMMUNITY' },
+  { id: 'status' as const, label: 'System Status', icon: Activity, note: 'NETWORK' },
+];
+
 export const Header: React.FC<HeaderProps> = ({
-  activeTab,
-  setActiveTab,
-  searchQuery,
-  setSearchQuery,
-  onOpenAuth,
-  onOpenAccount,
-  onOpenSongRequest,
+  activeTab, setActiveTab, searchQuery, setSearchQuery,
+  onOpenAuth, onOpenAccount, onOpenSongRequest,
 }) => {
   const feedbackUnread = useSyncExternalStore(subscribeFeedback, getFeedbackState).unreadCount;
   const { currentUser, isAdmin, maintenanceState, bannerConfig, logout, unreadChatCount, markChatsRead } = useAuth();
   const { userFavorites, userPlaylists, spotlightConfig } = useAudio();
-  const spotlightLocked = spotlightConfig.enabled && !isAdmin;
   const { theme, toggleTheme } = useTheme();
   const [showChatBlockedModal, setShowChatBlockedModal] = useState(false);
   const [isRibbonDismissed, setIsRibbonDismissed] = useState(false);
+
+  const spotlightLocked = spotlightConfig.enabled && !isAdmin;
 
   const handleChatTabClick = () => {
     if (currentUser?.chatBlocked && !isAdmin) {
       setShowChatBlockedModal(true);
       return;
     }
-    if (maintenanceState.tabMaintenance?.chat?.enabled && !isAdmin) {
-      setActiveTab('chat');
-      return;
-    }
     markChatsRead();
     setActiveTab('chat');
   };
 
+  const visibleItems = [
+    ...navItems,
+    ...((isAdmin || currentUser?.aiBetaEnabled)
+      ? [{ id: 'ai' as const, label: 'YouSound AI', icon: BrainCircuit, note: 'AI STUDIO' }]
+      : []),
+    ...((isAdmin || currentUser?.gamesEnabled)
+      ? [{ id: 'games' as const, label: 'Arcade', icon: Gamepad2, note: 'GAME ZONE' }]
+      : []),
+    ...(isAdmin
+      ? [{ id: 'admin' as const, label: 'Control Room', icon: Shield, note: 'ADMIN ACCESS' }]
+      : []),
+  ];
+
+  const activate = (id: TabId) => {
+    if ((id === 'playlists' || id === 'favorites') && spotlightLocked) return;
+    if (id === 'chat') {
+      handleChatTabClick();
+      return;
+    }
+    setActiveTab(id);
+  };
+
+  const unreadLabel = unreadChatCount > 9 ? '9+' : String(unreadChatCount);
+  const requestLabel = feedbackUnread > 9 ? '9+' : String(feedbackUnread);
+
+  const navButton = (item: typeof visibleItems[number], mobile = false) => {
+    const Icon = item.icon;
+    const active = activeTab === item.id;
+    const locked = (item.id === 'playlists' || item.id === 'favorites') && spotlightLocked;
+    const badge = item.id === 'chat' && unreadChatCount > 0
+      ? unreadLabel
+      : item.id === 'playlists' && userPlaylists.length > 0
+        ? String(userPlaylists.length)
+        : item.id === 'favorites' && userFavorites.length > 0
+          ? String(userFavorites.length)
+          : null;
+
+    return (
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => activate(item.id)}
+        disabled={locked}
+        title={locked ? item.label + ' are locked during Spotlight mode' : item.label}
+        aria-current={active ? 'page' : undefined}
+        data-active={active ? 'true' : 'false'}
+        className={mobile ? 'ys-mobile-nav-item' : 'ys-sidebar-item'}
+      >
+        <span className="ys-nav-icon-wrap">
+          <Icon className="ys-nav-icon" />
+          {badge && <span className="ys-nav-badge">{badge}</span>}
+          {locked && <span className="ys-nav-lock">×</span>}
+        </span>
+        <span className="ys-nav-label">{item.label}</span>
+        {!mobile && <span className="ys-nav-note">{item.note}</span>}
+        {!mobile && active && <span className="ys-nav-active-rail" />}
+      </button>
+    );
+  };
+
   return (
-    <>
-      {/* 1. Top Branding Ribbon (if enabled by Admin) */}
+    <div className="ys-navigation-system">
       {bannerConfig.enabled && (
         <div
-          className={`w-full py-2 px-4 sm:px-8 text-white ${
-            bannerConfig.customGradientFrom && bannerConfig.customGradientTo
-              ? ''
-              : `bg-gradient-to-r ${getBannerThemeClasses(bannerConfig.colorTheme)}`
-          } shadow-xs relative overflow-hidden transition-all duration-300 border-b border-white/15`}
-          style={
-            bannerConfig.customGradientFrom && bannerConfig.customGradientTo
-              ? {
-                  background: `linear-gradient(to right, ${bannerConfig.customGradientFrom}, ${bannerConfig.customGradientTo})`,
-                }
-              : undefined
-          }
+          className={'ys-brand-ribbon ' + (bannerConfig.customGradientFrom && bannerConfig.customGradientTo ? '' : 'bg-gradient-to-r ' + bannerTheme(bannerConfig.colorTheme))}
+          style={bannerConfig.customGradientFrom && bannerConfig.customGradientTo
+            ? { background: 'linear-gradient(90deg, ' + bannerConfig.customGradientFrom + ', ' + bannerConfig.customGradientTo + ')' }
+            : undefined}
         >
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 shrink-0">
-              {bannerConfig.versionName?.trim() ? (
-                <span className="px-2 py-0.5 rounded-md bg-white/20 text-white font-extrabold text-[10px] uppercase tracking-wider border border-white/30">{bannerConfig.versionName.trim()}</span>
-              ) : null}
-              {bannerConfig.sloganText?.trim() ? (
-                <span className="font-bold text-white text-[11px] hidden sm:inline">{bannerConfig.sloganText.trim()}</span>
-              ) : null}
+          <div className="ys-brand-ribbon-inner">
+            <div className="flex min-w-0 items-center gap-3">
+              {bannerConfig.versionName?.trim() && <span className="ys-ribbon-version">{bannerConfig.versionName.trim()}</span>}
+              {bannerConfig.sloganText?.trim() && <span className="hidden truncate sm:inline">{bannerConfig.sloganText.trim()}</span>}
             </div>
-
-            {currentUser && (
-              <span className="text-[9px] sm:text-[11px] font-semibold text-white/90 px-2 py-0.5 rounded-md bg-black/20 border border-white/15 shrink-0">
-                Signed in as <strong className="text-white">@{currentUser.username}</strong>
-              </span>
-            )}
+            {currentUser && <span className="ys-ribbon-user">SIGNED IN · @{currentUser.username}</span>}
           </div>
         </div>
       )}
 
-      {/* 2. Isolated Announcement Bar (Does NOT distort or displace menu navigation) */}
       {bannerConfig.ribbonEnabled && bannerConfig.ribbonNotice && !isRibbonDismissed && (
-        <div className="w-full bg-amber-500/15 dark:bg-amber-950/40 border-b border-amber-500/30 px-3 sm:px-6 py-2 transition-all">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-600 dark:bg-amber-400" />
-              </span>
-              <span className="font-extrabold text-amber-900 dark:text-amber-300 uppercase tracking-wider text-[10px] shrink-0 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">
-                Announcement
-              </span>
-              <span className="font-medium text-amber-950 dark:text-amber-100 truncate text-xs">
-                {bannerConfig.ribbonNotice}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => onOpenSongRequest()}
-                className="text-[11px] font-bold text-amber-900 dark:text-amber-200 hover:underline shrink-0 hidden sm:inline"
-              >
-                Request Song →
-              </button>
-              <button
-                onClick={() => setIsRibbonDismissed(true)}
-                className="p-1 rounded-md hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 transition-colors"
-                title="Dismiss announcement for this session"
-                aria-label="Dismiss announcement"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+        <div className="ys-transmission-banner">
+          <div className="ys-transmission-inner">
+            <span className="ys-transmission-dot" />
+            <span className="ys-transmission-label">TRANSMISSION</span>
+            <span className="min-w-0 flex-1 truncate">{bannerConfig.ribbonNotice}</span>
+            <button type="button" onClick={() => setIsRibbonDismissed(true)} aria-label="Dismiss announcement"><X size={15} /></button>
           </div>
         </div>
       )}
 
-      {/* 3. Main Sticky Header Navigation */}
-      <header className="ys-site-header sticky top-0 z-40 w-full bg-white/95 dark:bg-[#090d16]/95 border-b border-slate-200 dark:border-white/[0.08] backdrop-blur-xl transition-colors shadow-xs">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14 gap-2.5">
-            {/* Zone 1: Logo & App Brand (Compact & shrink-0) */}
-            <div className="flex items-center gap-3 shrink-0">
-              <button
-                onClick={() => setActiveTab('library')}
-                className="flex items-center gap-2.5 text-left group"
-              >
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600/10 dark:bg-blue-600/20 border border-blue-500/30 flex items-center justify-center transition-all group-hover:scale-105 shadow-xs shrink-0">
-                  <Music2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white font-display">
-                      YouSong
-                    </span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/20 hidden sm:inline">
-                      Hub
-                    </span>
-                  </div>
-                </div>
-              </button>
-            </div>
+      <header className="ys-commandbar">
+        <div className="ys-commandbar-inner">
+          <button type="button" className="ys-brand-lockup" onClick={() => setActiveTab('library')} aria-label="YouSound home">
+            <span className="ys-brand-symbol"><Music2 size={22} /></span>
+            <span className="ys-brand-words">
+              <span className="ys-brand-name">YOUSOUND<span>®</span></span>
+              <span className="ys-brand-subtitle">PERSONAL AUDIO NETWORK</span>
+            </span>
+          </button>
 
-            {/* Zone 2: Redesigned Resilient Segmented Tabs (Desktop & Tablet) */}
-            <nav className="hidden md:flex items-center justify-center flex-1 min-w-0 px-2">
-              <div
-                className="flex items-center gap-1 p-1 rounded-2xl bg-slate-100 dark:bg-slate-900/90 border border-slate-200 dark:border-white/10 shadow-inner max-w-full overflow-x-auto"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              >
-                {/* 1. Library */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('library')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
-                    activeTab === 'library'
-                      ? 'bg-white dark:bg-blue-600 text-blue-700 dark:text-white shadow-sm border border-slate-200 dark:border-blue-500/50'
-                      : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <Radio className="w-3.5 h-3.5 shrink-0" />
-                  <span>Library</span>
-                </button>
-
-                <button type="button" onClick={() => setActiveTab('radio')} className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-xl font-semibold transition-colors shrink-0 ${activeTab === 'radio' ? 'bg-cyan-600 text-white' : 'text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-600/15'}`} title="Listen to the live station"><Headphones className="w-3.5 h-3.5" /><span>Radio</span></button>
-
-                {/* 2. Playlists */}
-                <button
-                  type="button"
-                  onClick={() => { if (!spotlightLocked) setActiveTab('playlists'); }}
-                  disabled={spotlightLocked}
-                  title={spotlightLocked ? 'Playlists are locked while Spotlight mode is active.' : 'Open playlists'}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-colors shrink-0 ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
-                    activeTab === 'playlists'
-                      ? 'bg-white dark:bg-blue-600 text-blue-700 dark:text-white shadow-sm border border-slate-200 dark:border-blue-500/50'
-                      : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <ListMusic className="w-3.5 h-3.5 shrink-0" />
-                  <span>Playlists</span>
-                  {spotlightLocked && <Lock className="h-3 w-3" />}
-                  {userPlaylists.length > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-white/10 font-bold">
-                      {userPlaylists.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* 3. Favorites */}
-                <button
-                  type="button"
-                  onClick={() => { if (!spotlightLocked) setActiveTab('favorites'); }}
-                  disabled={spotlightLocked}
-                  title={spotlightLocked ? 'Favorites are locked while Spotlight mode is active.' : 'Open favorites'}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-colors shrink-0 ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
-                    activeTab === 'favorites'
-                      ? 'bg-white dark:bg-rose-600 text-rose-600 dark:text-white shadow-sm border border-slate-200 dark:border-rose-500/50'
-                      : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                  <span>Favorites</span>
-                  {spotlightLocked && <Lock className="h-3 w-3" />}
-                  {userFavorites.length > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-bold">
-                      {userFavorites.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* 4. Chat */}
-                <button
-                  type="button"
-                  onClick={handleChatTabClick}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 relative ${
-                    activeTab === 'chat'
-                      ? 'bg-white dark:bg-blue-600 text-blue-700 dark:text-white shadow-sm border border-slate-200 dark:border-blue-500/50'
-                      : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/[0.05]'
-                  }`}
-                >
-                  <div className="relative flex items-center">
-                    <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-                    {unreadChatCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
-                      </span>
-                    )}
-                  </div>
-                  <span>Chat</span>
-                </button>
-
-                {/* 5. Request Song Button */}
-                <button
-                  type="button"
-                  onClick={onOpenSongRequest}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white hover:bg-blue-50 dark:hover:bg-blue-600/15 transition-all shrink-0"
-                  title="Request to add a song or feature"
-                >
-                  <ListPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                  <span>Request</span>
-                  {feedbackUnread > 0 && (
-                    <span className="min-w-[16px] h-4 px-1 rounded-full bg-cyan-500 text-slate-950 text-[10px] font-bold flex items-center justify-center">
-                      {feedbackUnread}
-                    </span>
-                  )}
-                </button>
-
-                {/* Integrated service status */}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('status')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
-                    activeTab === 'status'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-white hover:bg-emerald-50 dark:hover:bg-emerald-600/15'
-                  }`}
-                  title="View live YouSong system status"
-                >
-                  <Activity className="w-3.5 h-3.5 shrink-0" />
-                  <span>Status</span>
-                </button>
-
-                {(isAdmin || currentUser?.gamesEnabled) && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('games')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold transition-all shrink-0 ${
-                      activeTab === 'games'
-                        ? 'bg-gradient-to-r from-amber-300 via-yellow-100 to-slate-300 text-slate-950 shadow-sm border border-amber-200/70'
-                        : 'text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-amber-200/25'
-                    }`}
-                    title="VIP exclusive beta games"
-                  >
-                    <Gamepad2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>Games</span>
-                    <span className="rounded bg-amber-200 px-1 py-0.5 text-[7px] font-black leading-none text-slate-950">BETA</span>
-                    <span className="text-[8px] font-black tracking-wider text-slate-500 dark:text-slate-300">VIP</span>
-                  </button>
-                )}
-
-                {/* 6. Admin Panel (if admin) */}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('admin')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-bold transition-all shrink-0 ${
-                      activeTab === 'admin'
-                        ? 'bg-amber-500 text-slate-950 shadow-sm border border-amber-400'
-                        : 'text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/10'
-                    }`}
-                  >
-                    <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>Admin</span>
-                  </button>
-                )}
-              </div>
-            </nav>
-
-            {/* Zone 3: Search, Theme Toggle & User Controls (ALWAYS pinned & shrink-0) */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Search Box */}
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search tracks, artists..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-24 sm:w-36 lg:w-44 pl-8 pr-2.5 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:w-36 sm:focus:w-52 transition-all"
-                />
-              </div>
-
-              {/* Theme Toggle Button */}
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 shadow-xs transition-colors shrink-0"
-                title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
-                aria-label="Toggle theme"
-              >
-                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-
-              {/* User Account Chip & Logout */}
-              {currentUser ? (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={onOpenAccount}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 transition-all shrink-0"
-                    title="Account Settings"
-                  >
-                    <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
-                      {currentUser.username.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="max-w-[70px] sm:max-w-[100px] truncate font-semibold text-xs">
-                      {currentUser.username}
-                    </span>
-                    {isAdmin && (
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-400/20 font-bold hidden sm:inline shrink-0">
-                        Admin
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={logout}
-                    className="p-2 rounded-xl bg-slate-100 dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 transition-colors shrink-0"
-                    title="Sign Out"
-                    aria-label="Sign Out"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onOpenAuth}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition-all shrink-0"
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>Sign In</span>
-                </button>
-              )}
-            </div>
+          <div className="ys-global-search">
+            <Search size={16} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={event => { setSearchQuery(event.target.value); if (activeTab !== 'library') setActiveTab('library'); }}
+              placeholder="Search tracks, artists, genres..."
+              aria-label="Search the music library"
+            />
+            <kbd>⌘ K</kbd>
           </div>
 
-          {/* Mobile Sub-Navigation Bar (Scrollable segmented tabs for mobile screens) */}
-          <div className="flex md:hidden items-center justify-start py-2 border-t border-slate-200 dark:border-white/5 gap-1.5 overflow-x-auto scrollbar-none">
-            <button
-              onClick={() => setActiveTab('library')}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${
-                activeTab === 'library'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              Library
+          <div className="ys-command-actions">
+            <button type="button" className="ys-command-request" onClick={onOpenSongRequest}>
+              <Plus size={15} /><span>Request</span>
+              {feedbackUnread > 0 && <span className="ys-command-count">{requestLabel}</span>}
             </button>
-            <button onClick={() => setActiveTab('radio')} className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${activeTab === 'radio' ? 'bg-cyan-600 text-white' : 'bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300'}`}>Radio</button>
-            <button
-              disabled={spotlightLocked}
-              title={spotlightLocked ? 'Locked during Spotlight mode' : 'Open playlists'}
-              onClick={() => { if (!spotlightLocked) setActiveTab('playlists'); }}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
-                activeTab === 'playlists'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              Playlists ({userPlaylists.length})
+            <button type="button" className="ys-command-icon" onClick={toggleTheme} title={'Switch to ' + (theme === 'dark' ? 'light' : 'dark') + ' theme'} aria-label="Toggle theme">
+              {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <button
-              disabled={spotlightLocked}
-              title={spotlightLocked ? 'Locked during Spotlight mode' : 'Open favorites'}
-              onClick={() => { if (!spotlightLocked) setActiveTab('favorites'); }}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors ${spotlightLocked ? 'opacity-40 cursor-not-allowed' : ''} ${
-                activeTab === 'favorites'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              Favorites ({userFavorites.length})
-            </button>
-            <button
-              onClick={handleChatTabClick}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
-                activeTab === 'chat'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300'
-              }`}
-            >
-              <span>Chat</span>
-              {unreadChatCount > 0 && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-              )}
-            </button>
-            <button
-              onClick={onOpenSongRequest}
-              className="px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30"
-            >
-              Request Song
-              {feedbackUnread > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-cyan-500 text-slate-950 text-[10px] font-bold">
-                  {feedbackUnread}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('status')}
-              className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 border ${
-                activeTab === 'status'
-                  ? 'bg-emerald-600 text-white border-emerald-500'
-                  : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-600/20 border-emerald-200 dark:border-emerald-500/30'
-              }`}
-            >
-              Status
-            </button>
-            {(isAdmin || currentUser?.gamesEnabled) && (
-              <button
-                onClick={() => setActiveTab('games')}
-                className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
-                  activeTab === 'games'
-                    ? 'bg-gradient-to-r from-amber-300 via-yellow-100 to-slate-300 text-slate-950 shadow-sm border border-amber-200/70'
-                    : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 border border-amber-200/25'
-                }`}
-              >
-                <Gamepad2 className="w-3.5 h-3.5" />
-                Games <span className="rounded bg-amber-200 px-1 py-0.5 text-[7px] font-black text-slate-950">BETA</span> <span className="text-[8px] font-black text-slate-500 dark:text-slate-300">VIP</span>
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => setActiveTab('admin')}
-                className={`px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-bold shrink-0 transition-colors ${
-                  activeTab === 'admin'
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
-                }`}
-              >
-                Admin
-              </button>
+            {currentUser ? (
+              <>
+                <button type="button" className="ys-account-button" onClick={onOpenAccount} title="Account settings">
+                  <span className="ys-account-avatar">{currentUser.username.charAt(0).toUpperCase()}</span>
+                  <span className="ys-account-copy"><span>{currentUser.username}</span><small>{isAdmin ? 'SYSTEM ADMIN' : 'LISTENER ACCOUNT'}</small></span>
+                </button>
+                <button type="button" className="ys-command-icon ys-logout-button" onClick={logout} title="Sign out" aria-label="Sign out"><LogOut size={16} /></button>
+              </>
+            ) : (
+              <button type="button" className="ys-command-signin" onClick={onOpenAuth}><LogIn size={15} /> Sign in</button>
             )}
           </div>
         </div>
       </header>
 
-      {/* Chat Restriction / Lockout Modal */}
+      <aside className="ys-cosmic-sidebar" aria-label="Main navigation">
+        <div className="ys-sidebar-topline"><span className="ys-sidebar-led" /> NAVIGATION</div>
+        <nav className="ys-sidebar-nav">
+          {visibleItems.map(item => navButton(item))}
+        </nav>
+        <div className="ys-sidebar-bottom">
+          <span className="ys-sidebar-status"><i /> SYSTEM ONLINE</span>
+          <span className="ys-sidebar-version">YS / 02.6</span>
+        </div>
+      </aside>
+
+      <nav className="ys-mobile-nav" aria-label="Mobile navigation">
+        {visibleItems.map(item => navButton(item, true))}
+        <button type="button" className="ys-mobile-nav-item" onClick={onOpenSongRequest}>
+          <span className="ys-nav-icon-wrap"><Plus className="ys-nav-icon" />{feedbackUnread > 0 && <span className="ys-nav-badge">{requestLabel}</span>}</span>
+          <span className="ys-nav-label">Request</span>
+        </button>
+      </nav>
+
       {showChatBlockedModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-rose-500/30 rounded-3xl p-6 shadow-2xl text-center space-y-4">
-            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mx-auto shadow-inner">
-              <Lock className="w-7 h-7" />
-            </div>
-            <div className="space-y-1.5">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">
-                Chat Disabled
-              </h3>
-              <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 p-2.5 rounded-xl">
-                Your chat messaging has been disabled by administrator.
-              </p>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              An administrator has temporarily or permanently locked your chat privileges across YouSong. If you believe this is in error, please consult an administrator.
-            </p>
-            <div className="pt-2">
-              <button
-                onClick={() => setShowChatBlockedModal(false)}
-                className="w-full py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold transition-all active:scale-95 shadow-md"
-              >
-                Understood
-              </button>
-            </div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
+          <div className="w-full max-w-sm rounded-3xl border border-rose-300/20 bg-[#07171a] p-6 text-center text-white shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-400/25 bg-rose-400/10 text-rose-300"><MessageSquare size={25} /></div>
+            <h3 className="mt-4 text-lg font-bold">Chat access disabled</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-300">An administrator has disabled chat messaging for this account. Please contact an administrator if you think this is a mistake.</p>
+            <button type="button" onClick={() => setShowChatBlockedModal(false)} className="mt-5 w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/15">Understood</button>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
