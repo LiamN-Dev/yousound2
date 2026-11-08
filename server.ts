@@ -1536,6 +1536,13 @@ app.post('/api/ai/knowledge-requests', async (req: Request, res: Response) => {
     const requests = await getPersistentSettingDb<AiKnowledgeRequest[]>(AI_KNOWLEDGE_REQUESTS_SETTING) || [];
     const duplicate = requests.find((item) => item.uid === account.uid && item.status === 'pending' && item.question.toLowerCase() === question.toLowerCase());
     if (duplicate) return res.json({ success: true, request: duplicate, duplicate: true });
+    const recentRequestCount = requests.filter((item) =>
+      item.uid === account.uid
+      && Date.now() - new Date(item.createdAt).getTime() < 10 * 60 * 1000
+    ).length;
+    if (recentRequestCount >= 5) {
+      return res.status(429).json({ success: false, error: 'You can send up to five AI knowledge questions every ten minutes.' });
+    }
     const request: AiKnowledgeRequest = {
       id: 'aiq_' + Date.now() + '_' + randomBytes(4).toString('hex'),
       uid: account.uid,
