@@ -149,6 +149,27 @@ export const AdminAIKnowledge: React.FC = () => {
     }
   };
 
+  const discardLegacy = async (item: LegacyEntry) => {
+    if (!confirm('Permanently discard this old mixed-knowledge entry? It will not be used by AI.')) return;
+    setSaving(true);
+    setError('');
+    setFeedback('');
+    try {
+      const response = await fetch('/api/admin/ai/legacy-facts/' + encodeURIComponent(item.id), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not discard this old item.');
+      setFeedback('Old entry discarded. It was not added to permanent facts.');
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Could not discard this old item.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const inspectDiagnostic = async (event: React.FormEvent) => {
     event.preventDefault();
     const code = diagnosticCode.trim();
@@ -225,7 +246,7 @@ export const AdminAIKnowledge: React.FC = () => {
       {legacyEntries.length > 0 && <section className="rounded-2xl border border-amber-300/20 bg-[#101827] p-5 text-white">
         <h3 className="text-sm font-black text-amber-100">Old knowledge entries · review before promotion</h3>
         <p className="mt-1 text-[11px] text-slate-400">These came from the old mixed knowledge system and are no longer sent to the AI. Promote only answers that are genuinely permanent.</p>
-        <div className="mt-3 space-y-2">{legacyEntries.map((item,index)=><div key={item.id || index} className="rounded-xl border border-white/[.07] bg-black/20 p-3"><div className="text-xs font-bold">{item.question || 'Legacy entry'}</div><p className="mt-1 text-[11px] leading-5 text-slate-300">{item.answer}</p><div className="mt-2 flex justify-end"><button type="button" disabled={saving} onClick={()=>void promoteLegacy(item)} className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-[10px] font-bold text-amber-100 disabled:opacity-40">Promote as permanent fact</button></div></div>)}</div>
+        <div className="mt-3 space-y-2">{legacyEntries.map((item,index)=><div key={item.id || index} className="rounded-xl border border-white/[.07] bg-black/20 p-3"><div className="text-xs font-bold">{item.question || 'Legacy entry'}</div><p className="mt-1 text-[11px] leading-5 text-slate-300">{item.answer}</p><div className="mt-2 flex flex-wrap justify-end gap-2"><button type="button" disabled={saving} onClick={()=>void discardLegacy(item)} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] font-bold text-slate-400 disabled:opacity-40">Discard old answer</button><button type="button" disabled={saving} onClick={()=>void promoteLegacy(item)} className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-[10px] font-bold text-amber-100 disabled:opacity-40">Promote as permanent fact</button></div></div>)}</div>
       </section>}
 
       <section className="rounded-2xl border border-white/10 bg-[#101827] p-5 text-white">
