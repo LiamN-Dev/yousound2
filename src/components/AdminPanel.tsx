@@ -113,8 +113,6 @@ export const AdminPanel: React.FC = () => {
   const [editRole, setEditRole] = useState<'admin' | 'user'>('user');
   const [editDailyListenLimit, setEditDailyListenLimit] = useState('');
   const [editChatBlocked, setEditChatBlocked] = useState(false);
-  const [editChristmasMode, setEditChristmasMode] = useState(false);
-  const [editGamesEnabled, setEditGamesEnabled] = useState(false);
   const [editIsSuspended, setEditIsSuspended] = useState(false);
   const [editSuspendedReason, setEditSuspendedReason] = useState('');
   const [userEditFeedback, setUserEditFeedback] = useState<string | null>(null);
@@ -250,8 +248,6 @@ export const AdminPanel: React.FC = () => {
       role: editRole,
       dailyListenLimit: editDailyListenLimit.trim() === '' ? null : Number(editDailyListenLimit),
       chatBlocked: editChatBlocked,
-      christmasMode: editChristmasMode,
-      gamesEnabled: editGamesEnabled,
       isSuspended: editIsSuspended,
       suspendedReason: editIsSuspended ? (editSuspendedReason.trim() || 'Suspended by Administrator') : '',
     });
@@ -532,7 +528,7 @@ export const AdminPanel: React.FC = () => {
         </div>
 
         {/* Tab Controls */}
-        <div data-admin-nav="true" className="flex items-center gap-1.5 mt-6 pt-4 border-t border-slate-200 dark:border-white/10 overflow-x-auto">
+        <div data-admin-nav="true" className="flex flex-wrap items-center gap-1.5 mt-6 pt-4 border-t border-slate-200 dark:border-white/10">
           <button
             onClick={() => setAdminTab('songs')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
@@ -1128,11 +1124,6 @@ export const AdminPanel: React.FC = () => {
                               You (Current Admin)
                             </span>
                           )}
-                          {u.christmasMode && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-200">
-                              <Snowflake className="h-3 w-3" /> Christmas
-                            </span>
-                          )}
                           {u.temporaryPasswordAssigned && (
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">
                               Temp Password Active
@@ -1200,8 +1191,6 @@ export const AdminPanel: React.FC = () => {
                               setEditRole(u.role);
                               setEditDailyListenLimit(u.dailyListenLimit == null ? '' : String(u.dailyListenLimit));
                               setEditChatBlocked(!!u.chatBlocked);
-                              setEditChristmasMode(!!u.christmasMode);
-                              setEditGamesEnabled(!!u.gamesEnabled);
                               setEditIsSuspended(!!u.isSuspended);
                               setEditSuspendedReason(u.suspendedReason || '');
                             }}
@@ -1380,54 +1369,6 @@ export const AdminPanel: React.FC = () => {
                         <span>{editIsSuspended ? 'Suspended' : 'Active'}</span>
                       </button>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-400/25 bg-emerald-500/[0.08] px-3.5 py-3">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-400/10 text-emerald-300">
-                        <Snowflake className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-xs font-bold text-white">Christmas effects</span>
-                        <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-300">
-                          Allow this account to see the seasonal lights and snowfall. Only an administrator can change this.
-                        </span>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={editChristmasMode}
-                      onClick={() => setEditChristmasMode((value) => !value)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${editChristmasMode ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                      aria-label="Enable Christmas effects for this user"
-                    >
-                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${editChristmasMode ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3.5 py-3">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-violet-400/25 bg-violet-400/10 text-violet-300">
-                        <Gamepad2 className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-xs font-bold text-white">VIP Games access</span>
-                        <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-300">
-                          Grant this account exclusive access to the VIP Arcade and its current and future games.
-                        </span>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={editGamesEnabled}
-                      onClick={() => setEditGamesEnabled((value) => !value)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${editGamesEnabled ? 'bg-amber-300' : 'bg-slate-700'}`}
-                      aria-label="Enable VIP Games access for this user"
-                    >
-                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${editGamesEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
                   </div>
 
                   {editIsSuspended && (
