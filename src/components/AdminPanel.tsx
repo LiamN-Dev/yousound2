@@ -644,7 +644,7 @@ export const AdminPanel: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setAdminTab('maintenance')
+            onClick={() => setAdminTab('maintenance')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
               adminTab === 'maintenance'
                 ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
