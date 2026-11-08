@@ -66,8 +66,6 @@ interface AuthContextType {
           isLocked?: boolean;
           christmasMode?: boolean;
           gamesEnabled?: boolean;
-      aiBetaEnabled?: boolean;
-      redesignBetaEnabled?: boolean;
           aiBetaEnabled?: boolean;
           redesignBetaEnabled?: boolean;
         }
@@ -304,6 +302,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           isLocked?: boolean;
           christmasMode?: boolean;
           gamesEnabled?: boolean;
+          aiBetaEnabled?: boolean;
+          redesignBetaEnabled?: boolean;
         }
       | string,
     newPassword?: string
@@ -322,6 +322,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isLocked?: boolean;
       christmasMode?: boolean;
       gamesEnabled?: boolean;
+      aiBetaEnabled?: boolean;
+      redesignBetaEnabled?: boolean;
     };
 
     if (typeof paramsOrUsername === 'object' && paramsOrUsername !== null) {
