@@ -52,7 +52,7 @@ export const AdminBetaAccess: React.FC<Props> = ({ users, onUpdateUser }) => {
           <div>
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.2em] text-cyan-200"><Sparkles className="h-4 w-4" /> Controlled rollout</div>
             <h2 className="mt-2 text-2xl font-black">Beta access</h2>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-300">Choose exactly which accounts can preview YouSound AI, the redesigned interface, and VIP Games. These switches update each account immediately. Administrators always retain access.</p>
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-300">Choose exactly which accounts can preview YouSound AI, the redesigned interface, VIP Games, and Christmas Mode. These switches update each account immediately. Administrators always retain access.</p>
           </div>
           <span className="rounded-xl border border-white/10 bg-white/[.05] px-3 py-2 text-[10px] font-bold text-slate-200">{members.length} matching accounts</span>
         </div>
@@ -72,7 +72,7 @@ export const AdminBetaAccess: React.FC<Props> = ({ users, onUpdateUser }) => {
         <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search accounts…" className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-slate-500" />
       </div>
       {feedback && <div className="rounded-xl border border-cyan-200/15 bg-cyan-200/[.06] px-4 py-3 text-xs text-cyan-100">{feedback}</div>}
-      <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0d1521]">
+      <div className="overflow-x-auto rounded-3xl border border-white/10 bg-[#0d1521]">
         <div className="grid grid-cols-[minmax(120px,1fr)_repeat(4,minmax(88px,108px))] gap-2 border-b border-white/10 bg-white/[.025] px-4 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 sm:px-5">
           <span>Account</span><span>AI Beta</span><span>New Design</span><span>Games</span><span>Christmas</span>
         </div>
