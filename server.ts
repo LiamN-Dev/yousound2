@@ -5440,8 +5440,9 @@ async function reviewPrivateChatMessage(content: string): Promise<{
 // 1. Chat Requests
 app.get('/api/chat/requests', async (req: Request, res: Response) => {
   try {
+    if (!getAuthUser(req)) return res.status(401).json({ error: 'Please sign in again.' });
     if (!isAdminReq(req)) {
-      const member = getAuthUser(req);
+      const member = getAuthUser(req)!;
       if (member?.chatBlocked) return res.status(403).json({ error: 'Your account is blocked from chat.' });
       return res.json({ requests: await getChatRequestsForUserDb(member.uid) });
     }
@@ -5572,8 +5573,9 @@ app.delete('/api/chat/requests/:id', async (req: Request, res: Response) => {
 // 2. Chat Threads
 app.get('/api/chat/threads', async (req: Request, res: Response) => {
   try {
+    if (!getAuthUser(req)) return res.status(401).json({ error: 'Please sign in again.' });
     if (!isAdminReq(req)) {
-      const member = getAuthUser(req);
+      const member = getAuthUser(req)!;
       const threads = await getChatThreadsForUserDb(member.uid);
       // Account-wide chat blocks may keep access to a suspension appeal thread only.
       return res.json({ threads: member.chatBlocked ? threads.filter((thread: any) => thread.isAppealThread) : threads });
@@ -5601,6 +5603,7 @@ app.get('/api/chat/threads', async (req: Request, res: Response) => {
 // Admin force-start a chat between any two users
 app.post('/api/chat/threads/force', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { user1Id, user1Username, user2Id, user2Username } = req.body;
     if (!user1Id || !user2Id) {
       return res.status(400).json({ error: 'Both users required' });
@@ -5626,6 +5629,7 @@ app.post('/api/chat/threads/force', async (req: Request, res: Response) => {
 // Admin terminate / stop thread
 app.patch('/api/chat/threads/:id/terminate', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     const { reason } = req.body;
     const updated = await setChatThreadTerminatedDb(
@@ -5643,6 +5647,7 @@ app.patch('/api/chat/threads/:id/terminate', async (req: Request, res: Response)
 // Admin re-open thread
 app.patch('/api/chat/threads/:id/reopen', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     const updated = await setChatThreadTerminatedDb(id, false, undefined);
     res.json({ success: true, thread: updated });
@@ -5654,6 +5659,7 @@ app.patch('/api/chat/threads/:id/reopen', async (req: Request, res: Response) =>
 
 app.delete('/api/chat/threads/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     await deleteChatThreadDb(id);
     res.json({ success: true });
@@ -5667,7 +5673,13 @@ app.delete('/api/chat/threads/:id', async (req: Request, res: Response) => {
 app.post('/api/chat/threads/:id/hide', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = getAuthUser(req).uid;
+    const member = getAuthUser(req);
+    if (!member) return res.status(401).json({ error: 'Please sign in again.' });
+    const thread: any = await getChatThreadByIdDb(id);
+    if (!thread || (thread.user1Id !== member.uid && thread.user2Id !== member.uid)) {
+      return res.status(403).json({ error: 'You can hide only your own conversations.' });
+    }
+    const userId = member.uid;
     await hideChatThreadForUserDb(id, userId);
     res.json({ success: true });
   } catch (error: any) {
@@ -5699,6 +5711,7 @@ app.get('/api/chat/messages/:threadId', async (req: Request, res: Response) => {
   try {
     const { threadId } = req.params;
     const me = getAuthUser(req);
+    if (!me) return res.status(401).json({ error: 'Please sign in again.' });
     if (me.role !== 'admin') {
       const thread: any = await getChatThreadByIdDb(threadId);
       if (!thread || (thread.user1Id !== me.uid && thread.user2Id !== me.uid)) {
@@ -5719,6 +5732,7 @@ app.get('/api/chat/messages/:threadId', async (req: Request, res: Response) => {
 // Delete specific chat message
 app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     await deleteChatMessageDb(id);
     res.json({ success: true });
@@ -5731,6 +5745,7 @@ app.delete('/api/chat/messages/:id', async (req: Request, res: Response) => {
 // Admin master feed across all conversations for live moderation
 app.get('/api/chat/messages-all', async (_req: Request, res: Response) => {
   try {
+    if (!isAdminReq(_req)) return res.status(403).json({ error: 'Administrators only.' });
     const messages = await getAllChatMessagesDb(150);
     res.json({ messages });
   } catch (error: any) {
@@ -5799,6 +5814,7 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
 // 4. Pairing Blocks
 app.get('/api/chat/pairing-blocks', async (_req: Request, res: Response) => {
   try {
+    if (!isAdminReq(_req)) return res.status(403).json({ error: 'Administrators only.' });
     const blocks = await getChatPairingBlocksDb();
     res.json({ blocks });
   } catch (error: any) {
@@ -5809,6 +5825,7 @@ app.get('/api/chat/pairing-blocks', async (_req: Request, res: Response) => {
 
 app.post('/api/chat/pairing-blocks', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { user1Id, user2Id, blockedBy, reason } = req.body;
     if (!user1Id || !user2Id) {
       return res.status(400).json({ error: 'Both user IDs are required' });
@@ -5828,6 +5845,7 @@ app.post('/api/chat/pairing-blocks', async (req: Request, res: Response) => {
 
 app.delete('/api/chat/pairing-blocks/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const id = parseInt(req.params.id, 10);
     await deleteChatPairingBlockDb(id);
     res.json({ success: true });
