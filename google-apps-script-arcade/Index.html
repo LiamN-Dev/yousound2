@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#041014">
+  <title>YouSound // Google Arcade Test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #030b0f;
+      --panel: rgba(8, 26, 32, .82);
+      --line: rgba(111, 241, 222, .24);
+      --mint: #82f8e4;
+      --cyan: #33c9c0;
+      --copy: #eafffb;
+      font-family: Inter, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100%; margin: 0; }
+    body {
+      overflow-x: hidden;
+      color: var(--copy);
+      background:
+        radial-gradient(ellipse at 50% -20%, rgba(26, 170, 160, .2), transparent 48%),
+        linear-gradient(155deg, #061318, #03080d 58%, #07171a);
+    }
+    button { font: inherit; }
+    .space {
+      position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+      background-image:
+        radial-gradient(rgba(196,255,247,.65) .7px, transparent .9px),
+        linear-gradient(rgba(99,223,210,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,223,210,.035) 1px, transparent 1px);
+      background-size: 43px 43px, 70px 70px, 70px 70px;
+      mask-image: linear-gradient(to bottom, black, transparent 92%);
+    }
+    .orbital {
+      position: absolute; width: min(88vw, 680px); aspect-ratio: 1; left: 50%; top: -34%;
+      border: 1px solid rgba(110,240,222,.12); border-radius: 50%;
+      transform: translateX(-50%); animation: spin 95s linear infinite;
+    }
+    .orbital::before, .orbital::after {
+      content: ""; position: absolute; inset: 9%; border: 1px solid rgba(110,240,222,.1);
+      border-radius: 50%; transform: rotateX(68deg);
+    }
+    .orbital::after { inset: 20%; border-style: dashed; transform: rotateX(68deg) rotateZ(24deg); }
+    @keyframes spin { to { rotate: 360deg; } }
+    .shell { width: min(1080px, 100%); margin: 0 auto; padding: 22px clamp(14px, 3vw, 32px) 30px; }
+    .topline {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding-bottom: 17px; border-bottom: 1px solid rgba(111,241,222,.15);
+      color: rgba(194,235,228,.57); font-size: 9px; font-weight: 900; letter-spacing: .2em;
+    }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #eafffb; }
+    .brand-mark {
+      width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px;
+      border: 1px solid rgba(130,248,228,.5); color: var(--mint);
+      background: linear-gradient(145deg, rgba(82,230,209,.2), rgba(8,55,62,.5));
+      box-shadow: 0 0 25px rgba(47,209,190,.15);
+    }
+    .online { display: inline-flex; align-items: center; gap: 8px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #7df6b9; box-shadow: 0 0 12px #7df6b9; animation: pulse 1.8s infinite; }
+    @keyframes pulse { 50% { opacity: .45; box-shadow: 0 0 3px #7df6b9; } }
+    .intro { padding: 24px 0 17px; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--mint); font-size: 9px; font-weight: 900; letter-spacing: .18em; }
+    h1 { margin: 10px 0 7px; font-size: clamp(31px, 6vw, 52px); line-height: .98; letter-spacing: -.06em; }
+    h1 span { color: var(--mint); }
+    .intro p { max-width: 650px; margin: 0; color: rgba(221,244,239,.68); font-size: 13px; line-height: 1.7; }
+    .panel {
+      overflow: hidden; border: 1px solid var(--line); border-radius: 19px;
+      background: linear-gradient(145deg, rgba(8,30,35,.96), rgba(5,16,22,.96));
+      box-shadow: 0 24px 64px rgba(0,0,0,.36), inset 0 1px 0 rgba(229,255,250,.055);
+    }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 17px; border-bottom: 1px solid rgba(116,231,214,.13);
+    }
+    .panel-title { display: grid; gap: 4px; }
+    .panel-title strong { font-size: 12px; letter-spacing: .09em; }
+    .panel-title small { color: rgba(171,219,210,.52); font-size: 8px; letter-spacing: .15em; }
+    .chip {
+      padding: 6px 9px; border: 1px solid rgba(116,231,214,.2); border-radius: 99px;
+      color: var(--mint); background: rgba(57,198,181,.08); font-size: 8px; font-weight: 900; letter-spacing: .1em;
+    }
+    .stage { position: relative; background: radial-gradient(ellipse at 50% 100%, rgba(26,160,151,.17), transparent 60%), #041014; }
+    canvas { display: block; width: 100%; height: min(54vh, 440px); min-height: 270px; touch-action: none; }
+    .overlay {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      padding: 20px; text-align: center; background: rgba(1,9,12,.47); backdrop-filter: blur(5px);
+    }
+    .overlay-card {
+      width: min(340px, 100%); padding: 22px 20px; border: 1px solid rgba(122,245,226,.29);
+      border-radius: 16px; background: rgba(5,22,27,.93); box-shadow: 0 12px 50px rgba(0,0,0,.45);
+    }
+    .overlay-card h2 { margin: 0 0 7px; font-size: 22px; letter-spacing: -.04em; }
+    .overlay-card p { margin: 0 0 15px; color: rgba(214,242,236,.65); font-size: 11px; line-height: 1.6; }
+    .primary {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 41px; padding: 0 17px;
+      border: 1px solid rgba(204,255,247,.7); border-radius: 9px; color: #041716;
+      background: linear-gradient(120deg,#cafff5,#6ee7d5 62%,#35bdb6);
+      box-shadow: 0 7px 22px rgba(44,213,192,.17); font-size: 9px; font-weight: 950; letter-spacing: .13em;
+      cursor: pointer; transition: transform .2s ease, box-shadow .2s ease;
+    }
+    .primary:hover { transform: translateY(-2px); box-shadow: 0 11px 30px rgba(44,213,192,.3); }
+    .hud {
+      position: absolute; top: 13px; left: 15px; right: 15px; z-index: 2; display: flex;
+      justify-content: space-between; gap: 10px; pointer-events: none;
+    }
+    .hud-stat { display: grid; gap: 3px; padding: 7px 10px; border: 1px solid rgba(115,239,220,.16);
+      border-radius: 8px; background: rgba(2,14,18,.72); backdrop-filter: blur(8px); }
+    .hud-stat small { color: rgba(175,221,212,.48); font-size: 7px; font-weight: 900; letter-spacing: .15em; }
+    .hud-stat strong { color: #eafffb; font-size: 16px; font-variant-numeric: tabular-nums; }
+    .controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 16px; border-top: 1px solid rgba(116,231,214,.13); }
+    .hint { color: rgba(179,221,213,.59); font-size: 9px; line-height: 1.5; }
+    .touch { display: flex; gap: 7px; }
+    .touch button {
+      width: 41px; height: 36px; border: 1px solid rgba(116,231,214,.24); border-radius: 9px;
+      color: #dffbf5; background: rgba(52,181,169,.1); font-size: 16px; cursor: pointer;
+    }
+    .touch button:active { transform: scale(.94); background: rgba(52,181,169,.25); }
+    .footer {
+      display: flex; flex-wrap: wrap; justify-content: space-between; gap: 9px; padding: 14px 2px 0;
+      color: rgba(170,211,203,.35); font-size: 7px; font-weight: 850; letter-spacing: .15em;
+    }
+    #runtime { color: rgba(170,211,203,.55); }
+    @media (max-width: 520px) {
+      .shell { padding-top: 14px; }
+      .topline { font-size: 7px; letter-spacing: .12em; }
+      .panel-head { padding: 12px; }
+      .controls { align-items: flex-start; }
+      .hint { max-width: 205px; }
+      canvas { height: 48vh; min-height: 280px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="space"><div class="orbital"></div></div>
+  <main class="shell">
+    <div class="topline">
+      <div class="brand"><span class="brand-mark">YS</span><span>YOUSOUND // ARCADE LAB</span></div>
+      <span class="online"><i class="dot"></i> GOOGLE HOST TEST</span>
+    </div>
+
+    <section class="intro">
+      <div class="eyebrow">◆ GOOGLE APPS SCRIPT · SELF-CONTAINED</div>
+      <h1>PHOTON <span>DRIFT.</span></h1>
+      <p>A tiny original arcade test served directly by Google Apps Script. No Cloudflare game host, external game embed, external scripts, or third-party asset domains are required by this demo.</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">
+          <strong>SECTOR 01 / ENDLESS RUN</strong>
+          <small>MOVE BETWEEN LANES · AVOID THE ENERGY BLOCKS</small>
+        </div>
+        <span class="chip">LOCAL TEST BUILD</span>
+      </div>
+      <div class="stage">
+        <div class="hud">
+          <div class="hud-stat"><small>RUN SCORE</small><strong id="score">0</strong></div>
+          <div class="hud-stat"><small>BEST ON THIS DEVICE</small><strong id="best">0</strong></div>
+        </div>
+        <canvas id="game" aria-label="Photon Drift arcade game"></canvas>
+        <div class="overlay" id="overlay">
+          <div class="overlay-card">
+            <div class="eyebrow">SIGNAL READY</div>
+            <h2 id="overlayTitle">Enter the drift.</h2>
+            <p id="overlayText">Use the left and right arrow keys, A / D, or the touch buttons to switch lanes. Avoid incoming blocks and keep moving.</p>
+            <button class="primary" id="start">START TEST RUN</button>
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="hint">KEYBOARD: ← → or A / D<br>TOUCH: use the lane controls</div>
+        <div class="touch">
+          <button type="button" id="left" aria-label="Move left">←</button>
+          <button type="button" id="right" aria-label="Move right">→</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      <span>YOUSOUND · GOOGLE HOST COMPATIBILITY TEST</span>
+      <span id="runtime">CHECKING APPS SCRIPT RUNTIME…</span>
+      <span>DEMO SCORES STAY ON THIS DEVICE</span>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      const canvas = document.getElementById('game');
+      const ctx = canvas.getContext('2d');
+      const overlay = document.getElementById('overlay');
+      const overlayTitle = document.getElementById('overlayTitle');
+      const overlayText = document.getElementById('overlayText');
+      const scoreNode = document.getElementById('score');
+      const bestNode = document.getElementById('best');
+      const runtimeNode = document.getElementById('runtime');
+      const bestKey = 'ys_photon_drift_best_v1';
+      let width = 0, height = 0, running = false, score = 0, best = 0;
+      let lane = 1, blocks = [], particles = [], last = 0, spawnClock = 0, elapsed = 0;
+      const laneCount = 3;
+      const player = { y: 0, radius: 13 };
+      const random = (min, max) => min + Math.random() * (max - min);
+
+      try { best = Number(localStorage.getItem(bestKey)) || 0; } catch (_) {}
+      bestNode.textContent = String(best);
+
+      function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        width = Math.max(1, rect.width);
+        height = Math.max(1, rect.height);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        player.y = height - 54;
+        draw();
+      }
+      if ('ResizeObserver' in window) new ResizeObserver(resize).observe(canvas);
+      else window.addEventListener('resize', resize);
+      resize();
+
+      function laneX(index) {
+        const gap = width / laneCount;
+        return gap * (index + .5);
+      }
+
+      function background() {
+        ctx.clearRect(0, 0, width, height);
+        const glow = ctx.createRadialGradient(width / 2, height, 10, width / 2, height, height * .9);
+        glow.addColorStop(0, 'rgba(27, 179, 165, .13)');
+        glow.addColorStop(1, 'rgba(2, 10, 14, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, width, height);
+        const laneWidth = width / laneCount;
+        for (let i = 0; i <= laneCount; i++) {
+          const x = i * laneWidth;
+          ctx.strokeStyle = 'rgba(109, 231, 215, .13)';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+        }
+        const offset = (elapsed * 45) % 38;
+        ctx.strokeStyle = 'rgba(116, 235, 220, .12)';
+        for (let y = -38 + offset; y < height; y += 38) {
+          ctx.beginPath(); ctx.moveTo(width * .16, y); ctx.lineTo(width * .84, y); ctx.stroke();
+        }
+      }
+
+      function drawPlayer() {
+        const x = laneX(lane);
+        ctx.save();
+        ctx.shadowColor = '#76f6df';
+        ctx.shadowBlur = 22;
+        ctx.fillStyle = '#c9fff6';
+        ctx.beginPath();
+        ctx.moveTo(x, player.y - player.radius);
+        ctx.lineTo(x + player.radius * .92, player.y + player.radius);
+        ctx.lineTo(x - player.radius * .92, player.y + player.radius);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,.8)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawBlock(block) {
+        const x = laneX(block.lane) - block.width / 2;
+        const y = block.y;
+        ctx.save();
+        ctx.shadowColor = '#24d9c5';
+        ctx.shadowBlur = 15;
+        const gradient = ctx.createLinearGradient(x, y, x + block.width, y + block.height);
+        gradient.addColorStop(0, '#b9fff2');
+        gradient.addColorStop(1, '#1f9eaa');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, y, block.width, block.height);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(231,255,250,.65)';
+        ctx.strokeRect(x, y, block.width, block.height);
+        ctx.restore();
+      }
+
+      function render() {
+        background();
+        blocks.forEach(drawBlock);
+        particles.forEach(p => {
+          ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+          ctx.fillStyle = '#9dfff0';
+          ctx.fillRect(p.x, p.y, p.size, p.size);
+        });
+        ctx.globalAlpha = 1;
+        drawPlayer();
+      }
+
+      function spawn() {
+        const laneIndex = Math.floor(Math.random() * laneCount);
+        const size = Math.max(23, Math.min(42, width / 9));
+        blocks.push({ lane: laneIndex, y: -size, width: size, height: size, speed: 190 + Math.min(170, score * 1.7) });
+      }
+
+      function endRun() {
+        running = false;
+        if (score > best) {
+          best = score;
+          bestNode.textContent = String(best);
+          try { localStorage.setItem(bestKey, String(best)); } catch (_) {}
+        }
+        overlayTitle.textContent = 'Signal interrupted.';
+        overlayText.textContent = 'Your run score was ' + score + '. Best on this device: ' + best + '. Try again and beat it.';
+        document.getElementById('start').textContent = 'RUN AGAIN';
+        overlay.style.display = 'flex';
+      }
+
+      function update(delta) {
+        elapsed += delta / 1000;
+        spawnClock += delta;
+        const spawnEvery = Math.max(420, 980 - score * 7);
+        if (spawnClock >= spawnEvery) { spawnClock = 0; spawn(); }
+        const speedBoost = 1 + Math.min(1, score / 45);
+        blocks.forEach(block => { block.y += block.speed * speedBoost * delta / 1000; });
+        blocks = blocks.filter(block => {
+          if (block.y > height + block.height) { score += 1; scoreNode.textContent = String(score); return false; }
+          const playerX = laneX(lane), blockX = laneX(block.lane);
+          const hit = block.lane === lane && block.y + block.height > player.y - 7 && block.y < player.y + 8;
+          if (hit && Math.abs(blockX - playerX) < block.width * .75) endRun();
+          return true;
+        });
+        particles.forEach(p => { p.x += p.vx * delta / 1000; p.y += p.vy * delta / 1000; p.life -= delta; });
+        particles = particles.filter(p => p.life > 0);
+      }
+
+      function loop(now) {
+        if (!running) return;
+        const delta = Math.min(40, now - (last || now));
+        last = now;
+        update(delta);
+        render();
+        if (running) requestAnimationFrame(loop);
+      }
+
+      function move(direction) {
+        if (!running) return;
+        const old = lane;
+        lane = Math.max(0, Math.min(laneCount - 1, lane + direction));
+        if (old !== lane) {
+          const x = laneX(lane), y = player.y;
+          for (let i = 0; i < 7; i++) particles.push({ x, y, vx: random(-55,55), vy: random(-55,35), size: random(1,3), life: 260, maxLife: 260 });
+        }
+        render();
+      }
+
+      function start() {
+        score = 0; lane = 1; blocks = []; particles = []; elapsed = 0; spawnClock = 0; last = 0;
+        scoreNode.textContent = '0';
+        running = true;
+        overlay.style.display = 'none';
+        requestAnimationFrame(loop);
+        canvas.focus();
+      }
+
+      document.getElementById('start').addEventListener('click', start);
+      document.getElementById('left').addEventListener('click', () => move(-1));
+      document.getElementById('right').addEventListener('click', () => move(1));
+      window.addEventListener('keydown', event => {
+        if (['ArrowLeft','ArrowRight','a','A','d','D'].includes(event.key)) event.preventDefault();
+        if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') move(-1);
+        if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') move(1);
+        if ((event.key === ' ' || event.key === 'Enter') && !running) start();
+      });
+      canvas.addEventListener('pointerdown', event => {
+        if (!running) return;
+        const rect = canvas.getBoundingClientRect();
+        move(event.clientX - rect.left < rect.width / 2 ? -1 : 1);
+      });
+
+      if (window.google && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(result => {
+            runtimeNode.textContent = result && result.ok ? 'APPS SCRIPT SERVER ONLINE' : 'RUNTIME RESPONSE UNEXPECTED';
+          })
+          .withFailureHandler(() => { runtimeNode.textContent = 'SERVER PING FAILED'; })
+          .arcadePing();
+      } else {
+        runtimeNode.textContent = 'CLIENT PREVIEW · SERVER NOT CONNECTED';
+      }
+    })();
+  </script>
+</body>
+</html>
