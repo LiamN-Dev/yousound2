@@ -1,43 +1,46 @@
-# YouSound Google Apps Script Arcade Test
+# YouSound Google-hosted Crossy Road prototype
 
-This is a self-contained compatibility test for a Google-hosted game page. The game itself is an original, tiny Canvas runner called Photon Drift. It intentionally loads no JavaScript libraries, CSS frameworks, fonts, images, or game files from external hosts.
+This folder contains a self-contained Crossy Road-style game served by Google Apps Script HTML Service. It uses original Canvas-drawn voxel/isometric artwork and does not load an external game host, JavaScript library, image, font, or stylesheet.
 
-The purpose is to test whether a deployed Apps Script web app can be opened and embedded in Google Sites on the school network. It is not yet the production YouSound arcade, and its best score is stored only in the current browser's local storage.
+The prototype includes:
+- Hopping movement with keyboard and touch controls.
+- Procedurally generated grass, traffic, rivers, logs, and train crossings.
+- Coins, a local best score, and unlockable character skins.
+- An Apps Script server ping so the page can show whether the Google-hosted runtime is connected.
 
-## Create the Apps Script project
+Standalone /exec use stores the prototype's coins, character unlocks, and best score in that browser's local storage. It is not account-synced on its own.
 
-1. Open [script.google.com](https://script.google.com/) and create a new project.
-2. Replace the contents of `Code.gs` with this folder's `Code.gs`.
-3. Click **+** beside Files, choose **HTML**, and name the file `Index`.
-4. Paste this folder's `Index.html` into that HTML file.
-5. Save the project.
+## Set up or update the Apps Script project
 
-## Deploy a first private test
+1. Open https://script.google.com/ and open your existing YouSound Arcade project.
+2. Replace all of Code.gs with this folder's Code.gs.
+3. Click Index.html in the left file list and replace all of it with this folder's Index.html.
+4. Save the project.
 
-1. Click **Deploy → New deployment**.
-2. Select **Web app** as the deployment type.
-3. For **Execute as**, choose **Me**.
-4. For **Who has access**, start with the narrowest choice that lets you test while signed in on the school device. Do not make it public just to test.
-5. Click **Deploy**, complete any required authorization, and copy the web app URL ending in `/exec`.
+## Deploy the updated version
+
+1. Click Deploy → Manage deployments.
+2. Select the existing web app deployment and click the pencil/edit icon.
+3. Under Version, choose New version.
+4. Add a description such as Crossy Road voxel prototype.
+5. Click Deploy and keep using the web app /exec URL for your existing deployment.
+
+If you do not see an existing deployment, use Deploy → New deployment → Web app. Choose the narrowest access option that works for your intended test account.
 
 ## Embed in Google Sites
 
 1. Open the Google Site you control.
-2. Choose **Insert → Embed → By URL**.
-3. Paste the deployed Apps Script `/exec` URL and insert it.
-4. Resize the embed to give the game a useful amount of space.
-5. Publish the Site and open it on the school device/network.
+2. Choose Insert → Embed → By URL.
+3. Paste the Apps Script /exec URL.
+4. Resize the embed to make room for the game, then publish the site.
+5. Test it on the school device.
 
-Apps Script HTML Service runs inside a sandboxed iframe. This demo is self-contained, but browser and domain restrictions can still apply. If the school blocks the web app or its redirect target, ask the school's IT administrator to review and approve the official Google Apps Script web app domains. This test is not intended to evade school filtering.
+Apps Script HTML Service runs inside a sandboxed iframe. A self-contained page reduces external dependencies, but it cannot guarantee that a school's network will allow the service or its redirect domains. If blocked, ask school IT to review the official Google Apps Script domains; do not try to bypass school filtering.
 
-## What success looks like
+## Optional: use this Google-hosted game inside the YouSound Crossy Road page
 
-- The page opens inside Google Sites.
-- The footer reads **APPS SCRIPT SERVER ONLINE**.
-- The Start button launches Photon Drift.
-- Arrow keys, A/D, and touch controls move between lanes.
-- No request to the YouSound Cloudflare Worker or Render server is needed for this test.
+The website supports an optional Vite environment variable named VITE_GOOGLE_CROSSY_ROAD_URL. Set it to the deployed Apps Script /exec URL in the website's build environment, then redeploy the website.
 
-## Next step
+When the Google-hosted page is used inside the YouSound Crossy Road player, it sends the same run-started/run-finished postMessage events the website uses to record game sessions, high scores, and account coins. The local character-unlock currency remains a browser-side prototype feature; YouSound's account coin balance and leaderboard are handled by the website's server.
 
-Once the school-network test works, we can choose how to package actual YouSound games for a Google-hosted build. That is a separate engineering task: the current Crossy Road files are produced by a build pipeline and are not yet included in this Apps Script project. We also need an approved way to connect gameplay results to YouSound accounts; the prototype does not save account coins or leaderboard results.
+The URL is optional. Without it, the website continues using its current Crossy Road game host.
