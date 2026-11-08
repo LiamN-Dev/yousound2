@@ -2928,6 +2928,24 @@ async function saveRadioConfig(stationId: string, config: RadioConfig): Promise<
   await setPersistentSettingDb(RADIO_STATIONS_SETTING, updated);
 }
 
+const RADIO_CHAT_MESSAGES_SETTING_PREFIX = 'radio_chat_messages_v1:';
+async function getStationRadioChatMessages(stationId: string, limit = 60): Promise<any[]> {
+  if (stationId === 'main') return getRadioChatMessagesDb(limit);
+  const messages = await getPersistentSettingDb<any[]>(RADIO_CHAT_MESSAGES_SETTING_PREFIX + stationId);
+  return Array.isArray(messages) ? messages.slice(-limit) : [];
+}
+async function createStationRadioChatMessage(stationId: string, input: { id: string; userId: string; username: string; message: string }): Promise<any> {
+  if (stationId === 'main') return createRadioChatMessageDb(input);
+  const messages = await getStationRadioChatMessages(stationId, 60);
+  const created = { ...input, createdAt: new Date().toISOString() };
+  await setPersistentSettingDb(RADIO_CHAT_MESSAGES_SETTING_PREFIX + stationId, [...messages, created].slice(-60));
+  return created;
+}
+async function clearStationRadioChatMessages(stationId: string): Promise<void> {
+  if (stationId === 'main') return clearRadioChatMessagesDb();
+  await setPersistentSettingDb(RADIO_CHAT_MESSAGES_SETTING_PREFIX + stationId, []);
+}
+
 function cleanRadioProgram(value: any): RadioProgram {
   const startsAtDate = value?.startsAt ? new Date(value.startsAt) : null;
   return {
@@ -2990,7 +3008,7 @@ async function resolveRadioState(stationId = 'main') {
     const promoted = await compareAndSetPersistentSettingDb(getRadioConfigKey(stationId), config, promotedConfig);
     if (!promoted) return resolveRadioState(stationId);
     config = promotedConfig;
-    await clearRadioChatMessagesDb();
+    await clearStationRadioChatMessages(stationId);
   }
 
   const songs = await getSongsPersistentDb();
@@ -3017,7 +3035,7 @@ async function resolveRadioState(stationId = 'main') {
       // A broadcast ends when its selected playlist finishes; do not silently loop it forever.
       config = { ...config, enabled: false };
       await saveRadioConfig(stationId, config);
-      await clearRadioChatMessagesDb();
+      await clearStationRadioChatMessages(stationId);
     }
     let offset = config.loopPlaylist ? programElapsedSeconds % totalDuration : Math.min(programElapsedSeconds, Math.max(0, totalDuration - 0.25));
     for (let index = 0; index < playlist.length; index++) {
@@ -3190,7 +3208,7 @@ app.put('/api/admin/radio/config', async (req: Request, res: Response) => {
       syncAtServerMs: !body.enabled ? null : (startNow ? sharedNowMs + 1000 : (existing.syncAtServerMs ?? null)),
     };
     await saveRadioConfig(stationId, config);
-    if (existing.enabled && !config.enabled) await clearRadioChatMessagesDb();
+    if (existing.enabled && !config.enabled) await clearStationRadioChatMessages(stationId);
     return res.json({ success: true, config });
   } catch (error: any) {
     console.error('[Radio] Config update error:', error);
@@ -3269,7 +3287,7 @@ app.post('/api/admin/radio/control', async (req: Request, res: Response) => {
       if (nextIndex >= playlist.length && !config.loopPlaylist) {
         config.enabled = false;
         config.pausedAt = null;
-        await clearRadioChatMessagesDb();
+        await clearStationRadioChatMessages(stationId);
       } else {
         const targetIndex = nextIndex % playlist.length;
         const elapsedBeforeTarget = playlist.slice(0, targetIndex).reduce((sum: number, song: any) => sum + Math.max(1, Number(song.durationExact) || Number(song.duration) || 180), 0);
@@ -3403,7 +3421,8 @@ app.get('/api/radio/chat', async (req: Request, res: Response) => {
     const station = await resolveRadioState(cleanRadioStationId(req.query.stationId));
     const banned = user.role !== 'admin' ? await getRadioChatBanDb(user.uid) : null;
     const canChat = user.role === 'admin' || (!banned && !user.chatBlocked);
-    const messages = station.enabled && canChat ? await getRadioChatMessagesDb(60) : [];
+    const stationId = cleanRadioStationId(req.query.stationId);
+    const messages = station.enabled && canChat ? await getStationRadioChatMessages(stationId, 60) : [];
     return res.json({
       success: true,
       messages,
@@ -3436,7 +3455,7 @@ app.post('/api/radio/chat', async (req: Request, res: Response) => {
     }
     const message = String(req.body?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (!message) return res.status(400).json({ success: false, error: 'Write a message first.' });
-    const created = await createRadioChatMessageDb({
+    const created = await createStationRadioChatMessage(cleanRadioStationId(req.body?.stationId), {
       id: 'radio-chat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9),
       userId: user.uid,
       username: String(user.username || 'Listener').slice(0, 40),
