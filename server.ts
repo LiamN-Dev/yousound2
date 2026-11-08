@@ -5894,6 +5894,25 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
           error: 'This message was held and the conversation was temporarily locked for administrator review.',
         });
       }
+      if (review.decision === 'block' && review.confidence < 0.90) {
+        const severity = ['threat', 'sexual_content', 'personal_information', 'coercion', 'dangerous_request'].includes(review.category) ? 'high' : 'medium';
+        await addChatAIModerationFlag({
+          threadId: String(threadId),
+          senderId: sender.uid,
+          senderUsername: String(sender.username || 'User').slice(0, 40),
+          receiverId: String(receiverId || ''),
+          category: review.category,
+          severity,
+          reason: review.reason,
+          excerpt: cleanContent.slice(0, 240),
+          lockedByAi: false,
+        });
+        return res.status(409).json({
+          success: false,
+          code: 'CHAT_MESSAGE_HELD_FOR_REVIEW',
+          error: 'This message was held for administrator review. The conversation has not been locked.',
+        });
+      }
       if (review.decision === 'review' && review.confidence >= 0.70) {
         const severity = ['threat', 'sexual_content', 'personal_information', 'coercion', 'dangerous_request'].includes(review.category) ? 'high' : 'medium';
         await addChatAIModerationFlag({
