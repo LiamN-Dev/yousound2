@@ -5415,6 +5415,11 @@ function allowChatRequest(uid: string): boolean {
   if (recent.length >= 5) return false;
   recent.push(now);
   chatRequestRateLimit.set(uid, recent);
+  if (chatRequestRateLimit.size > 5000) {
+    for (const [key, times] of chatRequestRateLimit) {
+      if (!times.some((time) => now - time < 10 * 60 * 1000)) chatRequestRateLimit.delete(key);
+    }
+  }
   return true;
 }
 const chatMessageRateLimit = new Map<string, number[]>();
