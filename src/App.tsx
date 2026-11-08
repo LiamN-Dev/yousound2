@@ -232,7 +232,7 @@ const MainAppContent: React.FC = () => {
         <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={activeTab}
-          className="ys-page-transition"
+          className={isDesignBeta ? "ys-page-transition" : ""}
           initial={reduceMotion ? false : { opacity: 0, y: 18, scale: 0.992 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={reduceMotion ? undefined : { opacity: 0, y: -10, scale: 0.996 }}
