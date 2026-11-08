@@ -41,6 +41,7 @@ export const ChatHub: React.FC = () => {
   const [allModerationMessages, setAllModerationMessages] = useState<ChatMessage[]>([]);
   const [pairingBlocks, setPairingBlocks] = useState<ChatPairingBlock[]>([]);
   const [moderationFlags, setModerationFlags] = useState<ChatSafetyFlag[]>([]);
+  const [moderationError, setModerationError] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Send Message State
@@ -99,19 +100,31 @@ export const ChatHub: React.FC = () => {
     try {
       if (isAdmin && adminViewMode === 'oversight') {
         // Admin gets all requests, threads, live feed, blocks
-        const [reqs, thrs, allMsgs, blocks, flagResponse] = await Promise.all([
+        const results = await Promise.allSettled([
           storage.getChatRequests(),
           storage.getChatThreads(),
           storage.getAllChatMessages(),
           storage.getChatPairingBlocks(),
           fetch('/api/admin/chat/moderation-flags', { credentials: 'same-origin', cache: 'no-store' }),
         ]);
-        setRequests(reqs);
-        setThreads(thrs);
-        setAllModerationMessages(allMsgs);
-        setPairingBlocks(blocks);
-        const flagData = await flagResponse.json().catch(() => ({}));
-        setModerationFlags(flagResponse.ok && flagData.success && Array.isArray(flagData.flags) ? flagData.flags : []);
+        const [reqs, thrs, allMsgs, blocks, flagResponse] = results;
+        if (reqs.status === 'fulfilled') setRequests(reqs.value);
+        if (thrs.status === 'fulfilled') setThreads(thrs.value);
+        if (allMsgs.status === 'fulfilled') setAllModerationMessages(allMsgs.value);
+        if (blocks.status === 'fulfilled') setPairingBlocks(blocks.value);
+        if (flagResponse.status === 'fulfilled') {
+          const flagData = await flagResponse.value.json().catch(() => ({}));
+          if (!flagResponse.value.ok || !flagData.success) {
+            setModerationFlags([]);
+            setModerationError(flagData.error || 'The AI safety queue could not be loaded. Check administrator access and database connectivity.');
+          } else {
+            setModerationFlags(Array.isArray(flagData.flags) ? flagData.flags : []);
+            setModerationError('');
+          }
+        } else {
+          setModerationFlags([]);
+          setModerationError('The AI safety queue request failed: ' + String(flagResponse.reason?.message || flagResponse.reason || 'network error'));
+        }
       } else {
         // Standard user or Admin in Personal mode gets their own requests and threads
         const [reqs, thrs] = await Promise.all([
@@ -126,8 +139,9 @@ export const ChatHub: React.FC = () => {
           setActiveThreadId(thrs[0].id);
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load chat data:', e);
+      if (isAdmin && adminViewMode === 'oversight') setModerationError(e?.message || 'Some community oversight data could not be loaded.');
     }
   }, [currentUser, isAdmin, adminViewMode, activeThreadId]);
 
@@ -987,6 +1001,7 @@ export const ChatHub: React.FC = () => {
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">AI Chat Safety Queue</h3>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">High-confidence serious concerns lock the thread. Uncertain messages are flagged for human review without automatically blocking the conversation.</p>
+                  {moderationError && <p className="mt-2 rounded-lg border border-amber-400/20 bg-amber-500/[.06] px-3 py-2 text-[10px] text-amber-200">Safety queue error: {moderationError}</p>}
                 </div>
                 <span className="rounded-full bg-rose-500/10 px-3 py-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-300">{moderationFlags.filter(flag => flag.status === 'open').length} open flags</span>
               </div>
