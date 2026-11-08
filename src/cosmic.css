@@ -1,0 +1,491 @@
+
+/* ===============================================================
+   YOUSOUND // COSMIC COMMAND INTERFACE
+   This layer intentionally supersedes the older header/surface styles.
+   =============================================================== */
+:root {
+  --ys-void: #040a0e;
+  --ys-deep: #07151a;
+  --ys-panel: rgba(7, 24, 29, .82);
+  --ys-line: rgba(107, 239, 220, .18);
+  --ys-line-strong: rgba(107, 239, 220, .42);
+  --ys-neon: #7df6e1;
+  --ys-neon-soft: #42cbbb;
+  --ys-copy: #e9fffb;
+}
+html.dark body {
+  background: var(--ys-void);
+  color: var(--ys-copy);
+}
+html.dark .ys-app-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 50% -16%, rgba(21, 159, 148, .15), transparent 44rem),
+    linear-gradient(180deg, #050d11, #071318 55%, #050c10);
+}
+html:not(.dark) .ys-app-shell {
+  background:
+    radial-gradient(ellipse at 50% -12%, rgba(24, 179, 166, .10), transparent 42rem),
+    linear-gradient(180deg, #eef7f6, #f4f8fb 54%, #edf4f6);
+}
+.ys-cosmic-background {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  background: transparent;
+}
+.ys-cosmic-background-grid {
+  position: absolute;
+  inset: -10%;
+  opacity: .27;
+  background-image:
+    linear-gradient(rgba(99, 223, 210, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 223, 210, .045) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: radial-gradient(ellipse at 50% 12%, black, transparent 78%);
+}
+.ys-cosmic-background-scan {
+  position: absolute;
+  inset: 0;
+  opacity: .12;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(145, 255, 244, .07) 4px, transparent 5px);
+  mix-blend-mode: screen;
+}
+.ys-bg-nebula {
+  position: absolute;
+  width: min(45vw, 640px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(92px);
+  opacity: .20;
+  will-change: transform;
+}
+.ys-bg-nebula-a { top: -24%; left: 8%; background: radial-gradient(circle, rgba(33, 211, 190, .78), rgba(13, 92, 102, .1) 60%, transparent 72%); }
+.ys-bg-nebula-b { top: 16%; right: -18%; background: radial-gradient(circle, rgba(30, 139, 161, .72), rgba(13, 54, 82, .1) 58%, transparent 74%); }
+.ys-bg-nebula-c { bottom: -38%; left: 33%; width: min(38vw, 520px); opacity: .13; background: radial-gradient(circle, rgba(77, 206, 184, .72), transparent 70%); }
+.ys-bg-orbit {
+  position: absolute;
+  top: 13%;
+  left: 50%;
+  width: min(82vw, 1120px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(111, 232, 219, .065);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  will-change: transform;
+}
+.ys-bg-orbit::before,
+.ys-bg-orbit::after {
+  content: "";
+  position: absolute;
+  border: 1px solid rgba(111, 232, 219, .055);
+  border-radius: 50%;
+  inset: 7%;
+}
+.ys-bg-orbit::after { inset: 19%; border-style: dashed; }
+.ys-bg-orbit-b { width: min(58vw, 780px); top: 27%; border-color: rgba(111, 232, 219, .045); }
+.ys-bg-crosshair {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  opacity: .32;
+  border-color: rgba(121, 247, 229, .48);
+}
+.ys-bg-crosshair-a { top: 17%; left: 4%; border-top: 1px solid; border-left: 1px solid; }
+.ys-bg-crosshair-b { right: 5%; bottom: 16%; border-right: 1px solid; border-bottom: 1px solid; }
+.ys-bg-starfield {
+  position: absolute;
+  inset: 0;
+  opacity: .24;
+  background-image: radial-gradient(rgba(196, 255, 247, .72) .65px, transparent .9px);
+  background-size: 53px 53px;
+  mask-image: linear-gradient(to bottom, black, transparent 90%);
+}
+html:not(.dark) .ys-cosmic-background { opacity: .34; }
+html:not(.dark) .ys-bg-nebula { opacity: .13; }
+html:not(.dark) .ys-bg-orbit,
+html:not(.dark) .ys-bg-crosshair { opacity: .18; }
+
+/* New command bar */
+.ys-navigation-system { position: relative; z-index: 60; }
+.ys-commandbar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  width: 100%;
+  border-bottom: 1px solid rgba(106, 229, 214, .18);
+  background: rgba(4, 13, 17, .89);
+  backdrop-filter: blur(25px) saturate(1.35);
+  -webkit-backdrop-filter: blur(25px) saturate(1.35);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .22), inset 0 -1px 0 rgba(153, 255, 241, .025);
+}
+.ys-commandbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(114, 247, 224, .65), rgba(45, 151, 165, .4), transparent);
+}
+.ys-commandbar-inner {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2vw, 28px);
+  min-height: 76px;
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 2.5vw, 38px);
+}
+.ys-brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 225px;
+  text-align: left;
+  color: #eafffb;
+}
+.ys-brand-symbol {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(117, 245, 225, .46);
+  border-radius: 13px;
+  color: #a7fff0;
+  background: linear-gradient(145deg, rgba(83, 234, 211, .19), rgba(11, 53, 60, .58));
+  box-shadow: 0 0 24px rgba(44, 210, 190, .12), inset 0 1px 0 rgba(236,255,251,.13);
+  transition: transform .45s cubic-bezier(.2,.8,.2,1), box-shadow .45s ease;
+}
+.ys-brand-lockup:hover .ys-brand-symbol { transform: rotate(-11deg) scale(1.07); box-shadow: 0 0 30px rgba(44, 210, 190, .26); }
+.ys-brand-words { display: grid; gap: 4px; }
+.ys-brand-name { font-size: 17px; font-weight: 900; letter-spacing: .12em; line-height: 1; }
+.ys-brand-name span { margin-left: 2px; color: #79e9d8; font-size: 8px; vertical-align: top; }
+.ys-brand-subtitle { color: rgba(181, 223, 216, .52); font-size: 7px; font-weight: 800; letter-spacing: .19em; white-space: nowrap; }
+.ys-global-search {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: min(520px, 100%);
+  height: 42px;
+  margin: 0 auto;
+  padding: 0 13px;
+  color: #73ddcf;
+  border: 1px solid rgba(112, 226, 211, .17);
+  border-radius: 11px;
+  background: rgba(1, 12, 16, .55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
+  transition: border-color .22s ease, box-shadow .22s ease, background .22s ease;
+}
+.ys-global-search:focus-within {
+  border-color: rgba(117, 245, 225, .52);
+  background: rgba(5, 25, 29, .88);
+  box-shadow: 0 0 0 3px rgba(53, 201, 184, .08), 0 0 24px rgba(53, 201, 184, .06);
+}
+.ys-global-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #e9fffb;
+  background: transparent;
+  font-size: 12px;
+}
+.ys-global-search input::placeholder { color: rgba(177, 211, 207, .42); }
+.ys-global-search kbd {
+  padding: 3px 6px;
+  border: 1px solid rgba(130, 204, 196, .16);
+  border-radius: 5px;
+  color: rgba(174, 218, 210, .43);
+  font-size: 8px;
+}
+.ys-command-actions { display: flex; align-items: center; gap: 8px; }
+.ys-command-request,
+.ys-command-icon,
+.ys-account-button,
+.ys-command-signin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 39px;
+  border: 1px solid rgba(120, 225, 211, .17);
+  border-radius: 10px;
+  color: #d8f8f2;
+  background: rgba(13, 39, 43, .56);
+  transition: transform .2s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.ys-command-request { padding: 0 13px; color: #061a1b; background: linear-gradient(120deg,#b8fff2,#65dfcf); border-color: rgba(193,255,246,.7); font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.ys-command-count { display: inline-flex; min-width: 17px; height: 17px; align-items: center; justify-content: center; padding: 0 4px; border-radius: 20px; color: #f4fffd; background: #0a5252; font-size: 9px; }
+.ys-command-icon { width: 39px; color: #9cefe2; }
+.ys-account-button { padding: 0 10px 0 6px; text-align: left; }
+.ys-account-avatar { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid rgba(135, 245, 227, .5); border-radius: 8px; color: #032020; background: linear-gradient(135deg,#c7fff6,#54d5c5); font-size: 11px; font-weight: 900; }
+.ys-account-copy { display: grid; gap: 2px; max-width: 112px; color: #f0fffc; font-size: 10px; font-weight: 800; }
+.ys-account-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ys-account-copy small { color: rgba(170, 220, 211, .52); font-size: 7px; letter-spacing: .09em; }
+.ys-command-signin { padding: 0 13px; color: #041b1c; background: #80edda; border-color: #80edda; font-size: 11px; font-weight: 850; }
+.ys-command-request:hover,
+.ys-command-icon:hover,
+.ys-account-button:hover,
+.ys-command-signin:hover { transform: translateY(-2px); border-color: rgba(142, 255, 237, .58); box-shadow: 0 7px 22px rgba(33, 196, 178, .12); }
+.ys-command-icon:hover,
+.ys-account-button:hover { background: rgba(25, 73, 77, .8); }
+
+/* Desktop navigation dock */
+.ys-cosmic-sidebar {
+  position: fixed;
+  z-index: 48;
+  top: 96px;
+  bottom: 17px;
+  left: 16px;
+  display: flex;
+  width: 82px;
+  flex-direction: column;
+  align-items: center;
+  padding: 13px 8px 10px;
+  border: 1px solid rgba(108, 224, 210, .17);
+  border-radius: 20px;
+  color: #dbfbf5;
+  background: linear-gradient(180deg, rgba(7, 27, 31, .94), rgba(4, 17, 22, .91));
+  box-shadow: 0 20px 54px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(206,255,247,.055);
+  backdrop-filter: blur(22px);
+}
+.ys-sidebar-topline { display: flex; align-items: center; gap: 5px; color: rgba(168, 224, 215, .46); font-size: 6px; font-weight: 900; letter-spacing: .14em; white-space: nowrap; }
+.ys-sidebar-led { width: 5px; height: 5px; border-radius: 50%; background: #7af5de; box-shadow: 0 0 10px #7af5de; animation: ysCosmicPulse 2.4s ease-in-out infinite; }
+.ys-sidebar-nav { display: flex; width: 100%; flex: 1; flex-direction: column; align-items: center; gap: 7px; margin-top: 19px; overflow-y: auto; scrollbar-width: none; }
+.ys-sidebar-nav::-webkit-scrollbar { display: none; }
+.ys-sidebar-item {
+  position: relative;
+  display: flex;
+  width: 64px;
+  min-height: 62px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: rgba(180, 217, 210, .62);
+  background: transparent;
+  transition: color .22s ease, background .22s ease, border-color .22s ease, transform .24s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease;
+}
+.ys-sidebar-item:hover:not(:disabled) { color: #dffff9; background: rgba(59, 208, 190, .08); border-color: rgba(108, 231, 213, .16); transform: translateY(-2px); }
+.ys-sidebar-item[data-active="true"] { color: #aafff1; border-color: rgba(113, 241, 222, .35); background: linear-gradient(145deg, rgba(71, 220, 199, .17), rgba(11, 71, 76, .17)); box-shadow: 0 0 22px rgba(46, 211, 191, .11), inset 0 1px 0 rgba(220,255,249,.055); }
+.ys-nav-icon-wrap { position: relative; display: grid; place-items: center; }
+.ys-nav-icon { width: 19px; height: 19px; stroke-width: 1.7; }
+.ys-nav-label { max-width: 100%; color: inherit; font-size: 7px; font-weight: 850; letter-spacing: .045em; text-align: center; white-space: nowrap; }
+.ys-nav-note { color: rgba(150, 208, 199, .34); font-size: 5px; font-weight: 850; letter-spacing: .12em; text-align: center; white-space: nowrap; }
+.ys-nav-badge { position: absolute; top: -7px; right: -10px; display: grid; min-width: 15px; height: 15px; place-items: center; padding: 0 3px; border: 1px solid #062124; border-radius: 20px; color: #041c1d; background: #7df6e1; font-size: 8px; font-weight: 950; }
+.ys-nav-lock { position: absolute; top: -8px; right: -9px; display: grid; width: 14px; height: 14px; place-items: center; border-radius: 50%; color: #ffd3d3; background: #793c47; font-size: 12px; }
+.ys-nav-active-rail { position: absolute; top: 50%; left: -9px; width: 2px; height: 22px; border-radius: 5px; background: #88f9e5; box-shadow: 0 0 12px rgba(136,249,229,.95); transform: translateY(-50%); }
+.ys-sidebar-bottom { display: grid; justify-items: center; gap: 6px; padding-top: 11px; border-top: 1px solid rgba(126, 227, 211, .1); }
+.ys-sidebar-status { display: inline-flex; align-items: center; gap: 4px; color: rgba(153, 218, 206, .48); font-size: 5px; font-weight: 900; letter-spacing: .1em; white-space: nowrap; }
+.ys-sidebar-status i { width: 5px; height: 5px; border-radius: 50%; background: #61e4a7; box-shadow: 0 0 8px rgba(97,228,167,.7); }
+.ys-sidebar-version { color: rgba(153, 218, 206, .25); font-size: 6px; letter-spacing: .18em; }
+.ys-mobile-nav { display: none; }
+
+/* Announcements stay operational but become part of the design system. */
+.ys-brand-ribbon { position: relative; z-index: 62; padding: 7px 18px; color: white; font-size: 10px; }
+.ys-brand-ribbon-inner { display: flex; max-width: 1800px; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto; }
+.ys-ribbon-version { padding: 3px 7px; border: 1px solid rgba(255,255,255,.32); border-radius: 5px; background: rgba(255,255,255,.14); font-size: 8px; font-weight: 900; letter-spacing: .12em; }
+.ys-ribbon-user { flex-shrink: 0; color: rgba(255,255,255,.84); font-size: 8px; font-weight: 850; letter-spacing: .1em; }
+.ys-transmission-banner { position: relative; z-index: 61; border-bottom: 1px solid rgba(255, 207, 103, .23); background: linear-gradient(90deg, rgba(100, 66, 15, .26), rgba(32, 36, 28, .65), rgba(100, 66, 15, .26)); color: #ffdf9b; }
+.ys-transmission-inner { display: flex; max-width: 1800px; align-items: center; gap: 10px; margin: 0 auto; padding: 9px clamp(16px, 2.5vw, 38px); font-size: 10px; }
+.ys-transmission-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #ffd36d; box-shadow: 0 0 12px #ffd36d; animation: ysCosmicPulse 1.6s infinite; }
+.ys-transmission-label { font-size: 8px; font-weight: 950; letter-spacing: .15em; }
+
+/* App content and dramatic but short page transitions */
+.ys-main-content {
+  max-width: none !important;
+  width: auto;
+  margin: 0 28px 0 120px !important;
+  padding: 27px 0 7rem !important;
+}
+.ys-page-transition { min-height: 50vh; transform-origin: 50% 12%; }
+.ys-main-content .ys-page-transition > * { position: relative; }
+.ys-main-content .liquid-glass-surface {
+  border-color: rgba(98, 216, 203, .16);
+  box-shadow: 0 16px 42px rgba(0,0,0,.13), inset 0 1px 0 rgba(255,255,255,.045);
+}
+html.dark .ys-main-content .liquid-glass-surface {
+  background: linear-gradient(148deg, rgba(10, 31, 36, .88), rgba(6, 19, 24, .9));
+  border-color: rgba(106, 234, 216, .14);
+}
+
+/* Floating player receives an instrument-console finish. */
+html.dark .ys-player-shell {
+  border: 1px solid rgba(115, 240, 221, .24) !important;
+  background: linear-gradient(105deg, rgba(4, 17, 21, .97), rgba(8, 31, 36, .96), rgba(4, 17, 21, .97)) !important;
+  box-shadow: 0 20px 70px rgba(0,0,0,.54), 0 0 35px rgba(49, 211, 193, .1), inset 0 1px 0 rgba(213,255,249,.065) !important;
+}
+html.dark .ys-player-shell::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 10%, rgba(105, 249, 226, .14), transparent 60%);
+  opacity: .6;
+  pointer-events: none;
+}
+
+/* Music cards: luminous borders, kinetic hover, and a moving light sweep. */
+html.dark .ys-song-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(102, 225, 210, .17);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(12, 32, 37, .93), rgba(5, 18, 23, .96));
+  box-shadow: 0 10px 27px rgba(0,0,0,.24), inset 0 1px 0 rgba(215,255,250,.045);
+  transition: transform .32s cubic-bezier(.2,.8,.2,1), border-color .28s ease, box-shadow .28s ease, background .28s ease;
+}
+html.dark .ys-song-card::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  top: -120%;
+  left: -65%;
+  width: 42%;
+  height: 340%;
+  pointer-events: none;
+  transform: rotate(23deg);
+  background: linear-gradient(90deg, transparent, rgba(178,255,244,.12), transparent);
+  transition: left .75s cubic-bezier(.2,.7,.2,1);
+}
+html.dark .ys-song-card:hover { transform: translateY(-6px) scale(1.012); border-color: rgba(126, 249, 227, .52); box-shadow: 0 20px 44px rgba(0,0,0,.38), 0 0 24px rgba(49,211,193,.105); }
+html.dark .ys-song-card:hover::after { left: 140%; }
+html.dark .ys-song-card img { transition: transform .62s cubic-bezier(.2,.8,.2,1), filter .4s ease; }
+html.dark .ys-song-card:hover img { transform: scale(1.045); filter: saturate(1.12); }
+
+/* Buttons throughout pages get a little magnetic lift, never huge layout jumps. */
+html.dark .ys-main-content button:not(:disabled) { transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease, background-color .2s ease, color .2s ease; }
+html.dark .ys-main-content button:not(:disabled):hover { border-color: rgba(113, 239, 220, .34); }
+html.dark .ys-main-content button:not(:disabled):active { transform: scale(.975); }
+
+/* Stronger animated hero accents and richer orbital motion. */
+.ys-cosmic-hero {
+  min-height: 380px;
+  border-color: rgba(116, 243, 222, .38);
+  background:
+    radial-gradient(ellipse at 75% 50%, rgba(27, 208, 186, .21), transparent 27rem),
+    radial-gradient(ellipse at 4% 105%, rgba(17, 110, 119, .28), transparent 29rem),
+    linear-gradient(115deg, #041114 0%, #082027 49%, #061317 100%);
+  box-shadow: 0 28px 85px rgba(0,0,0,.38), 0 0 36px rgba(27, 206, 187, .075), inset 0 1px 0 rgba(226,255,249,.07);
+}
+.ys-cosmic-sphere { filter: drop-shadow(0 0 34px rgba(56, 237, 210, .22)); }
+.ys-cosmic-orbit-one { border-color: rgba(105, 255, 231, .32); }
+.ys-cosmic-orbit-two { border-color: rgba(105, 255, 231, .25); }
+.ys-cosmic-orbit-three { border-color: rgba(105, 255, 231, .20); }
+.ys-cosmic-visual::before {
+  content: "";
+  position: absolute;
+  width: 80%;
+  height: 44%;
+  border-radius: 50%;
+  background: rgba(30, 192, 180, .16);
+  filter: blur(45px);
+  animation: ysCosmicBreath 7s ease-in-out infinite;
+}
+.ys-cosmic-hero .ys-cosmic-title { text-wrap: balance; }
+.ys-cosmic-hero .ys-cosmic-primary { box-shadow: 0 0 0 1px rgba(193,255,246,.15), 0 8px 25px rgba(43,206,187,.22), inset 0 1px 0 rgba(255,255,255,.65); }
+.ys-cosmic-hero .ys-cosmic-primary:hover { box-shadow: 0 0 0 1px rgba(193,255,246,.36), 0 12px 36px rgba(43,206,187,.35); }
+
+/* Page-specific panels animate in when navigation changes. */
+.ys-radio-view,
+.ys-eq-panel,
+.admin-studio,
+.ys-games-hub {
+  animation: ysConsoleReveal .42s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes ysConsoleReveal { from { opacity: 0; transform: translateY(12px) scale(.994); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes ysDockGlow { 0%,100% { box-shadow: 0 0 12px rgba(79,227,205,.08); } 50% { box-shadow: 0 0 25px rgba(79,227,205,.2); } }
+
+@media (max-width: 900px) {
+  .ys-brand-lockup { min-width: 180px; }
+  .ys-brand-subtitle { letter-spacing: .12em; }
+  .ys-global-search { max-width: 390px; }
+  .ys-account-copy { display: none; }
+}
+@media (max-width: 767px) {
+  .ys-commandbar { position: sticky; }
+  .ys-commandbar-inner { min-height: 64px; gap: 10px; padding: 0 12px; }
+  .ys-brand-lockup { min-width: 0; gap: 8px; }
+  .ys-brand-symbol { width: 36px; height: 36px; border-radius: 11px; }
+  .ys-brand-name { font-size: 14px; }
+  .ys-brand-subtitle { display: none; }
+  .ys-global-search { height: 37px; max-width: none; padding: 0 9px; gap: 7px; }
+  .ys-global-search kbd { display: none; }
+  .ys-global-search input { font-size: 10px; }
+  .ys-command-actions { gap: 5px; }
+  .ys-command-request { min-height: 36px; padding: 0 9px; }
+  .ys-command-request span:not(.ys-command-count) { display: none; }
+  .ys-command-icon { width: 35px; min-height: 36px; }
+  .ys-account-button { width: 35px; min-height: 36px; padding: 0; }
+  .ys-account-avatar { width: 25px; height: 25px; }
+  .ys-logout-button { display: none; }
+  .ys-cosmic-sidebar { display: none; }
+  .ys-mobile-nav {
+    position: sticky;
+    top: 64px;
+    z-index: 55;
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 7px 10px 8px;
+    border-bottom: 1px solid rgba(106, 229, 214, .15);
+    background: rgba(4, 15, 19, .92);
+    backdrop-filter: blur(20px);
+    scrollbar-width: none;
+  }
+  .ys-mobile-nav::-webkit-scrollbar { display: none; }
+  .ys-mobile-nav-item {
+    position: relative;
+    display: flex;
+    min-width: 61px;
+    min-height: 46px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 4px 7px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    color: rgba(184, 225, 216, .62);
+    background: transparent;
+  }
+  .ys-mobile-nav-item[data-active="true"] { color: #9dffef; border-color: rgba(116,243,222,.3); background: rgba(49,195,180,.12); box-shadow: 0 0 16px rgba(49,195,180,.08); }
+  .ys-mobile-nav-item .ys-nav-icon { width: 16px; height: 16px; }
+  .ys-mobile-nav-item .ys-nav-label { font-size: 7px; }
+  .ys-main-content { margin: 0 12px !important; padding-top: 16px !important; padding-bottom: 6.4rem !important; }
+  .ys-cosmic-hero { min-height: 0; }
+}
+@media (max-width: 420px) {
+  .ys-commandbar-inner { gap: 7px; }
+  .ys-brand-name { font-size: 12px; letter-spacing: .1em; }
+  .ys-brand-symbol { width: 32px; height: 32px; }
+  .ys-global-search { max-width: 135px; }
+  .ys-global-search input { font-size: 9px; }
+  .ys-command-actions { gap: 3px; }
+  .ys-command-request { width: 34px; padding: 0; }
+  .ys-command-icon { width: 32px; }
+  .ys-account-button { width: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ys-bg-nebula, .ys-bg-orbit, .ys-bg-starfield, .ys-cosmic-background-scan,
+  .ys-sidebar-led, .ys-sidebar-item, .ys-song-card, .ys-song-card::after,
+  .ys-cosmic-hero, .ys-cosmic-sphere, .ys-cosmic-sphere svg, .ys-cosmic-orbit,
+  .ys-radio-view, .ys-eq-panel, .admin-studio {
+    animation: none !important;
+    transition: none !important;
+  }
+}
