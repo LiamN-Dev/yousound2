@@ -2942,7 +2942,7 @@ async function createStationRadioChatMessage(stationId: string, input: { id: str
   return created;
 }
 async function clearStationRadioChatMessages(stationId: string): Promise<void> {
-  if (stationId === 'main') return clearRadioChatMessagesDb();
+  if (stationId === 'main') { await clearRadioChatMessagesDb(); return; }
   await setPersistentSettingDb(RADIO_CHAT_MESSAGES_SETTING_PREFIX + stationId, []);
 }
 
