@@ -652,6 +652,7 @@ export const ChatHub: React.FC = () => {
                           <span className="font-bold text-xs text-slate-900 dark:text-white">
                             {req.senderUsername}
                           </span>
+                          {allUsers.find(user => user.id === req.senderId)?.chatTrusted && <span className="inline-flex items-center rounded-full border border-cyan-400/25 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-black text-cyan-600 dark:text-cyan-200">TRUSTED SENDER</span>}
                           <span className="text-slate-400 text-xs">wants to chat with</span>
                           <span className="font-bold text-xs text-blue-600 dark:text-blue-400">
                             {req.receiverUsername}
