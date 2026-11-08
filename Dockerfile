@@ -16,6 +16,12 @@ COPY package.json ./
 RUN npm install --include=dev
 
 COPY . .
+
+# Render service env vars are also provided as Docker build args. This value is
+# consumed by Vite at build time, so it must be declared in this build stage.
+ARG VITE_GOOGLE_CROSSY_ROAD_URL=""
+ENV VITE_GOOGLE_CROSSY_ROAD_URL=${VITE_GOOGLE_CROSSY_ROAD_URL}
+
 RUN npm run build
 
 ENV NODE_ENV=production
