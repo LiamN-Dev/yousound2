@@ -1,12 +1,12 @@
 import React, { useRef, useState } from 'react';
-import { ArrowUp, Bot, BrainCircuit, Loader2, Sparkles, UserRound } from 'lucide-react';
+import { ArrowUp, Bot, BrainCircuit, Loader2, RefreshCw, Send, Sparkles, UserRound } from 'lucide-react';
 
 type ChatMessage = { role: 'user' | 'model'; text: string };
 
 const starters = [
   'Recommend tracks for a focused study session.',
   'Help me discover something with a calm electronic sound.',
-  'What can I do in the YouSound arcade?',
+  'What is the current YouSound site status?',
 ];
 
 export const AIStudio: React.FC = () => {
@@ -16,13 +16,19 @@ export const AIStudio: React.FC = () => {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [lastQuestion, setLastQuestion] = useState('');
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [knowledgeFeedback, setKnowledgeFeedback] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const send = async (raw: string) => {
     const message = raw.trim();
     if (!message || busy) return;
-    const history = messages.slice(-8);
-    setMessages(current => [...current, { role: 'user', text: message }]);
+    const alreadyDisplayed = messages.length > 0 && messages[messages.length - 1].role === 'user' && messages[messages.length - 1].text === message;
+    const history = (alreadyDisplayed ? messages.slice(0, -1) : messages).slice(-8);
+    if (!alreadyDisplayed) setMessages(current => [...current, { role: 'user', text: message }]);
+    setLastQuestion(message);
+    setKnowledgeFeedback('');
     setDraft('');
     setError('');
     setBusy(true);
@@ -36,7 +42,8 @@ export const AIStudio: React.FC = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success || typeof data.reply !== 'string') {
-        throw new Error(data.error || 'YouSound AI could not answer right now.');
+        const diagnostic = data.requestId ? ' (Diagnostic code: ' + data.requestId + ')' : '';
+        throw new Error((data.error || 'YouSound AI could not answer right now.') + diagnostic);
       }
       setMessages(current => [...current, { role: 'model', text: data.reply }]);
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
@@ -44,6 +51,29 @@ export const AIStudio: React.FC = () => {
       setError(err?.message || 'The AI service is unavailable.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const requestKnowledgeHelp = async () => {
+    if (!lastQuestion || requestBusy) return;
+    setRequestBusy(true);
+    setKnowledgeFeedback('');
+    try {
+      const response = await fetch('/api/ai/knowledge-requests', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: lastQuestion }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not contact the administrators.');
+      setKnowledgeFeedback(data.duplicate
+        ? 'Your question is already in the administrators’ queue.'
+        : 'Your question has been sent to the administrators for a confirmed answer.');
+    } catch (err: any) {
+      setKnowledgeFeedback(err?.message || 'Could not contact the administrators.');
+    } finally {
+      setRequestBusy(false);
     }
   };
 
@@ -60,7 +90,7 @@ export const AIStudio: React.FC = () => {
           </div>
           <span className="ml-auto rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3 py-1 text-[9px] font-black tracking-wider text-cyan-100">TEST BUILD</span>
         </div>
-        <p className="relative mt-4 max-w-2xl text-sm leading-6 text-slate-300">A music-discovery assistant connected to the visible YouSound catalogue. It can suggest listening directions and explain app features. It cannot change your account or perform admin actions.</p>
+        <p className="relative mt-4 max-w-2xl text-sm leading-6 text-slate-300">A music and site assistant connected to the visible catalogue and the administrator-maintained status and knowledge base. When it does not know a site-specific answer, you can send the question to the admin team.</p>
       </section>
 
       <section className="overflow-hidden rounded-[26px] border border-white/10 bg-[#0a111e] text-white shadow-xl">
@@ -86,7 +116,18 @@ export const AIStudio: React.FC = () => {
             {starters.map(item => <button key={item} type="button" onClick={() => void send(item)} disabled={busy} className="rounded-xl border border-cyan-200/15 bg-cyan-200/[.06] px-3 py-2 text-left text-[10px] font-semibold text-cyan-100 transition hover:bg-cyan-200/10 disabled:opacity-40">{item}</button>)}
           </div>
         )}
-        {error && <div className="border-t border-rose-300/15 bg-rose-400/[.06] px-5 py-3 text-xs text-rose-200">{error}</div>}
+        {error && <div className="border-t border-rose-300/15 bg-rose-400/[.06] px-5 py-3 text-xs text-rose-200">
+          <div>{error}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void send(lastQuestion)} disabled={busy || !lastQuestion} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200/20 bg-rose-200/10 px-3 py-2 text-[10px] font-bold text-rose-100 disabled:opacity-40"><RefreshCw className="h-3 w-3" /> Retry</button>
+            <button type="button" onClick={() => void requestKnowledgeHelp()} disabled={requestBusy || !lastQuestion} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[.05] px-3 py-2 text-[10px] font-bold text-slate-200 disabled:opacity-40">{requestBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Ask an admin to answer this</button>
+          </div>
+        </div>}
+        {lastQuestion && !error && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-5 py-3">
+          <span className="text-[10px] text-slate-500">Need an administrator to confirm something?</span>
+          <button type="button" onClick={() => void requestKnowledgeHelp()} disabled={requestBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-200/15 bg-cyan-200/[.06] px-3 py-2 text-[10px] font-bold text-cyan-100 hover:bg-cyan-200/10 disabled:opacity-40">{requestBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Send question to admin</button>
+        </div>}
+        {knowledgeFeedback && <div className="border-t border-cyan-300/15 bg-cyan-300/[.06] px-5 py-3 text-xs text-cyan-100">{knowledgeFeedback}</div>}
         <form onSubmit={event => { event.preventDefault(); void send(draft); }} className="flex items-end gap-2 border-t border-white/10 p-3 sm:p-4">
           <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1200} placeholder="Ask YouSound AI…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/40" />
           <button type="submit" disabled={busy || !draft.trim()} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-cyan-200 text-slate-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}</button>
