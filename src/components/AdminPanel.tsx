@@ -530,6 +530,7 @@ export const AdminPanel: React.FC = () => {
 
         {/* Tab Controls */}
         <div data-admin-nav="true" className="flex flex-wrap items-center gap-1.5 mt-6 pt-4 border-t border-slate-200 dark:border-white/10">
+          <span className="basis-full px-2 pt-2 text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Library & Content</span>
           <button
             onClick={() => setAdminTab('songs')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
@@ -581,6 +582,7 @@ export const AdminPanel: React.FC = () => {
             )}
           </button>
 
+          <span className="basis-full mt-2 border-t border-white/5 px-2 pt-3 text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Community & Accounts</span>
           <button
             onClick={() => setAdminTab('feedback')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
@@ -591,6 +593,7 @@ export const AdminPanel: React.FC = () => {
           >
             <span>Feature Requests & Bugs</span>
           </button>
+          <span className="basis-full mt-2 border-t border-white/5 px-2 pt-3 text-[9px] font-black uppercase tracking-[.2em] text-slate-400">Site & Beta Controls</span>
           <button
             onClick={() => setAdminTab('banner')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
@@ -671,6 +674,7 @@ export const AdminPanel: React.FC = () => {
             <Megaphone className="w-3.5 h-3.5" />
             Broadcast Pop-ups
           </button>
+          <span className="basis-full mt-2 border-t border-white/5 px-2 pt-3 text-[9px] font-black uppercase tracking-[.2em] text-slate-400">System</span>
           <button
             onClick={() => setAdminTab('database')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
