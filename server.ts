@@ -926,6 +926,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         lastSongListened: user.lastSongListened,
         lastSongListenedAt: toIsoString(user.lastSongListenedAt),
         chatBlocked: user.chatBlocked || false,
+
+        chatTrusted: !!user.chatTrusted,
         christmasMode: !!user.christmasMode,
         gamesEnabled: !!user.gamesEnabled,
         aiBetaEnabled: !!user.aiBetaEnabled,
@@ -970,6 +972,8 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
       lastSongListened: user.lastSongListened,
       lastSongListenedAt: toIsoString(user.lastSongListenedAt),
       chatBlocked: user.chatBlocked || false,
+
+      chatTrusted: !!user.chatTrusted,
       christmasMode: !!user.christmasMode,
       gamesEnabled: !!user.gamesEnabled,
     },
@@ -1004,6 +1008,8 @@ app.get('/api/auth/me/:userId', async (req: Request, res: Response) => {
         lastSongListened: user.lastSongListened,
         lastSongListenedAt: toIsoString(user.lastSongListenedAt),
         chatBlocked: user.chatBlocked || false,
+
+        chatTrusted: !!user.chatTrusted,
         christmasMode: !!user.christmasMode,
         gamesEnabled: !!user.gamesEnabled,
         aiBetaEnabled: !!user.aiBetaEnabled,
@@ -1134,6 +1140,8 @@ app.get('/api/users', async (req: Request, res: Response) => {
       lastSongListened: u.lastSongListened || null,
       lastSongListenedAt: toIsoString(u.lastSongListenedAt),
       chatBlocked: u.chatBlocked || false,
+
+      chatTrusted: !!u.chatTrusted,
       dailyListenLimit: u.dailyListenLimit ?? null,
       dailyListensToday: dailyListenCounts[u.uid] || 0,
       christmasMode: !!u.christmasMode,
@@ -1194,6 +1202,7 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
       role,
       isApproved,
       chatBlocked,
+      chatTrusted,
       isSuspended,
       suspendedReason,
       adminNote,
@@ -1228,6 +1237,9 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
 
     if (typeof chatBlocked === 'boolean') {
       updates.chatBlocked = chatBlocked;
+    }
+    if (typeof chatTrusted === 'boolean') {
+      updates.chatTrusted = chatTrusted;
     }
 
     if (typeof isSuspended === 'boolean') {
@@ -1286,6 +1298,9 @@ app.patch('/api/users/:uid', async (req: Request, res: Response) => {
             note: updated.note,
             temporaryPasswordAssigned: updated.temporaryPasswordAssigned,
             chatBlocked: updated.chatBlocked || false,
+            chatTrusted: !!updated.chatTrusted,
+
+            chatTrusted: !!u.chatTrusted,
             isSuspended: updated.isSuspended || false,
             isLocked: updated.isLocked || false,
             suspendedReason: updated.suspendedReason || null,
