@@ -36,7 +36,11 @@ export const AIStudio: React.FC = () => {
     }
   };
 
-  useEffect(() => { void refreshMyQuestions(); }, []);
+  useEffect(() => {
+    void refreshMyQuestions();
+    const timer = window.setInterval(() => void refreshMyQuestions(), 20000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const send = async (raw: string) => {
     const message = raw.trim();
