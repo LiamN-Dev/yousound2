@@ -142,7 +142,7 @@ router.post('/finish', async (req, res) => {
       return res.status(409).json({ success: false, error: 'This game session was already submitted or is invalid.' });
     }
     const elapsedSeconds = Number(claimed.rows[0].elapsed_seconds || 0);
-    if (score > Math.floor(elapsedSeconds * 5) + 3) {
+    if (score > Math.floor(elapsedSeconds * 8) + 4) {
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, error: 'That score is not valid for the recorded game duration.' });
     }
