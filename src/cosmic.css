@@ -13,10 +13,7 @@
   --ys-neon-soft: #42cbbb;
   --ys-copy: #e9fffb;
 }
-html.dark body {
-  background: var(--ys-void);
-  color: var(--ys-copy);
-}
+/* The cosmic theme is opt-in per account; the base site keeps its original global theme. */
 html.dark .ys-app-shell {
   position: relative;
   isolation: isolate;
