@@ -248,6 +248,29 @@ const MainAppContent: React.FC = () => {
               onOpenRadio={() => setActiveTab('radio')}
               onExploreLibrary={() => document.getElementById('ys-library-feed')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
             />}
+            {isDesignBeta && !spotlightActive && <section className="relative overflow-hidden rounded-2xl border border-cyan-300/15 bg-gradient-to-r from-[#081827] via-[#111a32] to-[#17152e] px-4 py-3 text-white shadow-lg sm:px-5">
+              <div className="pointer-events-none absolute inset-y-0 left-0 w-1/3 overflow-hidden opacity-50">
+                <motion.div
+                  className="h-full w-full bg-gradient-to-r from-transparent via-cyan-300/[.07] to-transparent"
+                  animate={{ x: ['-100%', '220%'] }}
+                  transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+                />
+              </div>
+              <div className="relative flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-300 opacity-40" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-300" />
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-[.2em] text-cyan-100">Your soundspace · live catalog</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] font-semibold text-slate-300">
+                  <span><strong className="mr-1.5 text-sm tabular-nums text-white">{allSongs.length}</strong>tracks</span>
+                  <span><strong className="mr-1.5 text-sm tabular-nums text-white">{dynamicGenres.length}</strong>genres</span>
+                  <span><strong className="mr-1.5 text-sm tabular-nums text-white">{allSongs.filter(song => song.featured).length}</strong>featured picks</span>
+                </div>
+              </div>
+            </section>}
             {spotlightActive ? (
               /* When Spotlight is active, ONLY spotlight songs appear and all other bars/things are hidden */
               <SpotlightShowcase
