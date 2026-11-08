@@ -5602,9 +5602,11 @@ app.patch('/api/chat/requests/:id', async (req: Request, res: Response) => {
 app.delete('/api/chat/requests/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const requester = getAuthUser(req);
+    if (!requester) return res.status(401).json({ error: 'Please sign in again.' });
     if (!isAdminReq(req)) {
       const item: any = await getChatRequestByIdDb(id);
-      if (!item || item.senderId !== getAuthUser(req).uid) {
+      if (!item || item.senderId !== requester.uid) {
         return res.status(403).json({ error: 'You can only cancel your own requests' });
       }
     }
@@ -5658,11 +5660,18 @@ app.post('/api/chat/threads/force', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Cannot pair user with themselves' });
     }
 
+    const [user1, user2] = await Promise.all([getUserByUid(String(user1Id)), getUserByUid(String(user2Id))]);
+    if (!user1 || !user2 || !user1.isApproved || !user2.isApproved || user1.isSuspended || user2.isSuspended || user1.isLocked || user2.isLocked || user1.chatBlocked || user2.chatBlocked) {
+      return res.status(409).json({ success: false, error: 'Both accounts must be active, approved, and allowed to chat.' });
+    }
+    if (await isChatPairingBlockedDb(user1.uid, user2.uid)) {
+      return res.status(409).json({ success: false, error: 'An administrator pairing restriction blocks these accounts.' });
+    }
     const thread = await createOrForceChatThreadDb(
-      user1Id,
-      user1Username || 'User A',
-      user2Id,
-      user2Username || 'User B',
+      user1.uid,
+      String(user1.username || user1Username || 'User A'),
+      user2.uid,
+      String(user2.username || user2Username || 'User B'),
       false
     );
     res.json({ success: true, thread });
@@ -5737,9 +5746,11 @@ app.post('/api/chat/threads/:id/hide', async (req: Request, res: Response) => {
 // Suspended user creates/retrieves direct appeal thread with Admin
 app.post('/api/chat/appeal', async (req: Request, res: Response) => {
   try {
-    // A suspended person can only open an appeal for their own account
-    const userId = getAuthUser(req).uid;
-    const username = getAuthUser(req).username;
+    // A suspended person can only open an appeal for their own account.
+    const member = getAuthUser(req);
+    if (!member) return res.status(401).json({ error: 'Please sign in again.' });
+    const userId = member.uid;
+    const username = member.username;
     const user = await getUserByUid(userId);
     if (!user) {
       return res.status(404).json({ error: 'User account not found' });
