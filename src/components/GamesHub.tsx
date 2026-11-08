@@ -159,7 +159,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
     gold:'border-yellow-200/30 bg-gradient-to-br from-[#3a301b] via-[#202332] to-[#101725] text-yellow-200',
   };
   return (
-    <div className="mx-auto max-w-6xl space-y-5 pb-28 animate-in fade-in">
+    <div className="ys-games-hub mx-auto max-w-6xl space-y-5 pb-28 animate-in fade-in">
       <section className="relative overflow-hidden rounded-[30px] border border-amber-200/30 bg-[#0b1220] p-6 text-white shadow-2xl sm:p-8">
         <div className="pointer-events-none absolute -right-16 -top-24 h-80 w-80 rounded-full bg-amber-400/15 blur-3xl"/>
         <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-slate-200/10 blur-3xl"/>
