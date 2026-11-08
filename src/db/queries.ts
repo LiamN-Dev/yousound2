@@ -111,6 +111,7 @@ export async function updateUserDb(
     suspendedReason?: string;
     adminNote?: string;
     chatBlocked?: boolean;
+    chatTrusted?: boolean;
     colorAccent?: string;
     dailyListenLimit?: number | null;
     isLocked?: boolean;
