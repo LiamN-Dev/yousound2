@@ -1,6 +1,6 @@
 import React, { useState, useSyncExternalStore } from 'react';
 import {
-  Activity, Gamepad2, Heart, Headphones, ListMusic, LogIn, LogOut,
+  Activity, BrainCircuit, Gamepad2, Heart, Headphones, ListMusic, LogIn, LogOut,
   MessageSquare, Moon, Music2, Plus, Search, Shield, Sun, X
 } from 'lucide-react';
 import { getFeedbackState, subscribeFeedback } from '../services/feedbackNotifications';
@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { useTheme } from '../context/ThemeContext';
 
-type TabId = 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin';
+type TabId = 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin';
 interface HeaderProps {
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
@@ -65,6 +65,9 @@ export const Header: React.FC<HeaderProps> = ({
 
   const visibleItems = [
     ...navItems,
+    ...((isAdmin || currentUser?.aiBetaEnabled)
+      ? [{ id: 'ai' as const, label: 'YouSound AI', icon: BrainCircuit, note: 'AI STUDIO' }]
+      : []),
     ...((isAdmin || currentUser?.gamesEnabled)
       ? [{ id: 'games' as const, label: 'Arcade', icon: Gamepad2, note: 'GAME ZONE' }]
       : []),
