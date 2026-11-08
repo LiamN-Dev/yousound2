@@ -244,7 +244,7 @@ const MainAppContent: React.FC = () => {
           <>
         {activeTab === 'library' && (
           <div className="space-y-6 pb-28">
-            {!spotlightActive && <CosmicHero
+            {isDesignBeta && !spotlightActive && <CosmicHero
               onOpenRadio={() => setActiveTab('radio')}
               onExploreLibrary={() => document.getElementById('ys-library-feed')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
             />}
