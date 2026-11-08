@@ -2701,12 +2701,35 @@ app.get('/api/settings/auto-tags', async (_req: Request, res: Response) => {
 });
 
 app.post('/api/settings/auto-tags', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   try {
-    const { rules } = req.body;
+    const rules = req.body?.rules;
+    const allowedConditions = new Set([
+      'added_within_hours', 'daily_plays_threshold', 'weekly_plays_threshold',
+      'total_plays_threshold', 'leaving_within_hours', 'genre_equals',
+      'duration_greater_than', 'duration_less_than', 'tag_contains',
+    ]);
+    if (!Array.isArray(rules) || rules.length > 100) {
+      return res.status(400).json({ success: false, error: 'Provide a list of no more than 100 auto-tag rules.' });
+    }
+    const invalid = rules.some((rule: any) =>
+      !rule || typeof rule.id !== 'string' || !rule.id.trim() ||
+      typeof rule.name !== 'string' || !rule.name.trim() ||
+      typeof rule.description !== 'string' ||
+      typeof rule.enabled !== 'boolean' ||
+      typeof rule.tagToApply !== 'string' || !rule.tagToApply.trim() ||
+      !allowedConditions.has(String(rule.conditionType)) ||
+      !(typeof rule.conditionValue === 'string' || Number.isFinite(Number(rule.conditionValue))) ||
+      typeof rule.color !== 'string' ||
+      typeof rule.createdAt !== 'string'
+    );
+    if (invalid) return res.status(400).json({ success: false, error: 'One or more auto-tag rules are invalid. Check the rule fields and try again.' });
+
     await setSettingDb('auto_tag_rules', rules);
-    res.json({ success: true, rules });
+    return res.json({ success: true, rules });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error('[Auto Tags] Save failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'The auto-tag rules could not be saved.' });
   }
 });
 
