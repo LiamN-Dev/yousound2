@@ -5460,75 +5460,95 @@ app.get('/api/chat/requests', async (req: Request, res: Response) => {
 
 app.post('/api/chat/requests', async (req: Request, res: Response) => {
   try {
-    const { receiverId, receiverUsername, reason } = req.body;
-    const senderId = getAuthUser(req).uid;
-    const senderUsername = getAuthUser(req).username;
-    if (!senderId || !receiverId) {
-      return res.status(400).json({ error: 'Sender and receiver are required' });
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const sender = await getUserByUid(session.uid);
+    if (!sender || !sender.isApproved || sender.isSuspended || sender.isLocked || sender.chatBlocked) {
+      return res.status(403).json({ success: false, error: 'This account cannot request a chat.' });
     }
-    if (senderId === receiverId) {
-      return res.status(400).json({ error: 'Cannot request a chat with yourself' });
+    const receiverId = String(req.body?.receiverId || '').trim();
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+    if (!receiverId) return res.status(400).json({ error: 'Choose a user to chat with.' });
+    if (sender.uid === receiverId) return res.status(400).json({ error: 'Cannot request a chat with yourself.' });
+    const receiver = await getUserByUid(receiverId);
+    if (!receiver || !receiver.isApproved || receiver.isSuspended || receiver.isLocked || receiver.chatBlocked) {
+      return res.status(404).json({ error: 'That account is not currently available for chat.' });
+    }
+    const isBlocked = await isChatPairingBlockedDb(sender.uid, receiver.uid);
+    if (isBlocked) return res.status(403).json({ error: 'Communication between these two accounts is restricted by Administrator.' });
+
+    let aiReview: { approved: boolean; confidence: number; reason: string } | null = null;
+    if (sender.role !== 'admin' && sender.chatTrusted === true && reason.length >= 12) {
+      aiReview = await reviewTrustedChatRequest(reason);
     }
 
-    // Check if sender has global chat block
-    const sender = await getUserByUid(senderId);
-    if (sender?.chatBlocked) {
-      return res.status(403).json({ error: 'Your chat privileges have been disabled by Administrator' });
-    }
-
-    // Check pairing block
-    const isBlocked = await isChatPairingBlockedDb(senderId, receiverId);
-    if (isBlocked) {
-      return res.status(403).json({
-        error: 'Communication between these two accounts is restricted by Administrator',
-      });
-    }
-
-    const requestId = `chreq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const requestId = 'chreq_' + Date.now() + '_' + randomBytes(3).toString('hex');
     const created = await createChatRequestDb({
       id: requestId,
-      senderId,
-      senderUsername: senderUsername || sender?.username || 'User',
-      receiverId,
-      receiverUsername: receiverUsername || 'User',
+      senderId: sender.uid,
+      senderUsername: String(sender.username || 'User').slice(0, 40),
+      receiverId: receiver.uid,
+      receiverUsername: String(receiver.username || 'User').slice(0, 40),
       reason,
     });
 
-    res.json({ success: true, request: created });
+    if (aiReview?.approved) {
+      const note = 'AI auto-approved for an administrator-designated trusted account. Confidence ' + aiReview.confidence.toFixed(2) + '. ' + aiReview.reason;
+      const approved = await updateChatRequestStatusDb(requestId, 'approved', note);
+      const thread = await createOrForceChatThreadDb(
+        sender.uid,
+        String(sender.username || 'User'),
+        receiver.uid,
+        String(receiver.username || 'User'),
+        false
+      );
+      return res.json({ success: true, request: approved || { ...created, status: 'approved', adminNote: note }, thread, autoApproved: true });
+    }
+
+    return res.json({
+      success: true,
+      request: created,
+      autoReview: sender.chatTrusted === true ? 'manual-review-required' : undefined,
+    });
   } catch (error: any) {
     console.error('Create chat request error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || 'Chat request could not be created.' });
   }
 });
 
 app.patch('/api/chat/requests/:id', async (req: Request, res: Response) => {
   try {
+    if (!isAdminReq(req)) return res.status(403).json({ error: 'Administrators only.' });
     const { id } = req.params;
     const { status, adminNote } = req.body;
-    if (status !== 'approved' && status !== 'declined') {
-      return res.status(400).json({ error: 'Status must be approved or declined' });
-    }
+    if (status !== 'approved' && status !== 'declined') return res.status(400).json({ error: 'Status must be approved or declined.' });
+    const reqItem: any = await getChatRequestByIdDb(id);
+    if (!reqItem) return res.status(404).json({ error: 'Chat request not found.' });
+    if (reqItem.status !== 'pending') return res.status(409).json({ error: 'This request has already been reviewed.' });
 
-    const updated = await updateChatRequestStatusDb(id, status, adminNote);
-
-    // Approving a request opens the conversation between the two users
     let thread = null;
     if (status === 'approved') {
-      const reqItem: any = (await getChatRequestByIdDb(id)) || updated;
-      if (reqItem?.senderId && reqItem?.receiverId) {
-        thread = await createOrForceChatThreadDb(
-          reqItem.senderId,
-          reqItem.senderUsername || 'User',
-          reqItem.receiverId,
-          reqItem.receiverUsername || 'User',
-          false
-        );
+      const sender = await getUserByUid(reqItem.senderId);
+      const receiver = await getUserByUid(reqItem.receiverId);
+      if (!sender || !receiver || !sender.isApproved || !receiver.isApproved || sender.isSuspended || receiver.isSuspended || sender.isLocked || receiver.isLocked || sender.chatBlocked || receiver.chatBlocked) {
+        return res.status(409).json({ error: 'One of these accounts is no longer eligible to chat. Refresh the request queue.' });
       }
+      if (await isChatPairingBlockedDb(reqItem.senderId, reqItem.receiverId)) {
+        return res.status(409).json({ error: 'An administrator restriction now blocks this pairing.' });
+      }
+      thread = await createOrForceChatThreadDb(
+        reqItem.senderId,
+        reqItem.senderUsername || sender.username || 'User',
+        reqItem.receiverId,
+        reqItem.receiverUsername || receiver.username || 'User',
+        false
+      );
     }
-    res.json({ success: true, request: updated, thread });
+    const updated = await updateChatRequestStatusDb(id, status, typeof adminNote === 'string' ? adminNote.slice(0, 300) : undefined);
+    return res.json({ success: true, request: updated, thread });
   } catch (error: any) {
     console.error('Update chat request error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 });
 
