@@ -175,6 +175,8 @@ class StorageService {
         updated.chatBlocked !== current.chatBlocked ||
         updated.christmasMode !== current.christmasMode ||
         updated.gamesEnabled !== current.gamesEnabled ||
+        updated.aiBetaEnabled !== current.aiBetaEnabled ||
+        updated.redesignBetaEnabled !== current.redesignBetaEnabled ||
         updated.colorAccent !== current.colorAccent ||
         updated.dailyListenLimit !== current.dailyListenLimit
       ) {
@@ -326,6 +328,8 @@ class StorageService {
                 updated.isLocked !== current.isLocked ||
                 updated.christmasMode !== current.christmasMode ||
                 updated.gamesEnabled !== current.gamesEnabled ||
+        updated.aiBetaEnabled !== current.aiBetaEnabled ||
+        updated.redesignBetaEnabled !== current.redesignBetaEnabled ||
                 updated.colorAccent !== current.colorAccent ||
                 updated.dailyListenLimit !== current.dailyListenLimit ||
                 updated.suspendedReason !== current.suspendedReason
@@ -1085,6 +1089,8 @@ class StorageService {
       isLocked?: boolean;
       christmasMode?: boolean;
       gamesEnabled?: boolean;
+      aiBetaEnabled?: boolean;
+      redesignBetaEnabled?: boolean;
     }
   ): Promise<{ success: boolean; error?: string }> {
     try {
@@ -1117,6 +1123,8 @@ class StorageService {
             ...(params.dailyListenLimit !== undefined ? { dailyListenLimit: params.dailyListenLimit } : {}),
             ...(typeof params.christmasMode === 'boolean' ? { christmasMode: params.christmasMode } : {}),
             ...(typeof params.gamesEnabled === 'boolean' ? { gamesEnabled: params.gamesEnabled } : {}),
+            ...(typeof params.aiBetaEnabled === 'boolean' ? { aiBetaEnabled: params.aiBetaEnabled } : {}),
+            ...(typeof params.redesignBetaEnabled === 'boolean' ? { redesignBetaEnabled: params.redesignBetaEnabled } : {}),
           };
         });
       }
