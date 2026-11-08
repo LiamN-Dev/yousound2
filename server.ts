@@ -51,6 +51,7 @@ import {
   setSettingDb,
   getPersistentSettingDb,
   setPersistentSettingDb,
+  ensurePersistentSettingDb,
   compareAndSetPersistentSettingDb,
   getMediaIdsDb,
   getMediaIdByCodeDb,
@@ -5641,15 +5642,23 @@ async function getChatAIModerationFlags(): Promise<ChatAIModerationFlag[]> {
   return Array.isArray(flags) ? flags.slice(-500) : [];
 }
 async function addChatAIModerationFlag(flag: Omit<ChatAIModerationFlag, 'id' | 'createdAt' | 'status'>): Promise<ChatAIModerationFlag> {
-  const all = await getChatAIModerationFlags();
   const item: ChatAIModerationFlag = {
     ...flag,
     id: 'chatflag_' + Date.now() + '_' + randomBytes(4).toString('hex'),
     createdAt: new Date().toISOString(),
     status: 'open',
   };
-  await setPersistentSettingDb(CHAT_AI_FLAGS_SETTING, [...all, item].slice(-500));
-  return item;
+  // Create the row only if it does not exist, then append with compare-and-set.
+  // Concurrent moderation events can no longer overwrite one another's flags.
+  await ensurePersistentSettingDb(CHAT_AI_FLAGS_SETTING, []);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const current = await getPersistentSettingDb<ChatAIModerationFlag[]>(CHAT_AI_FLAGS_SETTING);
+    const all = Array.isArray(current) ? current : [];
+    if (await compareAndSetPersistentSettingDb(CHAT_AI_FLAGS_SETTING, all, [...all, item].slice(-500))) {
+      return item;
+    }
+  }
+  throw new Error('Could not atomically save the AI safety flag. Retry the moderation event.');
 }
 async function reviewTrustedChatRequest(reason: string): Promise<{ approved: boolean; confidence: number; reason: string }> {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -6229,7 +6238,9 @@ app.patch('/api/admin/chat/moderation-flags/:id', async (req: Request, res: Resp
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
     const action = req.body?.action === 'dismiss' ? 'dismiss' : req.body?.action === 'reopen' ? 'reopen' : null;
     if (!action) return res.status(400).json({ success: false, error: 'Choose dismiss or reopen.' });
-    const flags = await getChatAIModerationFlags();
+    await ensurePersistentSettingDb(CHAT_AI_FLAGS_SETTING, []);
+    const originalFlags = await getPersistentSettingDb<ChatAIModerationFlag[]>(CHAT_AI_FLAGS_SETTING) || [];
+    const flags = originalFlags.map((entry) => ({ ...entry }));
     const item = flags.find((entry) => entry.id === req.params.id);
     if (!item) return res.status(404).json({ success: false, error: 'Safety flag not found.' });
     if (action === 'reopen') {
@@ -6243,7 +6254,8 @@ app.patch('/api/admin/chat/moderation-flags/:id', async (req: Request, res: Resp
         await setChatThreadTerminatedDb(item.threadId, false, undefined);
       }
     }
-    await setPersistentSettingDb(CHAT_AI_FLAGS_SETTING, flags);
+    const saved = await compareAndSetPersistentSettingDb(CHAT_AI_FLAGS_SETTING, originalFlags, flags);
+    if (!saved) return res.status(409).json({ success: false, error: 'The safety queue changed while you were reviewing this flag. Refresh and retry.' });
     return res.json({ success: true, flag: item });
   } catch (error: any) {
     console.error('[Chat AI] Flag review failed:', error);
