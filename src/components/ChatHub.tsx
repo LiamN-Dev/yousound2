@@ -24,7 +24,7 @@ import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
 import { User, ChatRequest, ChatThread, ChatMessage, ChatPairingBlock } from '../types';
 
-type ChatSafetyFlag = { id: string; threadId: string; senderUsername: string; receiverId: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: 'open' | 'dismissed' };
+type ChatSafetyFlag = { id: string; threadId: string; senderUsername: string; receiverId: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: 'open' | 'dismissed'; lockedByAi?: boolean };
 
 export const ChatHub: React.FC = () => {
   const { currentUser, isAdmin, allUsers, adminUpdateUser } = useAuth();
@@ -1020,7 +1020,7 @@ export const ChatHub: React.FC = () => {
                       {flag.excerpt && <blockquote className="rounded-lg border-l-2 border-rose-400/40 bg-white/[.04] px-3 py-2 text-[11px] leading-5 text-slate-500 dark:text-slate-400">{flag.excerpt}</blockquote>}
                       <div className="flex flex-wrap justify-end gap-2">
                         {linkedThread && <button type="button" onClick={() => void handleInspectTranscript(linkedThread)} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] font-bold text-slate-500 dark:text-slate-300">Inspect transcript</button>}
-                        {flag.severity === 'high' && <button type="button" onClick={() => void reopen().catch((err:any)=>setGlobalChatFeedback(err.message))} className="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white">Review & reopen thread</button>}
+                        {flag.lockedByAi && <button type="button" onClick={() => void reopen().catch((err:any)=>setGlobalChatFeedback(err.message))} className="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white">Review & reopen thread</button>}
                         <button type="button" onClick={() => void dismiss().catch((err:any)=>setGlobalChatFeedback(err.message))} className="rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-[10px] font-bold text-rose-500 dark:text-rose-200">Dismiss flag</button>
                       </div>
                     </div>;
