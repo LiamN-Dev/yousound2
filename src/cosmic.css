@@ -489,3 +489,24 @@ html.dark .ys-main-content button:not(:disabled):active { transform: scale(.975)
     transition: none !important;
   }
 }
+
+
+/* Smooth pointer aura: tracks the cursor with a spring, without listening on touch screens. */
+.ys-cosmic-cursor-aura {
+  position: fixed;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: .22;
+  background: radial-gradient(circle, rgba(80, 240, 216, .22) 0%, rgba(28, 151, 153, .10) 36%, transparent 72%);
+  filter: blur(16px);
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+@media (max-width: 767px), (pointer: coarse) {
+  .ys-cosmic-cursor-aura { display: none; }
+}
