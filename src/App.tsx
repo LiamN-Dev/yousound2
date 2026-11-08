@@ -37,6 +37,7 @@ import { StatusView } from './components/StatusView';
 import { BetterStackAnnouncement } from './components/BetterStackAnnouncement';
 import { CosmicHero } from './components/CosmicHero';
 import { CosmicBackdrop } from './components/CosmicBackdrop';
+import { CosmicCursorAura } from './components/CosmicCursorAura';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 
 const MainAppContent: React.FC = () => {
@@ -192,6 +193,7 @@ const MainAppContent: React.FC = () => {
   return (
     <div className="ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors">
       <CosmicBackdrop />
+      <CosmicCursorAura />
       {christmasMode && <ChristmasEffects />}
       <div className="ys-ambient-backdrop fixed inset-0 overflow-hidden pointer-events-none z-0" />
       {/* Subtle Studio Ambient Lighting in Dark Mode */}
