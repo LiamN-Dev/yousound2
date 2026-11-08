@@ -200,7 +200,16 @@
       let best = saved.best;
       let accountManaged = false;
       let parentOrigin = '';
-      try { parentOrigin = new URL(document.referrer).origin; } catch (_) {}
+      try {
+        parentOrigin = new URL(document.referrer).origin;
+        if (!parentOrigin || parentOrigin === 'null') throw new Error('No parent referrer');
+      } catch (_) {
+        try {
+          const suppliedOrigin = new URLSearchParams(window.location.search).get('yousoundParentOrigin') || '';
+          const parsedOrigin = new URL(suppliedOrigin);
+          if (parsedOrigin.protocol === 'https:') parentOrigin = parsedOrigin.origin;
+        } catch (_) {}
+      }
       let unlocked = new Set(saved.unlocked);
       let characterId = saved.character || 'chick';
       if (!unlocked.has('chick')) unlocked.add('chick');
