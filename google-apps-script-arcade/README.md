@@ -43,4 +43,13 @@ The website supports an optional Vite environment variable named VITE_GOOGLE_CRO
 
 When the Google-hosted page is used inside the YouSound Crossy Road player, it sends the same run-started/run-finished postMessage events the website uses to record game sessions, high scores, and account coins. The local character-unlock currency remains a browser-side prototype feature; YouSound's account coin balance and leaderboard are handled by the website's server.
 
-The URL is optional. Without it, the website continues using its current Crossy Road game host.
+The URL is optional. Without it, the website continues using its current Cloudflare Crossy Road host, which some school networks may block.
+
+For the Google-hosted build:
+1. Deploy the Apps Script project as a Web App and copy its `/exec` URL.
+2. In Render, open the YouSound web service → Environment.
+3. Add `VITE_GOOGLE_CROSSY_ROAD_URL` with that exact `/exec` URL.
+4. Save and trigger a new deployment so Vite embeds the URL at build time.
+5. Test while signed into YouSound. The site passes a narrowly-scoped YouSound origin to the game so saved coin and high-score updates are sent only to the verified parent origin.
+
+Google Apps Script redirects may use `script.google.com` and `script.googleusercontent.com`. If the school network blocks either host, ask school IT to approve those official Google Apps Script domains. Do not try to work around the school's filtering. A Google-hosted URL still cannot guarantee that the school's policy permits the game.
