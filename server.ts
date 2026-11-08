@@ -5898,6 +5898,41 @@ app.delete('/api/chat/pairing-blocks/:id', async (req: Request, res: Response) =
   }
 });
 
+app.get('/api/admin/chat/moderation-flags', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const flags = await getChatAIModerationFlags();
+    return res.json({ success: true, flags: flags.slice().reverse() });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || 'Could not load chat safety flags.' });
+  }
+});
+
+app.patch('/api/admin/chat/moderation-flags/:id', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const action = req.body?.action === 'dismiss' ? 'dismiss' : req.body?.action === 'reopen' ? 'reopen' : null;
+    if (!action) return res.status(400).json({ success: false, error: 'Choose dismiss or reopen.' });
+    const flags = await getChatAIModerationFlags();
+    const item = flags.find((entry) => entry.id === req.params.id);
+    if (!item) return res.status(404).json({ success: false, error: 'Safety flag not found.' });
+    if (action === 'reopen') {
+      await setChatThreadTerminatedDb(item.threadId, false, undefined);
+      item.status = 'dismissed';
+    } else {
+      item.status = 'dismissed';
+      if (req.body?.reopenThread === true) {
+        await setChatThreadTerminatedDb(item.threadId, false, undefined);
+      }
+    }
+    await setPersistentSettingDb(CHAT_AI_FLAGS_SETTING, flags);
+    return res.json({ success: true, flag: item });
+  } catch (error: any) {
+    console.error('[Chat AI] Flag review failed:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Could not update safety flag.' });
+  }
+});
+
 // ----------------- DATABASE SAVE TEST (admin) -----------------
 // Actually saves, reads back and deletes a test song / account / setting using the app's own
 // code, and checks the rows really landed in the database (not in the temporary local store).
