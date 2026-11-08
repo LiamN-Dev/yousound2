@@ -17,12 +17,27 @@ export const AIStudio: React.FC = () => {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [serviceStatus, setServiceStatus] = useState('Checking AI service configuration…');
+  const [serviceStatusError, setServiceStatusError] = useState(false);
   const [lastQuestion, setLastQuestion] = useState('');
   const [requestBusy, setRequestBusy] = useState(false);
   const [knowledgeFeedback, setKnowledgeFeedback] = useState('');
   const [myQuestions, setMyQuestions] = useState<MyQuestion[]>([]);
   const [myQuestionsError, setMyQuestionsError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const refreshServiceStatus = async () => {
+    try {
+      const response = await fetch('/api/ai/health', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not check AI service configuration.');
+      setServiceStatus(data.message || 'AI service configuration checked.');
+      setServiceStatusError(!data.enabled || !data.apiKeyConfigured);
+    } catch (err: any) {
+      setServiceStatus(err?.message || 'Could not check AI service configuration.');
+      setServiceStatusError(true);
+    }
+  };
 
   const refreshMyQuestions = async () => {
     try {
@@ -38,8 +53,10 @@ export const AIStudio: React.FC = () => {
 
   useEffect(() => {
     void refreshMyQuestions();
+    void refreshServiceStatus();
     const timer = window.setInterval(() => void refreshMyQuestions(), 20000);
-    return () => window.clearInterval(timer);
+    const statusTimer = window.setInterval(() => void refreshServiceStatus(), 30000);
+    return () => { window.clearInterval(timer); window.clearInterval(statusTimer); };
   }, []);
 
   const send = async (raw: string) => {
@@ -115,6 +132,7 @@ export const AIStudio: React.FC = () => {
           <span className="ml-auto rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3 py-1 text-[9px] font-black tracking-wider text-cyan-100">TEST BUILD</span>
         </div>
         <p className="relative mt-4 max-w-2xl text-sm leading-6 text-slate-300">A music and site assistant connected to the visible catalogue and the administrator-maintained status and knowledge base. When it does not know a site-specific answer, you can send the question to the admin team.</p>
+        <p className={'relative mt-3 rounded-xl border px-3 py-2 text-[10px] ' + (serviceStatusError ? 'border-amber-300/20 bg-amber-300/[.06] text-amber-100' : 'border-emerald-300/15 bg-emerald-300/[.05] text-emerald-100')}>{serviceStatus}</p>
       </section>
 
       <section className="overflow-hidden rounded-[26px] border border-white/10 bg-[#0a111e] text-white shadow-xl">
