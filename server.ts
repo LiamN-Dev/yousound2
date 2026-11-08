@@ -5758,56 +5758,99 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
   try {
     const { threadId, content } = req.body;
     const me = getAuthUser(req);
-    const senderId = me.uid;
-    const senderUsername = me.username;
-    if (!threadId || typeof content !== 'string' || !content.trim()) {
-      return res.status(400).json({ error: 'Thread and content are required' });
-    }
+    if (!me) return res.status(401).json({ error: 'Please sign in again.' });
+    if (!threadId || typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Thread and content are required.' });
 
-    const thread = await getChatThreadByIdDb(threadId);
-    if (!thread) {
-      return res.status(404).json({ error: 'Conversation thread not found' });
-    }
-    // Only people in the conversation (or an admin) can post in it
-    if (me.role !== 'admin' && thread.user1Id !== me.uid && thread.user2Id !== me.uid) {
-      return res.status(403).json({ error: 'You are not part of this conversation' });
-    }
+    const cleanContent = content.trim().slice(0, 2000);
+    const thread: any = await getChatThreadByIdDb(threadId);
+    if (!thread) return res.status(404).json({ error: 'Conversation thread not found.' });
+    if (thread.isTerminated) return res.status(409).json({ error: 'This conversation has been locked by an administrator.' });
+    if (!thread.isApproved && !thread.isAppealThread) return res.status(403).json({ error: 'This conversation has not been approved.' });
+    if (me.role !== 'admin' && thread.user1Id !== me.uid && thread.user2Id !== me.uid) return res.status(403).json({ error: 'You are not part of this conversation.' });
     const receiverId = thread.user1Id === me.uid ? thread.user2Id : thread.user1Id;
 
-    // If appeal thread: check participants
     if (thread.isAppealThread) {
       const u1 = await getUserByUid(thread.user1Id);
       const u2 = await getUserByUid(thread.user2Id);
       const hasSuspendedUser = (u1 && u1.isSuspended) || (u2 && u2.isSuspended);
-      const sender = await getUserByUid(senderId);
-      if (!hasSuspendedUser && sender?.role !== 'admin') {
-        return res.status(403).json({ error: 'This suspension appeal is already resolved. Account is active.' });
+      const appealSender = await getUserByUid(me.uid);
+      if (!hasSuspendedUser && appealSender?.role !== 'admin') return res.status(403).json({ error: 'This suspension appeal is already resolved. Account is active.' });
+    }
+
+    const sender = await getUserByUid(me.uid);
+    if (!sender) return res.status(401).json({ error: 'Your account could not be verified. Sign in again.' });
+    if (sender.isSuspended && !thread.isAppealThread) return res.status(403).json({ error: 'Your account is suspended. Please use the suspension appeal screen.' });
+    if (sender.chatBlocked && !thread.isAppealThread) return res.status(403).json({ error: 'Your chat privileges have been disabled by Administrator.' });
+
+    let screening: 'checked' | 'flagged' | 'unavailable' | 'not-required' = 'not-required';
+    if (sender.role !== 'admin' && !thread.isAppealThread) {
+      const review = await reviewPrivateChatMessage(cleanContent);
+      if (review.decision === 'block' && review.confidence >= 0.90) {
+        const severity = ['threat', 'sexual_content', 'personal_information', 'coercion', 'dangerous_request'].includes(review.category) ? 'high' : 'medium';
+        await addChatAIModerationFlag({
+          threadId: String(threadId),
+          senderId: sender.uid,
+          senderUsername: String(sender.username || 'User').slice(0, 40),
+          receiverId: String(receiverId || ''),
+          category: review.category,
+          severity,
+          reason: review.reason,
+          excerpt: cleanContent.slice(0, 240),
+        });
+        await setChatThreadTerminatedDb(threadId, true, 'Automatically locked after high-confidence AI safety screening. An administrator will review it.');
+        return res.status(409).json({
+          success: false,
+          code: 'CHAT_MESSAGE_HELD_FOR_SAFETY',
+          error: 'This message was held and the conversation was temporarily locked for administrator review.',
+        });
+      }
+      if (review.decision === 'review' && review.confidence >= 0.70) {
+        const severity = ['threat', 'sexual_content', 'personal_information', 'coercion', 'dangerous_request'].includes(review.category) ? 'high' : 'medium';
+        await addChatAIModerationFlag({
+          threadId: String(threadId),
+          senderId: sender.uid,
+          senderUsername: String(sender.username || 'User').slice(0, 40),
+          receiverId: String(receiverId || ''),
+          category: review.category,
+          severity,
+          reason: review.reason,
+          excerpt: cleanContent.slice(0, 240),
+        });
+        screening = 'flagged';
+      } else if (review.decision === 'unavailable') {
+        const flags = await getChatAIModerationFlags();
+        const recentNotice = flags.some((item) => item.threadId === String(threadId) && item.category === 'screening-unavailable' && Date.now() - new Date(item.createdAt).getTime() < 60 * 60 * 1000);
+        if (!recentNotice) {
+          await addChatAIModerationFlag({
+            threadId: String(threadId),
+            senderId: sender.uid,
+            senderUsername: String(sender.username || 'User').slice(0, 40),
+            receiverId: String(receiverId || ''),
+            category: 'screening-unavailable',
+            severity: 'unverified',
+            reason: 'AI safety screening did not complete. The conversation was not automatically blocked.',
+            excerpt: cleanContent.slice(0, 120),
+          });
+        }
+        screening = 'unavailable';
+      } else {
+        screening = 'checked';
       }
     }
 
-    // Verify sender is not globally blocked or suspended (except for active direct suspension appeal threads)
-    const sender = await getUserByUid(senderId);
-    if (sender?.isSuspended && !thread?.isAppealThread) {
-      return res.status(403).json({ error: 'Your account is suspended. Please use the suspension appeal screen.' });
-    }
-    if (sender?.chatBlocked && !thread?.isAppealThread) {
-      return res.status(403).json({ error: 'Your chat privileges have been disabled by Administrator' });
-    }
-
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const messageId = 'msg_' + Date.now() + '_' + randomBytes(3).toString('hex');
     const created = await createChatMessageDb({
       id: messageId,
       threadId,
-      senderId,
-      senderUsername: senderUsername || sender?.username || 'User',
+      senderId: me.uid,
+      senderUsername: String(me.username || sender.username || 'User'),
       receiverId: receiverId || '',
-      content: content.trim().slice(0, 2000),
+      content: cleanContent,
     });
-
-    res.json({ success: true, message: created });
+    return res.json({ success: true, message: created, screening });
   } catch (error: any) {
     console.error('Send message error:', error);
-    res.status(400).json({ error: error.message || 'Could not send message' });
+    return res.status(400).json({ error: error.message || 'Could not send message.' });
   }
 });
 
