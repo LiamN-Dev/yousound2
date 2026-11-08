@@ -1702,6 +1702,7 @@ export const ChatHub: React.FC = () => {
                   onChange={(e) => setRequestReason(e.target.value)}
                   placeholder="e.g. Study group discussion for chemistry, sharing playlists, school project..."
                   required={!!currentUser?.chatTrusted}
+                  minLength={currentUser?.chatTrusted ? 12 : undefined}
                   rows={2}
                   className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white resize-none"
                 />
