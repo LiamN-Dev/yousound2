@@ -1440,10 +1440,11 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
 
     const allSongsForAI = await getSongsDb();
     const visibleSongs = (allSongsForAI as any[]).filter((song) => {
-      const hiddenFrom = Array.isArray(song.hiddenFrom) ? song.hiddenFrom.map(String) : [];
+      const hiddenFrom = Array.isArray(song.hiddenFrom) ? song.hiddenFrom.map((value: unknown) => String(value)) : [];
+      const username = String(account.username || '').toLowerCase();
       const hiddenForThisUser = hiddenFrom.includes('all')
         || hiddenFrom.includes(String(account.uid))
-        || hiddenFrom.includes(String(account.username));
+        || hiddenFrom.some((hidden: string) => hidden.toLowerCase() === username);
       return !hiddenForThisUser && !song.isScheduledForDeletion && !!song.title && !!song.artist;
     }).slice(0, 180).map((song) => ({
       title: String(song.title).slice(0, 120),
