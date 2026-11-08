@@ -132,7 +132,7 @@ router.post('/finish', async (req, res) => {
     await client.query('BEGIN');
     const claimed = await client.query(
       `UPDATE crossy_road_runs
-          SET completed_at = NOW(), score = $3, coins_awarded = FLOOR($3 / 10.0)::integer
+          SET completed_at = NOW(), score = $3::integer, coins_awarded = FLOOR($3::numeric / 10.0)::integer
         WHERE id = $1 AND user_id = $2 AND completed_at IS NULL
         RETURNING EXTRACT(EPOCH FROM (completed_at - started_at)) AS elapsed_seconds, coins_awarded`,
       [runId, user.uid, score]

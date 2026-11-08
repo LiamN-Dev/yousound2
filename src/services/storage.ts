@@ -412,6 +412,25 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.AUTO_TAG_RULES, JSON.stringify(this.autoTagRules));
     } catch {}
   }
+
+  private async persistAutoTagRules(rules: AutoTagRule[]): Promise<AutoTagRule[]> {
+    const response = await fetch('/api/settings/auto-tags', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules }),
+    });
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok || data?.success !== true) {
+      throw new Error(data?.error || 'The server did not confirm the auto-tag rule update.');
+    }
+
+    // Only update the local copy after the server has confirmed the save.
+    this.autoTagRules = Array.isArray(data.rules) ? data.rules : [...rules];
+    this.saveAutoTagRules();
+    this.notify();
+    return [...this.autoTagRules];
+  }
   private saveSpotlightConfig() {
     try {
       localStorage.setItem(STORAGE_KEYS.SPOTLIGHT_CONFIG, JSON.stringify(this.spotlightConfig));
@@ -1554,19 +1573,7 @@ class StorageService {
   }
 
   async updateAutoTagRules(rules: AutoTagRule[]): Promise<void> {
-    this.autoTagRules = [...rules];
-    this.saveAutoTagRules();
-    this.notify();
-
-    try {
-      await fetch('/api/settings/auto-tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: this.autoTagRules }),
-      });
-    } catch (e) {
-      console.error('Update auto-tag rules error:', e);
-    }
+    await this.persistAutoTagRules(rules);
   }
 
   async createAutoTagRule(data: Omit<AutoTagRule, 'id' | 'createdAt'>): Promise<AutoTagRule> {
@@ -1575,72 +1582,26 @@ class StorageService {
       id: `rule-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       createdAt: new Date().toISOString(),
     };
-    this.autoTagRules.unshift(newRule);
-    this.saveAutoTagRules();
-    this.notify();
-
-    try {
-      await fetch('/api/settings/auto-tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: this.autoTagRules }),
-      });
-    } catch (e) {
-      console.error('Create auto-tag rule error:', e);
-    }
+    await this.persistAutoTagRules([newRule, ...this.autoTagRules]);
     return newRule;
   }
 
   async updateAutoTagRule(ruleId: string, updates: Partial<AutoTagRule>): Promise<boolean> {
-    const idx = this.autoTagRules.findIndex((r) => r.id === ruleId);
-    if (idx === -1) return false;
-    this.autoTagRules[idx] = { ...this.autoTagRules[idx], ...updates };
-    this.saveAutoTagRules();
-    this.notify();
-
-    try {
-      await fetch('/api/settings/auto-tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: this.autoTagRules }),
-      });
-    } catch (e) {
-      console.error('Update auto-tag rule error:', e);
-    }
+    const index = this.autoTagRules.findIndex((rule) => rule.id === ruleId);
+    if (index < 0) return false;
+    const next = this.autoTagRules.map((rule) => rule.id === ruleId ? { ...rule, ...updates } : rule);
+    await this.persistAutoTagRules(next);
     return true;
   }
 
   async deleteAutoTagRule(ruleId: string): Promise<boolean> {
-    this.autoTagRules = this.autoTagRules.filter((r) => r.id !== ruleId);
-    this.saveAutoTagRules();
-    this.notify();
-
-    try {
-      await fetch('/api/settings/auto-tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: this.autoTagRules }),
-      });
-    } catch (e) {
-      console.error('Delete auto-tag rule error:', e);
-    }
+    if (!this.autoTagRules.some((rule) => rule.id === ruleId)) return false;
+    await this.persistAutoTagRules(this.autoTagRules.filter((rule) => rule.id !== ruleId));
     return true;
   }
 
   async resetAutoTagRulesToDefault(): Promise<void> {
-    this.autoTagRules = [...DEFAULT_AUTO_TAG_RULES];
-    this.saveAutoTagRules();
-    this.notify();
-
-    try {
-      await fetch('/api/settings/auto-tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: this.autoTagRules }),
-      });
-    } catch (e) {
-      console.error('Reset auto-tag rules error:', e);
-    }
+    await this.persistAutoTagRules([...DEFAULT_AUTO_TAG_RULES]);
   }
 
   // --- Spotlight Mode Configuration ---

@@ -6,24 +6,29 @@ type LeaderboardEntry = { rank: number; username: string; highScore: number; tot
 
 const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
 const GOOGLE_CROSSY_ROAD_URL = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_URL || '').trim();
+// The Apps Script build is an experimental 2D prototype, not the production-quality
+// Crossy Road experience. Keep it opt-in until its gameplay has passed real testing.
+const GOOGLE_CROSSY_ROAD_ENABLED = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_ENABLED || '').trim().toLowerCase() === 'true';
+const USE_GOOGLE_CROSSY_ROAD = Boolean(GOOGLE_CROSSY_ROAD_URL && GOOGLE_CROSSY_ROAD_ENABLED);
 const YOUSOUND_PARENT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
-const CROSSY_ROAD_SRC = GOOGLE_CROSSY_ROAD_URL
+const CROSSY_ROAD_SRC = USE_GOOGLE_CROSSY_ROAD
   ? (() => {
       try {
         const url = new URL(GOOGLE_CROSSY_ROAD_URL);
+        if (!['https://script.google.com', 'https://script.googleusercontent.com'].includes(url.origin)) return CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production';
         url.searchParams.set('yousoundParentOrigin', YOUSOUND_PARENT_ORIGIN);
         return url.toString();
-      } catch { return GOOGLE_CROSSY_ROAD_URL; }
+      } catch { return CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production'; }
     })()
-  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-google-build');
+  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production');
 const GOOGLE_SCRIPT_ORIGINS = ['https://script.google.com', 'https://script.googleusercontent.com'];
 const GOOGLE_CONFIGURED_ORIGIN = (() => {
   try {
-    const url = GOOGLE_CROSSY_ROAD_URL ? new URL(GOOGLE_CROSSY_ROAD_URL) : null;
+    const url = USE_GOOGLE_CROSSY_ROAD ? new URL(GOOGLE_CROSSY_ROAD_URL) : null;
     return url && GOOGLE_SCRIPT_ORIGINS.includes(url.origin) ? url.origin : '';
   } catch { return ''; }
 })();
-const CROSSY_ROAD_ALLOWED_ORIGINS = new Set(GOOGLE_CROSSY_ROAD_URL
+const CROSSY_ROAD_ALLOWED_ORIGINS = new Set(USE_GOOGLE_CROSSY_ROAD
   ? [...GOOGLE_SCRIPT_ORIGINS, GOOGLE_CONFIGURED_ORIGIN]
   : [CROSSY_ROAD_ORIGIN]);
 const CROSSY_ROAD_TARGET_ORIGINS = Array.from(CROSSY_ROAD_ALLOWED_ORIGINS);
@@ -199,8 +204,10 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           />
         </div>
       </div>
-      {!GOOGLE_CROSSY_ROAD_URL && <div className="border-t border-amber-300/15 bg-amber-300/[.04] px-4 py-3 text-[11px] leading-5 text-amber-100/80">
-        This build is loading Crossy Road from Cloudflare. Some school networks block that host. To use the Google-hosted build, set the Render build variable <code className="rounded bg-black/30 px-1">VITE_GOOGLE_CROSSY_ROAD_URL</code> to your approved Apps Script web-app <code className="rounded bg-black/30 px-1">/exec</code> URL. Your school may still need to allow the official Apps Script domains.
+      {!USE_GOOGLE_CROSSY_ROAD && <div className="border-t border-amber-300/15 bg-amber-300/[.04] px-4 py-3 text-[11px] leading-5 text-amber-100/80">
+        {GOOGLE_CROSSY_ROAD_URL
+          ? 'Google Apps Script URL detected, but its experimental 2D prototype is intentionally not enabled in the live arcade. The production game remains on the full hosted build until the Google version passes gameplay testing. Do not enable it just to make the URL appear.'
+          : 'The production arcade is loading the full hosted Crossy Road build. Some school networks block its host; ask school IT to review the official game-host domain rather than using the untested Google prototype.'}
       </div>}
       {(message || error) && <div className={'border-t border-white/10 px-4 py-3 text-xs ' + (error ? 'text-rose-300' : 'text-emerald-200')}>{error || message}</div>}
     </section>

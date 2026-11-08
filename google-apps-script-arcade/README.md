@@ -1,4 +1,6 @@
-# YouSound Google-hosted Crossy Road prototype
+# YouSound Google-hosted Crossy Road experimental prototype
+
+> This is not the production Crossy Road game. It is a small 2D Canvas prototype. It has not passed gameplay-quality testing and must not be enabled for all YouSound players. The production arcade keeps using the full hosted game until a genuine Google-hosted version is ready.
 
 This folder contains a self-contained Crossy Road-style game served by Google Apps Script HTML Service. It uses original Canvas-drawn voxel/isometric artwork and does not load an external game host, JavaScript library, image, font, or stylesheet.
 

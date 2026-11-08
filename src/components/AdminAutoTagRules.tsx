@@ -48,6 +48,7 @@ export const AdminAutoTagRules: React.FC<AdminAutoTagRulesProps> = ({ songs }) =
   const [badgeColor, setBadgeColor] = useState<AutoTagColor>('emerald');
   const [durationHours, setDurationHours] = useState<number>(24);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const resetForm = () => {
     setRuleName('');
@@ -83,62 +84,98 @@ export const AdminAutoTagRules: React.FC<AdminAutoTagRulesProps> = ({ songs }) =
 
   const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     if (!ruleName.trim() || !tagToApply.trim()) {
       setFeedback('Rule name and tag are required.');
       return;
     }
 
-    if (editingRule) {
-      await updateAutoTagRule(editingRule.id, {
-        name: ruleName.trim(),
-        description: ruleDesc.trim(),
-        conditionType,
-        conditionValue,
-        tagToApply: tagToApply.trim().toLowerCase(),
-        badgeType,
-        badgeCustomText: badgeCustomText.trim() || undefined,
-        color: badgeColor,
-        durationHours: Number(durationHours) || undefined,
-      });
-      setFeedback(`Rule "${ruleName}" updated successfully!`);
-    } else {
-      await createAutoTagRule({
-        name: ruleName.trim(),
-        description: ruleDesc.trim(),
-        enabled: true,
-        conditionType,
-        conditionValue,
-        tagToApply: tagToApply.trim().toLowerCase(),
-        badgeType,
-        badgeCustomText: badgeCustomText.trim() || undefined,
-        color: badgeColor,
-        durationHours: Number(durationHours) || undefined,
-      });
-      setFeedback(`New auto-tag rule "${ruleName}" created!`);
+    setSaving(true);
+    setFeedback(null);
+    try {
+      if (editingRule) {
+        const saved = await updateAutoTagRule(editingRule.id, {
+          name: ruleName.trim(),
+          description: ruleDesc.trim(),
+          conditionType,
+          conditionValue,
+          tagToApply: tagToApply.trim().toLowerCase(),
+          badgeType,
+          badgeCustomText: badgeCustomText.trim() || undefined,
+          color: badgeColor,
+          durationHours: Number(durationHours) || undefined,
+        });
+        if (!saved) throw new Error('The rule no longer exists.');
+        setFeedback(`Rule "${ruleName}" saved on the server.`);
+      } else {
+        await createAutoTagRule({
+          name: ruleName.trim(),
+          description: ruleDesc.trim(),
+          enabled: true,
+          conditionType,
+          conditionValue,
+          tagToApply: tagToApply.trim().toLowerCase(),
+          badgeType,
+          badgeCustomText: badgeCustomText.trim() || undefined,
+          color: badgeColor,
+          durationHours: Number(durationHours) || undefined,
+        });
+        setFeedback(`New auto-tag rule "${ruleName}" saved on the server.`);
+      }
+      setIsCreateModalOpen(false);
+      resetForm();
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (error: any) {
+      setFeedback('Save failed: ' + (error?.message || 'The server did not confirm the change.'));
+    } finally {
+      setSaving(false);
     }
-
-    setIsCreateModalOpen(false);
-    resetForm();
-    setTimeout(() => setFeedback(null), 3000);
   };
 
   const handleToggleRule = async (rule: AutoTagRule) => {
-    await updateAutoTagRule(rule.id, { enabled: !rule.enabled });
+    if (saving) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const saved = await updateAutoTagRule(rule.id, { enabled: !rule.enabled });
+      if (!saved) throw new Error('The rule no longer exists.');
+      setFeedback(`Rule "${rule.name}" ${rule.enabled ? 'disabled' : 'enabled'}.`);
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback('Could not change rule: ' + (error?.message || 'server rejected the update.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteRule = async (ruleId: string, ruleName: string) => {
-    if (confirm(`Delete auto-tag rule "${ruleName}"?`)) {
-      await deleteAutoTagRule(ruleId);
+    if (saving || !confirm(`Delete auto-tag rule "${ruleName}"?`)) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const deleted = await deleteAutoTagRule(ruleId);
+      if (!deleted) throw new Error('The rule was not found.');
       setFeedback(`Rule "${ruleName}" deleted.`);
       setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback('Delete failed: ' + (error?.message || 'the server did not confirm the change.'));
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleResetDefaults = async () => {
-    if (confirm('Reset all rules back to default presets (1-day New, 1-day Hot, Top Hit, Leaving Soon, Study Vibe)?')) {
+    if (saving || !confirm('Reset all rules back to default presets (1-day New, 1-day Hot, Top Hit, Leaving Soon, Study Vibe)?')) return;
+    setSaving(true);
+    setFeedback(null);
+    try {
       await resetAutoTagRulesToDefault();
-      setFeedback('All auto-tagging rules restored to defaults!');
+      setFeedback('Default auto-tag rules saved on the server.');
       setTimeout(() => setFeedback(null), 3000);
+    } catch (error: any) {
+      setFeedback('Reset failed: ' + (error?.message || 'the server did not confirm the change.'));
+    } finally {
+      setSaving(false);
     }
   };
 
