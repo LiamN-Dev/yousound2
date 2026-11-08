@@ -81,6 +81,7 @@ export async function ensureTables(): Promise<void> {
     ['song_requests', "hidden_from JSONB DEFAULT '[]'::jsonb"],
     ['song_requests', 'is_christmas_edition BOOLEAN DEFAULT false'],
     ['users', 'chat_blocked BOOLEAN DEFAULT false'],
+    ['users', 'chat_trusted BOOLEAN NOT NULL DEFAULT false'],
     ['users', 'is_suspended BOOLEAN DEFAULT false'],
     ['users', 'daily_listen_limit INTEGER'],
     ['users', 'is_locked BOOLEAN NOT NULL DEFAULT false'],

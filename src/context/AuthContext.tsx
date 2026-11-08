@@ -58,6 +58,7 @@ interface AuthContextType {
           role?: 'admin' | 'user';
           isApproved?: boolean;
           chatBlocked?: boolean;
+          chatTrusted?: boolean;
           isSuspended?: boolean;
           suspendedReason?: string;
           adminNote?: string;
@@ -294,6 +295,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role?: 'admin' | 'user';
           isApproved?: boolean;
           chatBlocked?: boolean;
+          chatTrusted?: boolean;
           isSuspended?: boolean;
           suspendedReason?: string;
           adminNote?: string;
@@ -314,6 +316,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role?: 'admin' | 'user';
       isApproved?: boolean;
       chatBlocked?: boolean;
+      chatTrusted?: boolean;
       isSuspended?: boolean;
       suspendedReason?: string;
       adminNote?: string;
@@ -333,6 +336,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: paramsOrUsername.role,
         isApproved: paramsOrUsername.isApproved,
         chatBlocked: paramsOrUsername.chatBlocked,
+        chatTrusted: paramsOrUsername.chatTrusted,
         isSuspended: paramsOrUsername.isSuspended,
         suspendedReason: paramsOrUsername.suspendedReason,
         adminNote: paramsOrUsername.adminNote,

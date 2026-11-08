@@ -24,12 +24,14 @@ import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
 import { User, ChatRequest, ChatThread, ChatMessage, ChatPairingBlock } from '../types';
 
+type ChatSafetyFlag = { id: string; threadId: string; senderUsername: string; receiverId: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: 'open' | 'dismissed'; lockedByAi?: boolean };
+
 export const ChatHub: React.FC = () => {
   const { currentUser, isAdmin, allUsers, adminUpdateUser } = useAuth();
 
   // Mode for Admin: 'oversight' | 'messages'
   const [adminViewMode, setAdminViewMode] = useState<'oversight' | 'messages'>('oversight');
-  const [adminSubTab, setAdminSubTab] = useState<'approvals' | 'live-feed' | 'threads' | 'force-start' | 'restrictions'>('approvals');
+  const [adminSubTab, setAdminSubTab] = useState<'approvals' | 'live-feed' | 'threads' | 'force-start' | 'restrictions' | 'safety'>('approvals');
 
   // Chat Data State
   const [requests, setRequests] = useState<ChatRequest[]>([]);
@@ -38,6 +40,7 @@ export const ChatHub: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [allModerationMessages, setAllModerationMessages] = useState<ChatMessage[]>([]);
   const [pairingBlocks, setPairingBlocks] = useState<ChatPairingBlock[]>([]);
+  const [moderationFlags, setModerationFlags] = useState<ChatSafetyFlag[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Send Message State
@@ -96,16 +99,19 @@ export const ChatHub: React.FC = () => {
     try {
       if (isAdmin && adminViewMode === 'oversight') {
         // Admin gets all requests, threads, live feed, blocks
-        const [reqs, thrs, allMsgs, blocks] = await Promise.all([
+        const [reqs, thrs, allMsgs, blocks, flagResponse] = await Promise.all([
           storage.getChatRequests(),
           storage.getChatThreads(),
           storage.getAllChatMessages(),
           storage.getChatPairingBlocks(),
+          fetch('/api/admin/chat/moderation-flags', { credentials: 'same-origin', cache: 'no-store' }),
         ]);
         setRequests(reqs);
         setThreads(thrs);
         setAllModerationMessages(allMsgs);
         setPairingBlocks(blocks);
+        const flagData = await flagResponse.json().catch(() => ({}));
+        setModerationFlags(flagResponse.ok && flagData.success && Array.isArray(flagData.flags) ? flagData.flags : []);
       } else {
         // Standard user or Admin in Personal mode gets their own requests and threads
         const [reqs, thrs] = await Promise.all([
@@ -247,13 +253,19 @@ export const ChatHub: React.FC = () => {
     setIsSubmittingRequest(false);
 
     if (res.success) {
-      setRequestFeedback('✓ Chat request submitted! Awaiting Administrator approval.');
+      if (res.autoApproved && res.thread) {
+        setRequestFeedback('✓ YouSound AI approved this trusted request. Your conversation is ready.');
+        await loadChatData();
+        setActiveThreadId(res.thread.id);
+      } else {
+        setRequestFeedback('✓ Chat request submitted! Awaiting Administrator approval.');
+      }
       setTimeout(() => {
         setIsRequestModalOpen(false);
         setSelectedTargetUser(null);
         setRequestReason('');
         setRequestFeedback(null);
-        loadChatData();
+        void loadChatData();
       }, 1800);
     } else {
       setRequestFeedback(`❌ ${res.error || 'Request could not be submitted'}`);
@@ -520,6 +532,9 @@ export const ChatHub: React.FC = () => {
             </span>
           </div>
         )}
+        <div className="mt-4 rounded-xl border border-cyan-400/15 bg-cyan-500/[.05] px-3 py-2.5 text-[10px] leading-5 text-slate-500 dark:text-slate-400">
+          Chat messages may be screened by automated Google Gemini safety checks. Messages flagged for serious concerns can be held and the conversation locked for administrator review. Administrators can also inspect chat transcripts. Do not share passwords, addresses, phone numbers, or other sensitive personal information here.
+        </div>
       </div>
 
       {/* ========================================================================= */}
@@ -583,6 +598,14 @@ export const ChatHub: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setAdminSubTab('safety')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${adminSubTab === 'safety' ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20' : 'text-rose-600 dark:text-rose-300 hover:text-rose-700 dark:hover:text-white'}`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>AI Safety Flags ({moderationFlags.filter(flag => flag.status === 'open').length})</span>
+            </button>
+
+            <button
               onClick={() => setAdminSubTab('restrictions')}
               className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
                 adminSubTab === 'restrictions'
@@ -604,7 +627,7 @@ export const ChatHub: React.FC = () => {
                     Chat Request Approval Queue
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    No message can be sent between regular users without explicit Admin approval.
+                    Most requests require administrator approval. A clearly safe request from an administrator-designated trusted account may be approved automatically. Unclear or failed AI reviews stay in the human queue.
                   </p>
                 </div>
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
@@ -629,6 +652,7 @@ export const ChatHub: React.FC = () => {
                           <span className="font-bold text-xs text-slate-900 dark:text-white">
                             {req.senderUsername}
                           </span>
+                          {allUsers.find(user => user.id === req.senderId)?.chatTrusted && <span className="inline-flex items-center rounded-full border border-cyan-400/25 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-black text-cyan-600 dark:text-cyan-200">TRUSTED SENDER</span>}
                           <span className="text-slate-400 text-xs">wants to chat with</span>
                           <span className="font-bold text-xs text-blue-600 dark:text-blue-400">
                             {req.receiverUsername}
@@ -954,6 +978,63 @@ export const ChatHub: React.FC = () => {
                   <span>Initiate & Pre-Approve Conversation</span>
                 </button>
               </form>
+            </div>
+          )}
+
+          {adminSubTab === 'safety' && (
+            <div className="liquid-glass-surface rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-white/10 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white font-display">AI Chat Safety Queue</h3>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">High-confidence serious concerns lock the thread. Uncertain messages are flagged for human review without automatically blocking the conversation.</p>
+                </div>
+                <span className="rounded-full bg-rose-500/10 px-3 py-1.5 text-[10px] font-bold text-rose-600 dark:text-rose-300">{moderationFlags.filter(flag => flag.status === 'open').length} open flags</span>
+              </div>
+              {moderationFlags.filter(flag => flag.status === 'open').length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-500">No open chat safety flags.</div>
+              ) : (
+                <div className="space-y-3">
+                  {moderationFlags.filter(flag => flag.status === 'open').map(flag => {
+                    const linkedThread = threads.find(thread => thread.id === flag.threadId);
+                    const reopen = async () => {
+                      const response = await fetch('/api/admin/chat/moderation-flags/' + encodeURIComponent(flag.id), {
+                        method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'reopen' }),
+                      });
+                      const data = await response.json().catch(() => ({}));
+                      if (!response.ok || !data.success) throw new Error(data.error || 'Could not reopen this conversation.');
+                      await loadChatData();
+                    };
+                    const dismiss = async () => {
+                      const response = await fetch('/api/admin/chat/moderation-flags/' + encodeURIComponent(flag.id), {
+                        method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'dismiss' }),
+                      });
+                      const data = await response.json().catch(() => ({}));
+                      if (!response.ok || !data.success) throw new Error(data.error || 'Could not dismiss this flag.');
+                      await loadChatData();
+                    };
+                    return <div key={flag.id} className="rounded-2xl border border-rose-400/20 bg-rose-500/[.04] p-4 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">@{flag.senderUsername}</span>
+                          <span className={'rounded-full px-2 py-1 text-[9px] font-black uppercase ' + (flag.severity === 'high' ? 'bg-rose-500/15 text-rose-500' : flag.severity === 'unverified' ? 'bg-amber-500/15 text-amber-500' : 'bg-orange-500/15 text-orange-500')}>{flag.severity}</span>
+                          <span className="text-[9px] font-bold uppercase tracking-wide text-slate-500">{flag.category.replace(/_/g, ' ')}</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500">{new Date(flag.createdAt).toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs leading-5 text-slate-700 dark:text-slate-200">{flag.reason}</p>
+                      {flag.excerpt && <blockquote className="rounded-lg border-l-2 border-rose-400/40 bg-white/[.04] px-3 py-2 text-[11px] leading-5 text-slate-500 dark:text-slate-400">{flag.excerpt}</blockquote>}
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {linkedThread && <button type="button" onClick={() => void handleInspectTranscript(linkedThread)} className="rounded-lg border border-white/10 px-3 py-2 text-[10px] font-bold text-slate-500 dark:text-slate-300">Inspect transcript</button>}
+                        {flag.lockedByAi && <button type="button" onClick={() => void reopen().catch((err:any)=>setGlobalChatFeedback(err.message))} className="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white">Review & reopen thread</button>}
+                        <button type="button" onClick={() => void dismiss().catch((err:any)=>setGlobalChatFeedback(err.message))} className="rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-[10px] font-bold text-rose-500 dark:text-rose-200">Dismiss flag</button>
+                      </div>
+                    </div>;
+                  })}
+                </div>
+              )}
+              {globalChatFeedback && <p className="text-[11px] text-rose-500">{globalChatFeedback}</p>}
             </div>
           )}
 
@@ -1533,7 +1614,7 @@ export const ChatHub: React.FC = () => {
                     Request a Chat
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    All new chat requests are reviewed by an Administrator.
+                    Trusted accounts may be auto-approved only when their reason is clear and safe. Other requests go to the administrator approval queue.
                   </p>
                 </div>
               </div>
@@ -1610,12 +1691,19 @@ export const ChatHub: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  2. Purpose / Reason for Chat (Optional)
+                  2. Purpose / Reason for Chat {currentUser?.chatTrusted ? '(Required for AI review)' : '(Optional)'}
                 </label>
+                <p className="mb-2 text-[10px] leading-4 text-slate-500 dark:text-slate-400">
+                  {currentUser?.chatTrusted
+                    ? 'Your trusted status allows YouSound AI to fast-track a clear, appropriate reason. Unclear reasons or unavailable AI checks still go to an administrator.'
+                    : 'A clear reason helps an administrator decide whether this conversation should be approved.'}
+                </p>
                 <textarea
                   value={requestReason}
                   onChange={(e) => setRequestReason(e.target.value)}
                   placeholder="e.g. Study group discussion for chemistry, sharing playlists, school project..."
+                  required={!!currentUser?.chatTrusted}
+                  minLength={currentUser?.chatTrusted ? 12 : undefined}
                   rows={2}
                   className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white resize-none"
                 />
@@ -1634,7 +1722,7 @@ export const ChatHub: React.FC = () => {
                   disabled={!selectedTargetUser || isSubmittingRequest}
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold text-xs shadow-md transition-all"
                 >
-                  {isSubmittingRequest ? 'Submitting...' : 'Send Request for Approval'}
+                  {isSubmittingRequest ? 'Submitting...' : currentUser?.chatTrusted ? 'Send Trusted Request' : 'Send Request for Approval'}
                 </button>
               </div>
             </form>

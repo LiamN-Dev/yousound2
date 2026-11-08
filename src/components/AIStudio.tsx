@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Bot, BrainCircuit, Loader2, RefreshCw, Send, Sparkles, UserRound } from 'lucide-react';
 
 type ChatMessage = { role: 'user' | 'model'; text: string };
+type MyQuestion = { id: string; question: string; status: 'pending' | 'answered' | 'dismissed'; answer?: string; createdAt: string };
 
 const starters = [
   'Recommend tracks for a focused study session.',
@@ -19,13 +20,35 @@ export const AIStudio: React.FC = () => {
   const [lastQuestion, setLastQuestion] = useState('');
   const [requestBusy, setRequestBusy] = useState(false);
   const [knowledgeFeedback, setKnowledgeFeedback] = useState('');
+  const [myQuestions, setMyQuestions] = useState<MyQuestion[]>([]);
+  const [myQuestionsError, setMyQuestionsError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const refreshMyQuestions = async () => {
+    try {
+      const response = await fetch('/api/ai/knowledge-requests/mine', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load your admin questions.');
+      setMyQuestions(Array.isArray(data.requests) ? data.requests : []);
+      setMyQuestionsError('');
+    } catch (err: any) {
+      setMyQuestionsError(err?.message || 'Could not load your admin questions.');
+    }
+  };
+
+  useEffect(() => {
+    void refreshMyQuestions();
+    const timer = window.setInterval(() => void refreshMyQuestions(), 20000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const send = async (raw: string) => {
     const message = raw.trim();
     if (!message || busy) return;
     const alreadyDisplayed = messages.length > 0 && messages[messages.length - 1].role === 'user' && messages[messages.length - 1].text === message;
-    const history = (alreadyDisplayed ? messages.slice(0, -1) : messages).slice(-8);
+    const history = (alreadyDisplayed ? messages.slice(0, -1) : messages)
+      .filter(item => !(item.role === 'model' && /welcome to yousound ai/i.test(item.text)))
+      .slice(-8);
     if (!alreadyDisplayed) setMessages(current => [...current, { role: 'user', text: message }]);
     setLastQuestion(message);
     setKnowledgeFeedback('');
@@ -70,6 +93,7 @@ export const AIStudio: React.FC = () => {
       setKnowledgeFeedback(data.duplicate
         ? 'Your question is already in the administrators’ queue.'
         : 'Your question has been sent to the administrators for a confirmed answer.');
+      await refreshMyQuestions();
     } catch (err: any) {
       setKnowledgeFeedback(err?.message || 'Could not contact the administrators.');
     } finally {
@@ -133,6 +157,18 @@ export const AIStudio: React.FC = () => {
           <button type="submit" disabled={busy || !draft.trim()} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-cyan-200 text-slate-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}</button>
         </form>
         <div className="px-5 pb-4 text-[9px] leading-4 text-slate-500">AI responses can be wrong. Do not share passwords or private account information in the chat.</div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#0a111e] text-white shadow-lg">
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div><h2 className="text-xs font-black">My questions to the admins</h2><p className="mt-1 text-[10px] text-slate-500">One-time answers are private to your account and do not become permanent AI knowledge.</p></div>
+          <button type="button" onClick={() => void refreshMyQuestions()} className="rounded-lg border border-white/10 p-2 text-slate-300 hover:bg-white/5" title="Refresh your questions"><RefreshCw className="h-3.5 w-3.5" /></button>
+        </div>
+        {myQuestionsError && <p className="border-b border-rose-300/10 px-4 py-2 text-[10px] text-rose-200">{myQuestionsError}</p>}
+        {myQuestions.length ? <div className="divide-y divide-white/5">{myQuestions.map(item => <div key={item.id} className="p-4">
+          <div className="flex items-start justify-between gap-3"><p className="min-w-0 whitespace-pre-wrap text-xs leading-5 text-slate-200">{item.question}</p><span className={'shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase '+(item.status==='answered'?'bg-emerald-400/10 text-emerald-200':item.status==='pending'?'bg-amber-400/10 text-amber-200':'bg-slate-500/10 text-slate-400')}>{item.status}</span></div>
+          {item.answer && <p className="mt-2 whitespace-pre-wrap rounded-xl border border-emerald-300/15 bg-emerald-300/[.05] p-3 text-xs leading-5 text-emerald-100">{item.answer}</p>}
+        </div>)}</div> : <p className="p-5 text-center text-[11px] text-slate-500">You have not sent any questions to the admin team.</p>}
       </section>
     </div>
   );

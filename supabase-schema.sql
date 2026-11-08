@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_song_listened TEXT,
   last_song_listened_at TIMESTAMPTZ,
   chat_blocked BOOLEAN DEFAULT false,
+  chat_trusted BOOLEAN NOT NULL DEFAULT false,
   is_suspended BOOLEAN DEFAULT false,
   suspended_reason TEXT,
   admin_note TEXT,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Upgrade existing installations safely.
 ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS daily_listen_limit INTEGER;
 ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS games_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS chat_trusted BOOLEAN NOT NULL DEFAULT false;
 
 -- One atomic listen counter per user per UTC calendar day.
 CREATE TABLE IF NOT EXISTS user_daily_listen_usage (

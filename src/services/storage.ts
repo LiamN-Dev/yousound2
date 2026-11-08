@@ -173,6 +173,7 @@ class StorageService {
         updated.suspendedReason !== current.suspendedReason ||
         updated.isApproved !== current.isApproved ||
         updated.chatBlocked !== current.chatBlocked ||
+        updated.chatTrusted !== current.chatTrusted ||
         updated.christmasMode !== current.christmasMode ||
         updated.gamesEnabled !== current.gamesEnabled ||
         updated.aiBetaEnabled !== current.aiBetaEnabled ||
@@ -324,6 +325,7 @@ class StorageService {
                 updated.username !== current.username ||
                 updated.temporaryPasswordAssigned !== current.temporaryPasswordAssigned ||
                 updated.chatBlocked !== current.chatBlocked ||
+                updated.chatTrusted !== current.chatTrusted ||
                 updated.isSuspended !== current.isSuspended ||
                 updated.isLocked !== current.isLocked ||
                 updated.christmasMode !== current.christmasMode ||
@@ -1081,6 +1083,7 @@ class StorageService {
       role?: 'admin' | 'user';
       isApproved?: boolean;
       chatBlocked?: boolean;
+      chatTrusted?: boolean;
       isSuspended?: boolean;
       suspendedReason?: string;
       adminNote?: string;
@@ -1119,6 +1122,7 @@ class StorageService {
             ...(params.role ? { role: params.role } : {}),
             ...(typeof params.isApproved === 'boolean' ? { isApproved: params.isApproved } : {}),
             ...(typeof params.chatBlocked === 'boolean' ? { chatBlocked: params.chatBlocked } : {}),
+            ...(typeof params.chatTrusted === 'boolean' ? { chatTrusted: params.chatTrusted } : {}),
             ...(typeof params.isSuspended === 'boolean' ? { isSuspended: params.isSuspended, suspendedReason: params.suspendedReason } : {}),
             ...(params.dailyListenLimit !== undefined ? { dailyListenLimit: params.dailyListenLimit } : {}),
             ...(typeof params.christmasMode === 'boolean' ? { christmasMode: params.christmasMode } : {}),
@@ -2039,7 +2043,7 @@ class StorageService {
     receiverId: string,
     receiverUsername: string,
     reason?: string
-  ): Promise<{ success: boolean; request?: ChatRequest; error?: string }> {
+  ): Promise<{ success: boolean; request?: ChatRequest; autoApproved?: boolean; thread?: ChatThread; error?: string }> {
     try {
       const res = await fetch('/api/chat/requests', {
         method: 'POST',
@@ -2054,7 +2058,12 @@ class StorageService {
       if (!data.success) {
         return { success: false, error: data.error || 'Failed to submit chat request' };
       }
-      return { success: true, request: data.request };
+      return {
+        success: true,
+        request: data.request,
+        autoApproved: data.autoApproved === true,
+        thread: data.thread,
+      };
     } catch (e: any) {
       return { success: false, error: e.message || 'Network error' };
     }

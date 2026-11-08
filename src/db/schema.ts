@@ -14,6 +14,7 @@ export const users = pgTable('users', {
   lastSongListened: text('last_song_listened'),
   lastSongListenedAt: timestamp('last_song_listened_at'),
   chatBlocked: boolean('chat_blocked').default(false),
+  chatTrusted: boolean('chat_trusted').notNull().default(false),
   isSuspended: boolean('is_suspended').default(false),
   suspendedReason: text('suspended_reason'),
   adminNote: text('admin_note'),

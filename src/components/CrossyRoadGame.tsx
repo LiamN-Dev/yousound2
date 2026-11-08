@@ -6,8 +6,27 @@ type LeaderboardEntry = { rank: number; username: string; highScore: number; tot
 
 const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
 const GOOGLE_CROSSY_ROAD_URL = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_URL || '').trim();
-const CROSSY_ROAD_SRC = GOOGLE_CROSSY_ROAD_URL || (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-google-build');
-const CROSSY_ROAD_TARGET_ORIGIN = GOOGLE_CROSSY_ROAD_URL ? '*' : CROSSY_ROAD_ORIGIN;
+const YOUSOUND_PARENT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
+const CROSSY_ROAD_SRC = GOOGLE_CROSSY_ROAD_URL
+  ? (() => {
+      try {
+        const url = new URL(GOOGLE_CROSSY_ROAD_URL);
+        url.searchParams.set('yousoundParentOrigin', YOUSOUND_PARENT_ORIGIN);
+        return url.toString();
+      } catch { return GOOGLE_CROSSY_ROAD_URL; }
+    })()
+  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-google-build');
+const GOOGLE_SCRIPT_ORIGINS = ['https://script.google.com', 'https://script.googleusercontent.com'];
+const GOOGLE_CONFIGURED_ORIGIN = (() => {
+  try {
+    const url = GOOGLE_CROSSY_ROAD_URL ? new URL(GOOGLE_CROSSY_ROAD_URL) : null;
+    return url && GOOGLE_SCRIPT_ORIGINS.includes(url.origin) ? url.origin : '';
+  } catch { return ''; }
+})();
+const CROSSY_ROAD_ALLOWED_ORIGINS = new Set(GOOGLE_CROSSY_ROAD_URL
+  ? [...GOOGLE_SCRIPT_ORIGINS, GOOGLE_CONFIGURED_ORIGIN]
+  : [CROSSY_ROAD_ORIGIN]);
+const CROSSY_ROAD_TARGET_ORIGINS = Array.from(CROSSY_ROAD_ALLOWED_ORIGINS);
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch('/api/games/crossy-road' + path, {
@@ -36,10 +55,12 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   statsRef.current = stats;
 
   const sendAccountUpdate = useCallback((next: Stats) => {
-    frameRef.current?.contentWindow?.postMessage(
-      { type: 'yousound-crossy-road:account-update', ...next },
-      CROSSY_ROAD_TARGET_ORIGIN
-    );
+    CROSSY_ROAD_TARGET_ORIGINS.forEach((origin) => {
+      frameRef.current?.contentWindow?.postMessage(
+        { type: 'yousound-crossy-road:account-update', ...next },
+        origin
+      );
+    });
   }, []);
 
   const refreshLeaderboard = useCallback(async () => {
@@ -128,7 +149,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frameRef.current?.contentWindow) return;
-      if (!GOOGLE_CROSSY_ROAD_URL && event.origin !== CROSSY_ROAD_ORIGIN) return;
+      if (!CROSSY_ROAD_ALLOWED_ORIGINS.has(event.origin)) return;
       const type = event.data?.type;
 
       if (type === 'yousound-crossy-road:ready') {
@@ -163,7 +184,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     </div>
     <section className="overflow-hidden rounded-[28px] border border-white/10 bg-[#090f1c] text-white shadow-2xl">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 p-4">
-        <div><div className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-200">YOUSOUND ARCADE</div><h2 className="mt-1 text-2xl font-black">Crossy Road</h2><p className="mt-1 text-xs text-slate-400">Original 3D gameplay, saved coins, and account-linked scores.</p></div>
+        <div><div className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-200">YOUSOUND ARCADE</div><h2 className="mt-1 text-2xl font-black">Crossy Road</h2><p className="mt-1 text-xs text-slate-400">Voxel-style crossing gameplay, with YouSound coins and best runs synced to your account.</p></div>
         <div className="text-right text-[10px] text-slate-400">{stats.totalGames.toLocaleString()} saved runs</div>
       </div>
       <div className="bg-black p-1 sm:p-2">
@@ -178,6 +199,9 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           />
         </div>
       </div>
+      {!GOOGLE_CROSSY_ROAD_URL && <div className="border-t border-amber-300/15 bg-amber-300/[.04] px-4 py-3 text-[11px] leading-5 text-amber-100/80">
+        This build is loading Crossy Road from Cloudflare. Some school networks block that host. To use the Google-hosted build, set the Render build variable <code className="rounded bg-black/30 px-1">VITE_GOOGLE_CROSSY_ROAD_URL</code> to your approved Apps Script web-app <code className="rounded bg-black/30 px-1">/exec</code> URL. Your school may still need to allow the official Apps Script domains.
+      </div>}
       {(message || error) && <div className={'border-t border-white/10 px-4 py-3 text-xs ' + (error ? 'text-rose-300' : 'text-emerald-200')}>{error || message}</div>}
     </section>
     <section className="overflow-hidden rounded-3xl border border-amber-200/20 bg-[#111925] text-white shadow-lg">

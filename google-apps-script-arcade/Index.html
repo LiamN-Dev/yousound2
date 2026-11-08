@@ -156,7 +156,7 @@
       </section>
       <section class="info-panel">
         <div class="panel-label">Field notes</div>
-        <p style="margin:8px 0 0;color:rgba(213,239,231,.64);font-size:10px;line-height:1.65">Road traffic moves in both directions. River logs carry you along, so keep hopping to the next safe patch. Warning lights mean a train is approaching. Coins and best runs are saved on this device.</p>
+        <p style="margin:8px 0 0;color:rgba(213,239,231,.64);font-size:10px;line-height:1.65">Road traffic moves in both directions. River logs carry you along, so keep hopping to the next safe patch. Warning lights mean a train is approaching. In the YouSound site, account coins and best runs sync after each completed run; character unlocks are saved on this browser.</p>
       </section>
     </div>
 
@@ -198,6 +198,20 @@
       let saved = loadSave();
       let coins = saved.coins;
       let best = saved.best;
+      let parentOrigin = '';
+      try {
+        const suppliedOrigin = new URLSearchParams(window.location.search).get('yousoundParentOrigin') || '';
+        const parsedOrigin = new URL(suppliedOrigin);
+        if (parsedOrigin.protocol === 'https:') parentOrigin = parsedOrigin.origin;
+      } catch (_) {}
+      if (!parentOrigin) {
+        try {
+          const referrerOrigin = new URL(document.referrer).origin;
+          if (referrerOrigin && referrerOrigin !== 'null' && !['https://script.google.com', 'https://script.googleusercontent.com'].includes(referrerOrigin)) {
+            parentOrigin = referrerOrigin;
+          }
+        } catch (_) {}
+      }
       let unlocked = new Set(saved.unlocked);
       let characterId = saved.character || 'chick';
       if (!unlocked.has('chick')) unlocked.add('chick');
@@ -546,7 +560,7 @@
         overlayText.textContent='You crossed ' + score + ' rows and collected coins. Best run: ' + best + '. Give it another try.';
         document.getElementById('start').textContent='CROSS AGAIN';
         overlay.style.display='flex';
-        try{window.parent.postMessage({type:'yousound-crossy-road:run-finished',score:score},'*');}catch(_){}
+        try{if(parentOrigin)window.parent.postMessage({type:'yousound-crossy-road:run-finished',score:score},parentOrigin);}catch(_){}
       }
       function start() {
         rows=new Map();coinObjects=[];particles=[];worldTime=0;score=0;gameOver=false;running=true;lastFrame=0;cameraZ=0;spawnCoinsClock=0;
@@ -555,7 +569,7 @@
         spawnCoins();
         scoreNode.textContent='0';overlay.style.display='none';document.getElementById('start').textContent='START CROSSING';
         render();
-        try{window.parent.postMessage({type:'yousound-crossy-road:run-started'},'*');}catch(_){}
+        try{if(parentOrigin)window.parent.postMessage({type:'yousound-crossy-road:run-started'},parentOrigin);}catch(_){}
         requestAnimationFrame(loop);
         canvas.focus();
       }
@@ -635,9 +649,23 @@
         else move(dy>0?'down':'up');
       });
 
+      window.addEventListener('message', event => {
+        if (event.source !== window.parent || !parentOrigin || event.origin !== parentOrigin) return;
+        const data = event.data || {};
+        if (data.type === 'yousound-crossy-road:account-update') {
+          coins = Math.max(0, Number(data.coins) || 0);
+          best = Math.max(0, Number(data.highScore) || 0);
+          updateHud();
+          renderCharacters();
+          save();
+        }
+      });
       function initialize() {
         coinsNode.textContent=String(coins);bestNode.textContent=String(best);scoreNode.textContent='0';
         renderCharacters();resize();render();
+        if (window.parent && window.parent !== window) {
+          try { if (parentOrigin) window.parent.postMessage({ type: 'yousound-crossy-road:ready' }, parentOrigin); } catch (_) {}
+        }
         if(window.google&&google.script&&google.script.run){
           google.script.run.withSuccessHandler(result=>{
             runtimeNode.textContent=result&&result.ok?'APPS SCRIPT SERVER ONLINE':'RUNTIME RESPONSE UNEXPECTED';

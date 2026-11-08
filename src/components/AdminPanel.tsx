@@ -114,6 +114,7 @@ export const AdminPanel: React.FC = () => {
   const [editRole, setEditRole] = useState<'admin' | 'user'>('user');
   const [editDailyListenLimit, setEditDailyListenLimit] = useState('');
   const [editChatBlocked, setEditChatBlocked] = useState(false);
+  const [editChatTrusted, setEditChatTrusted] = useState(false);
   const [editIsSuspended, setEditIsSuspended] = useState(false);
   const [editSuspendedReason, setEditSuspendedReason] = useState('');
   const [userEditFeedback, setUserEditFeedback] = useState<string | null>(null);
@@ -249,6 +250,7 @@ export const AdminPanel: React.FC = () => {
       role: editRole,
       dailyListenLimit: editDailyListenLimit.trim() === '' ? null : Number(editDailyListenLimit),
       chatBlocked: editChatBlocked,
+      chatTrusted: editChatTrusted,
       isSuspended: editIsSuspended,
       suspendedReason: editIsSuspended ? (editSuspendedReason.trim() || 'Suspended by Administrator') : '',
     });
@@ -1133,6 +1135,7 @@ export const AdminPanel: React.FC = () => {
                       <td className="py-3 pl-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-white">{u.username}</span>
+                          {u.chatTrusted && <span className="inline-flex items-center rounded-full border border-cyan-400/25 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-bold text-cyan-200">TRUSTED</span>}
                           {isCurrentAdmin && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-400/20 text-cyan-300 border border-cyan-400/40 font-bold shadow-xs">
                               You (Current Admin)
@@ -1205,6 +1208,7 @@ export const AdminPanel: React.FC = () => {
                               setEditRole(u.role);
                               setEditDailyListenLimit(u.dailyListenLimit == null ? '' : String(u.dailyListenLimit));
                               setEditChatBlocked(!!u.chatBlocked);
+                              setEditChatTrusted(!!u.chatTrusted);
                               setEditIsSuspended(!!u.isSuspended);
                               setEditSuspendedReason(u.suspendedReason || '');
                             }}
@@ -1364,6 +1368,18 @@ export const AdminPanel: React.FC = () => {
                         {editChatBlocked ? <Ban className="w-3.5 h-3.5" /> : <CheckCircle className="w-3.5 h-3.5" />}
                         <span>{editChatBlocked ? 'Blocked' : 'Enabled'}</span>
                       </button>
+                    </div>
+
+                    <div className="sm:col-span-3 rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-cyan-100">Trusted chat user</label>
+                          <p className="mt-1 max-w-lg text-[10px] leading-4 text-slate-400">Only administrators can grant this. Trusted members may have a clearly safe chat request auto-approved by AI; uncertain requests still go to the admin queue.</p>
+                        </div>
+                        <button type="button" role="switch" aria-checked={editChatTrusted} onClick={() => setEditChatTrusted(value => !value)} className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${editChatTrusted ? 'bg-cyan-500' : 'bg-slate-700'}`} aria-label="Mark account as trusted for chat">
+                          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${editChatTrusted ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
                     </div>
 
                     <div>

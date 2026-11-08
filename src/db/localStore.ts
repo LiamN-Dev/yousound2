@@ -47,6 +47,7 @@ class LocalStore {
     this.data.userDailyListenUsage ||= {};
     for (const user of this.data.users) {
       if (user.dailyListenLimit === undefined) user.dailyListenLimit = null;
+      if (user.chatTrusted === undefined) user.chatTrusted = false;
     }
   }
 
@@ -93,6 +94,7 @@ class LocalStore {
       lastSongListened: null,
       lastSongListenedAt: null,
       chatBlocked: false,
+      chatTrusted: false,
       isSuspended: false,
       suspendedReason: null,
       adminNote: null,
@@ -265,6 +267,7 @@ class LocalStore {
       lastSongListened: null,
       lastSongListenedAt: null,
       chatBlocked: false,
+      chatTrusted: false,
       isSuspended: false,
       suspendedReason: null,
       adminNote: null,
