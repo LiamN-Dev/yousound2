@@ -35,6 +35,7 @@ import { SectionMaintenanceNotice } from './components/SectionMaintenanceNotice'
 import { ChristmasEffects } from './components/ChristmasEffects';
 import { StatusView } from './components/StatusView';
 import { BetterStackAnnouncement } from './components/BetterStackAnnouncement';
+import { CosmicHero } from './components/CosmicHero';
 
 const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
@@ -218,6 +219,10 @@ const MainAppContent: React.FC = () => {
           <>
         {activeTab === 'library' && (
           <div className="space-y-6 pb-28">
+            {!spotlightActive && <CosmicHero
+              onOpenRadio={() => setActiveTab('radio')}
+              onExploreLibrary={() => document.getElementById('ys-library-feed')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            />}
             {spotlightActive ? (
               /* When Spotlight is active, ONLY spotlight songs appear and all other bars/things are hidden */
               <SpotlightShowcase
@@ -235,7 +240,7 @@ const MainAppContent: React.FC = () => {
                 <PersonalizedBar onOpenPlaylistModal={handleOpenPlaylistModal} />
 
                 {/* Genre Filter Bar & Counter */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                <div id="ys-library-feed" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 scroll-mt-24">
                   <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 w-fit overflow-x-auto max-w-full">
                     {dynamicGenres.map((g) => (
                       <button
