@@ -429,7 +429,7 @@ export const ChatHub: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 pb-28 sm:pb-36">
+    <div className="ys-chat-hub max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 pb-28 sm:pb-36">
       {/* Top Header Banner */}
       <div className="liquid-glass-surface rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-white/10 shadow-lg relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
