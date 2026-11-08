@@ -345,12 +345,12 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 2: Playlists */}
         {activeTab === 'playlists' && (
-          {isDesignBeta ? <PlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} /> : <LegacyPlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} />}
+          isDesignBeta ? <PlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} /> : <LegacyPlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} />
         )}
 
         {/* Tab 3: Favorites */}
         {activeTab === 'favorites' && (
-          {isDesignBeta ? <FavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} /> : <LegacyFavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} />}
+          isDesignBeta ? <FavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} /> : <LegacyFavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} />
         )}
 
         {/* Tab 4: Chat & School Messaging */}
