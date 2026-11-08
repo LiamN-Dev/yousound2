@@ -6,21 +6,11 @@ type LeaderboardEntry = { rank: number; username: string; highScore: number; tot
 
 const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
 const GOOGLE_CROSSY_ROAD_URL = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_URL || '').trim();
-// The Apps Script build is an experimental 2D prototype, not the production-quality
-// Crossy Road experience. Keep it opt-in until its gameplay has passed real testing.
-const GOOGLE_CROSSY_ROAD_ENABLED = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_ENABLED || '').trim().toLowerCase() === 'true';
-const USE_GOOGLE_CROSSY_ROAD = Boolean(GOOGLE_CROSSY_ROAD_URL && GOOGLE_CROSSY_ROAD_ENABLED);
+// The configured Google Apps Script deployment is the school-network arcade host.
+// Do not require a second undocumented opt-in flag: the URL itself is the admin's
+// explicit choice of game host.
+const USE_GOOGLE_CROSSY_ROAD = Boolean(GOOGLE_CROSSY_ROAD_URL);
 const YOUSOUND_PARENT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
-const CROSSY_ROAD_SRC = USE_GOOGLE_CROSSY_ROAD
-  ? (() => {
-      try {
-        const url = new URL(GOOGLE_CROSSY_ROAD_URL);
-        if (!['https://script.google.com', 'https://script.googleusercontent.com'].includes(url.origin)) return CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production';
-        url.searchParams.set('yousoundParentOrigin', YOUSOUND_PARENT_ORIGIN);
-        return url.toString();
-      } catch { return CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production'; }
-    })()
-  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production');
 const GOOGLE_SCRIPT_ORIGINS = ['https://script.google.com', 'https://script.googleusercontent.com'];
 const GOOGLE_CONFIGURED_ORIGIN = (() => {
   try {
@@ -28,6 +18,15 @@ const GOOGLE_CONFIGURED_ORIGIN = (() => {
     return url && GOOGLE_SCRIPT_ORIGINS.includes(url.origin) ? url.origin : '';
   } catch { return ''; }
 })();
+const GOOGLE_CROSSY_ROAD_INVALID = USE_GOOGLE_CROSSY_ROAD && !GOOGLE_CONFIGURED_ORIGIN;
+const CROSSY_ROAD_SRC = USE_GOOGLE_CROSSY_ROAD
+  ? (() => {
+      if (!GOOGLE_CONFIGURED_ORIGIN) return 'about:blank';
+      const url = new URL(GOOGLE_CROSSY_ROAD_URL);
+      url.searchParams.set('yousoundParentOrigin', YOUSOUND_PARENT_ORIGIN);
+      return url.toString();
+    })()
+  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production');
 const CROSSY_ROAD_ALLOWED_ORIGINS = new Set(USE_GOOGLE_CROSSY_ROAD
   ? [...GOOGLE_SCRIPT_ORIGINS, GOOGLE_CONFIGURED_ORIGIN]
   : [CROSSY_ROAD_ORIGIN]);
@@ -204,11 +203,12 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           />
         </div>
       </div>
-      {!USE_GOOGLE_CROSSY_ROAD && <div className="border-t border-amber-300/15 bg-amber-300/[.04] px-4 py-3 text-[11px] leading-5 text-amber-100/80">
-        {GOOGLE_CROSSY_ROAD_URL
-          ? 'Google Apps Script URL detected, but its experimental 2D prototype is intentionally not enabled in the live arcade. The production game remains on the full hosted build until the Google version passes gameplay testing. Do not enable it just to make the URL appear.'
-          : 'The production arcade is loading the full hosted Crossy Road build. Some school networks block its host; ask school IT to review the official game-host domain rather than using the untested Google prototype.'}
+      {GOOGLE_CROSSY_ROAD_URL && <div className={'border-t px-4 py-3 text-[11px] leading-5 ' + (GOOGLE_CROSSY_ROAD_INVALID ? 'border-rose-300/15 bg-rose-300/[.04] text-rose-100' : 'border-cyan-300/15 bg-cyan-300/[.04] text-cyan-100')}>
+        {GOOGLE_CROSSY_ROAD_INVALID
+          ? 'The configured Google Crossy Road URL is invalid. It must be a Google Apps Script /exec deployment on script.google.com or script.googleusercontent.com.'
+          : 'Arcade host: Google Apps Script. This is the configured school-friendly deployment.'}
       </div>}
+      {!GOOGLE_CROSSY_ROAD_URL && <div className="border-t border-amber-300/15 bg-amber-300/[.04] px-4 py-3 text-[11px] leading-5 text-amber-100/80">No VITE_GOOGLE_CROSSY_ROAD_URL was embedded in this build, so the arcade is still using its default host. Confirm the variable is set on the production Render service and trigger a new deploy.</div>}
       {(message || error) && <div className={'border-t border-white/10 px-4 py-3 text-xs ' + (error ? 'text-rose-300' : 'text-emerald-200')}>{error || message}</div>}
     </section>
     <section className="overflow-hidden rounded-3xl border border-amber-200/20 bg-[#111925] text-white shadow-lg">
