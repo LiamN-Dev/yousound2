@@ -14,6 +14,7 @@ import { ManualSongUploader } from './ManualSongUploader';
 import { AdminDatabaseManager } from './AdminDatabaseManager';
 import { AdminMediaIdManager } from './AdminMediaIdManager';
 import { AdminBetaAccess } from './AdminBetaAccess';
+import { AdminAIKnowledge } from './AdminAIKnowledge';
 import {
   Shield,
   Hash,
@@ -100,7 +101,7 @@ export const AdminPanel: React.FC = () => {
   const { allSongs, adminAllSongs, deleteSong, updateSong, playSong, clearAllSongs, autoTagRules } = useAudio();
 
   const [adminTab, setAdminTab] = useState<
-    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'betas' | 'maintenance' | 'popups' | 'database'
+    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'betas' | 'aiknowledge' | 'maintenance' | 'popups' | 'database'
   >('songs');
 
   // Edit Song Modal State
@@ -640,6 +641,14 @@ export const AdminPanel: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setAdminTab('aiknowledge')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${adminTab === 'aiknowledge' ? 'bg-violet-600 text-white shadow-md shadow-violet-500/20' : 'text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-600/10'}`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            AI Knowledge
+          </button>
+
+          <button
             onClick={() => setAdminTab('maintenance')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
               adminTab === 'maintenance'
@@ -1069,6 +1078,7 @@ export const AdminPanel: React.FC = () => {
       )}
 
       {adminTab === 'betas' && <AdminBetaAccess users={allUsers} onUpdateUser={adminUpdateUser} />}
+      {adminTab === 'aiknowledge' && <AdminAIKnowledge />}
 
       {/* TAB 5: USERS & PASSWORDS */}
       {adminTab === 'users' && (
