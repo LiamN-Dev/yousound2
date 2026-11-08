@@ -1426,6 +1426,7 @@ const AI_FACTS_SETTING = 'ai_site_facts_v1';
 const AI_REQUESTS_SETTING = 'ai_temporary_question_requests_v1';
 const AI_DIAGNOSTICS_SETTING = 'ai_provider_diagnostics_v1';
 const LEGACY_AI_KNOWLEDGE_SETTING = 'ai_site_knowledge_v1';
+const LEGACY_AI_REQUESTS_SETTING = 'ai_knowledge_requests_v1';
 let betterStackStatusCache: { expiresAt: number; value: BetterStackStatus } | null = null;
 
 function getBetterStackStatusPageUrl(): string {
@@ -1518,8 +1519,22 @@ async function getAiPermanentFacts(): Promise<AiPermanentFact[]> {
   return Array.isArray(facts) ? facts.filter((item) => item && item.title && item.content).slice(-80) : [];
 }
 async function getAiTemporaryRequests(): Promise<AiKnowledgeRequest[]> {
-  const requests = await getPersistentSettingDb<AiKnowledgeRequest[]>(AI_REQUESTS_SETTING);
-  return Array.isArray(requests) ? requests.slice(-500) : [];
+  const current = await getPersistentSettingDb<AiKnowledgeRequest[]>(AI_REQUESTS_SETTING);
+  if (Array.isArray(current)) return current.slice(-500);
+  const legacy = await getPersistentSettingDb<any[]>(LEGACY_AI_REQUESTS_SETTING);
+  if (!Array.isArray(legacy)) return [];
+  const migrated: AiKnowledgeRequest[] = legacy.slice(-500).map((item: any) => ({
+    id: String(item.id || ('legacy_request_' + randomBytes(4).toString('hex'))).slice(0, 100),
+    uid: String(item.uid || item.userId || ''),
+    username: String(item.username || item.senderUsername || 'User').slice(0, 40),
+    question: String(item.question || '').slice(0, 500),
+    status: item.status === 'resolved' || item.status === 'answered' ? 'answered' : item.status === 'dismissed' || item.status === 'declined' ? 'dismissed' : 'pending',
+    createdAt: String(item.createdAt || item.created_at || new Date().toISOString()),
+    answer: typeof item.answer === 'string' ? item.answer.slice(0, 1400) : undefined,
+    reviewedAt: item.reviewedAt ? String(item.reviewedAt) : undefined,
+  })).filter((item) => item.uid && item.question);
+  await setPersistentSettingDb(AI_REQUESTS_SETTING, migrated);
+  return migrated;
 }
 
 /* ----------------- YOUSOUND AI: PRIVATE BETA ----------------- */
@@ -1698,7 +1713,7 @@ app.get('/api/admin/ai/knowledge', async (req: Request, res: Response) => {
       liveStatus,
       requests: requests.slice(-150).reverse(),
       diagnostics: Array.isArray(diagnostics) ? diagnostics.slice(-50).reverse() : [],
-      legacyEntries: Array.isArray(legacy?.entries) ? legacy.entries : [],
+      legacyEntries: Array.isArray(legacy?.entries) ? legacy.entries.map((item: any, index: number) => ({ ...item, id: String(item.id || ('legacy_' + index)) })) : [],
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message || 'Could not load AI operations data.' });
