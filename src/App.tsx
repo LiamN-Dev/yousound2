@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AudioProvider, useAudio } from './context/AudioContext';
 import { Header } from './components/Header';
+import { LegacyHeader } from './components/LegacyHeader';
 import { PersonalizedBar } from './components/PersonalizedBar';
 import { SongCard } from './components/SongCard';
 import { PlayerBar } from './components/PlayerBar';
@@ -15,7 +16,9 @@ import { ManualSongUploader } from './components/ManualSongUploader';
 import { EditSongModal } from './components/EditSongModal';
 import { AdminPanel } from './components/AdminPanel';
 import { PlaylistsView } from './components/PlaylistsView';
+import { LegacyPlaylistsView } from './components/LegacyPlaylistsView';
 import { FavoritesView } from './components/FavoritesView';
+import { LegacyFavoritesView } from './components/LegacyFavoritesView';
 import { PopupDisplay } from './components/PopupDisplay';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { LoginGate } from './components/LoginGate';
@@ -23,9 +26,11 @@ import { PendingApprovalScreen } from './components/PendingApprovalScreen';
 import { SuspendedScreen } from './components/SuspendedScreen';
 import { AccountLockScreen } from './components/AccountLockScreen';
 import { ChatHub } from './components/ChatHub';
+import { LegacyChatHub } from './components/LegacyChatHub';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
 import { GamesHub } from './components/GamesHub';
+import { AIStudio } from './components/AIStudio';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
@@ -45,13 +50,14 @@ const MainAppContent: React.FC = () => {
   const { currentUser, maintenanceState, isAdmin, bannerConfig } = useAuth();
   const { allSongs, adminAllSongs, spotlightConfig, bulkUpdateSongs, refreshSongLibrary, updateSong } = useAudio();
   const christmasMode = !!currentUser?.christmasMode;
+  const isDesignBeta = isAdmin || currentUser?.redesignBetaEnabled === true;
   const [spotlightClock, setSpotlightClock] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setSpotlightClock(Date.now()), 15000); return () => window.clearInterval(timer); }, []);
   const spotlightActive = spotlightConfig.enabled
     && (!spotlightConfig.startsAt || new Date(spotlightConfig.startsAt).getTime() <= spotlightClock)
     && (!spotlightConfig.endsAt || new Date(spotlightConfig.endsAt).getTime() > spotlightClock);
 
-  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
 
@@ -167,6 +173,10 @@ const MainAppContent: React.FC = () => {
     }
   }, [isAdmin, currentUser?.gamesEnabled, activeTab]);
 
+  useEffect(() => {
+    if (!isAdmin && !currentUser?.aiBetaEnabled && activeTab === 'ai') setActiveTab('library');
+  }, [isAdmin, currentUser?.aiBetaEnabled, activeTab]);
+
   const handleOpenPlaylistModal = (song: Song | null) => {
     if (spotlightActive && !isAdmin) return;
     if (maintenanceState.tabMaintenance?.playlists?.enabled && !isAdmin) {
@@ -190,21 +200,21 @@ const MainAppContent: React.FC = () => {
         ? 'Chat'
         : 'Music Library';
 
+  const Navigation = isDesignBeta ? Header : LegacyHeader;
+
   return (
-    <div className="ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors">
-      <CosmicBackdrop />
-      <CosmicCursorAura />
+    <div className={isDesignBeta ? 'ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors' : 'min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors'}>
+      {isDesignBeta && <><CosmicBackdrop /><CosmicCursorAura /></>}
       {christmasMode && <ChristmasEffects />}
-      <div className="ys-ambient-backdrop fixed inset-0 overflow-hidden pointer-events-none z-0" />
-      {/* Subtle Studio Ambient Lighting in Dark Mode */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0 hidden dark:block">
+      {isDesignBeta && <div className="ys-ambient-backdrop fixed inset-0 overflow-hidden pointer-events-none z-0" />}
+      {isDesignBeta && <div className="fixed inset-0 overflow-hidden pointer-events-none z-0 hidden dark:block">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[400px] bg-blue-600/[0.06] rounded-full blur-[140px]" />
         <div className="absolute top-1/3 -right-20 w-[500px] h-[500px] bg-indigo-600/[0.04] rounded-full blur-[150px]" />
-      </div>
+      </div>}
 
       {/* Top Bar with Navigation & Theme Toggle */}
       <div className="relative z-30">
-        <Header
+        <Navigation
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           searchQuery={searchQuery}
@@ -218,7 +228,7 @@ const MainAppContent: React.FC = () => {
       </div>
 
       {/* Main View Area */}
-      <main className="ys-main-content relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className={(isDesignBeta ? 'ys-main-content ' : '') + 'relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4'}>
         <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={activeTab}
@@ -335,16 +345,16 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 2: Playlists */}
         {activeTab === 'playlists' && (
-          <PlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} />
+          {isDesignBeta ? <PlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} /> : <LegacyPlaylistsView onOpenPlaylistModal={handleOpenPlaylistModal} />}
         )}
 
         {/* Tab 3: Favorites */}
         {activeTab === 'favorites' && (
-          <FavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} />
+          {isDesignBeta ? <FavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} /> : <LegacyFavoritesView onOpenPlaylistModal={handleOpenPlaylistModal} />}
         )}
 
         {/* Tab 4: Chat & School Messaging */}
-        {activeTab === 'chat' && <ChatHub />}
+        {activeTab === 'chat' && (isDesignBeta ? <ChatHub /> : <LegacyChatHub />)}
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
@@ -357,6 +367,7 @@ const MainAppContent: React.FC = () => {
             refreshSongLibrary={refreshSongLibrary}
           />
         )}
+        {activeTab === 'ai' && (isAdmin || currentUser.aiBetaEnabled) && <AIStudio />}
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
