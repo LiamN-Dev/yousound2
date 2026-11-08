@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Gamepad2, Palette, Search, Sparkles } from 'lucide-react';
-import { User } from '../types';
+import type { User } from '../types';
 
 type BetaKey = 'aiBetaEnabled' | 'redesignBetaEnabled' | 'gamesEnabled';
 type BetaUpdate = Partial<Record<BetaKey, boolean>>;
