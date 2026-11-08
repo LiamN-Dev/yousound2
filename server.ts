@@ -1622,7 +1622,7 @@ async function saveAiDiagnostic(requestId: string, error: any, statusCode: numbe
     const next: AiDiagnostic = {
       requestId,
       createdAt: new Date().toISOString(),
-      model: 'gemini-3.8-flash',
+      model: String(model).slice(0, 120),
       statusCode,
       errorName: String(error?.name || 'ProviderError').slice(0, 80),
       message: message.slice(0, 360),
@@ -1704,9 +1704,10 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     const providerMessage = String(error?.message || '');
     console.error('[YouSound AI] Request ' + requestId + ' failed (status ' + (statusCode || 'unknown') + '):', error);
     await saveAiDiagnostic(requestId, error, statusCode, String(error?.providerModel || 'gemini-fallback-chain'));
-    if (statusCode === 429 || /quota|rate.?limit|resource exhausted/i.test(providerMessage)) return res.status(429).json({ success: false, requestId, error: 'YouSound AI has reached its current Google AI usage limit. Please try again later.' });
-    if (statusCode === 401 || statusCode === 403 || /api.?key|unauthorized|permission denied/i.test(providerMessage)) return res.status(503).json({ success: false, requestId, error: 'YouSound AI could not authenticate with Google AI. Check the server API key and permissions.' });
-    if (/model.*not found|not supported/i.test(providerMessage)) return res.status(503).json({ success: false, requestId, error: 'The configured AI model is unavailable to this API key.' });
+    if (statusCode === 429 || /quota|rate.?limit|resource exhausted/i.test(providerMessage)) return res.status(429).json({ success: false, requestId, error: 'Google AI has applied a usage limit to all configured fallback models. Please try again later.' });
+    if (statusCode === 401 || statusCode === 403 || /api.?key|unauthorized|permission denied/i.test(providerMessage)) return res.status(503).json({ success: false, requestId, error: 'YouSound AI could not authenticate with Google AI. An administrator needs to check the server API key and permissions.' });
+    if (/model.*not found|not supported/i.test(providerMessage)) return res.status(503).json({ success: false, requestId, error: 'None of the configured Gemini models is available to this API key.' });
+    if (statusCode === 503 || /UNAVAILABLE|overloaded|temporarily unavailable|high demand/i.test(providerMessage)) return res.status(503).json({ success: false, requestId, error: 'Google AI is currently overloaded. YouSound tried its backup models, but none is responding yet. Please retry shortly.' });
     if (/history|turn|role|content.*sequence|prefill/i.test(providerMessage)) return res.status(502).json({ success: false, requestId, error: 'The AI conversation history was rejected. An administrator can inspect this diagnostic.' });
     return res.status(502).json({ success: false, requestId, error: 'The AI provider request failed. An administrator can inspect the stored diagnostic.' });
   }
