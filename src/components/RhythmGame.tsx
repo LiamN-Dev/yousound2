@@ -364,7 +364,12 @@ export const RhythmGame: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         src={song?.audioUrl ? playableAudioUrl(song.audioUrl) : undefined}
         preload="auto"
         onEnded={() => { if (startedRef.current) void finishGame(); }}
-        onError={() => { if (startedRef.current) setError('The track audio stream failed.'); }}
+        onError={() => {
+          if (startedRef.current) {
+            stopAnimation();
+            setError('The track audio stream failed. Your run was stopped safely; check the song stream and try again.');
+          }
+        }}
       />
 
       <section className="relative overflow-hidden rounded-3xl border border-cyan-400/25 bg-slate-950 text-white shadow-xl">
