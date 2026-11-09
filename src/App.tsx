@@ -392,7 +392,7 @@ const MainAppContent: React.FC = () => {
           />
         )}
         {activeTab === 'ai' && (isAdmin || currentUser?.aiBetaEnabled === true) && <AIStudio />}
-        <AIAnswerNotifier enabled={!!currentUser && (isAdmin || currentUser.aiBetaEnabled === true)} onOpenAI={() => setActiveTab('ai')} />
+
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
@@ -444,6 +444,7 @@ const MainAppContent: React.FC = () => {
 
       {/* One bundled catch-up alert for song, chat, feature and bug updates after login */}
       <LoginActivityDigest />
+      <AIAnswerNotifier enabled={!!currentUser && (isAdmin || currentUser.aiBetaEnabled === true)} onOpenAI={() => setActiveTab('ai')} />
 
       {/* Edit Song Modal from Uploader */}
       {uploaderEditSong && (
