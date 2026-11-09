@@ -31,6 +31,7 @@ import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
 import { GamesHub } from './components/GamesHub';
 import { AIStudio } from './components/AIStudio';
+import { AIAnswerNotifier } from './components/AIAnswerNotifier';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
@@ -391,6 +392,7 @@ const MainAppContent: React.FC = () => {
           />
         )}
         {activeTab === 'ai' && (isAdmin || currentUser?.aiBetaEnabled === true) && <AIStudio />}
+        <AIAnswerNotifier enabled={!!currentUser && (isAdmin || currentUser.aiBetaEnabled === true)} onOpenAI={() => setActiveTab('ai')} />
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
