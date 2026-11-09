@@ -3,6 +3,7 @@ import { ArrowUp, Bot, BrainCircuit, Loader2, RefreshCw, Send, Sparkles, UserRou
 
 type ChatMessage = { role: 'user' | 'model'; text: string };
 type MyQuestion = { id: string; question: string; status: 'pending' | 'answered' | 'dismissed'; answer?: string; createdAt: string };
+type SavedConversation = { id: string; title: string; updatedAt: string; messages: ChatMessage[] };
 
 const starters = [
   'Recommend tracks for a focused study session.',
@@ -11,9 +12,11 @@ const starters = [
 ];
 
 export const AIStudio: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Welcome to YouSound AI. I can help you discover music from the library, build listening ideas, and explain how YouSound works. What are you looking for?' },
-  ]);
+  const welcome: ChatMessage = { role: 'model', text: 'Welcome to YouSound AI. I can help you discover music from the library, build listening ideas, and explain how YouSound works. What are you looking for?' };
+  const [messages, setMessages] = useState<ChatMessage[]>([welcome]);
+  const [conversations, setConversations] = useState<SavedConversation[]>([]);
+  const [conversationId, setConversationId] = useState('');
+  const [conversationsLoading, setConversationsLoading] = useState(true);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -52,6 +55,54 @@ export const AIStudio: React.FC = () => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    const loadConversations = async () => {
+      try {
+        const response = await fetch('/api/ai/conversations', { credentials: 'same-origin', cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not restore your AI conversations.');
+        let list = Array.isArray(data.conversations) ? data.conversations as SavedConversation[] : [];
+        if (!list.length) {
+          const createdResponse = await fetch('/api/ai/conversations', { method: 'POST', credentials: 'same-origin' });
+          const created = await createdResponse.json().catch(() => ({}));
+          if (!createdResponse.ok || !created.success) throw new Error(created.error || 'Could not start an AI conversation.');
+          list = [created.conversation];
+        }
+        if (!cancelled) {
+          setConversations(list);
+          setConversationId(list[0].id);
+          setMessages(list[0].messages?.length ? list[0].messages : [welcome]);
+        }
+      } catch (err: any) { if (!cancelled) setError(err?.message || 'Could not restore AI conversations.'); }
+      finally { if (!cancelled) setConversationsLoading(false); }
+    };
+    void loadConversations();
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveConversation = async (id: string, next: ChatMessage[]) => {
+    if (!id) return;
+    const response = await fetch('/api/ai/conversations/' + encodeURIComponent(id), {
+      method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: next }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || 'Could not save your conversation.');
+    setConversations(current => [data.conversation, ...current.filter(item => item.id !== id)].slice(0, 30));
+  };
+
+  const startNewConversation = async () => {
+    const response = await fetch('/api/ai/conversations', { method: 'POST', credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || 'Could not start a new conversation.');
+    setConversations(current => [data.conversation, ...current].slice(0, 30));
+    setConversationId(data.conversation.id);
+    setMessages([welcome]);
+    setLastQuestion('');
+    setError('');
+  };
+
+  useEffect(() => {
     void refreshMyQuestions();
     void refreshServiceStatus();
     const timer = window.setInterval(() => void refreshMyQuestions(), 20000);
@@ -61,12 +112,13 @@ export const AIStudio: React.FC = () => {
 
   const send = async (raw: string) => {
     const message = raw.trim();
-    if (!message || busy) return;
+    if (!message || busy || conversationsLoading || !conversationId) return;
     const alreadyDisplayed = messages.length > 0 && messages[messages.length - 1].role === 'user' && messages[messages.length - 1].text === message;
     const history = (alreadyDisplayed ? messages.slice(0, -1) : messages)
       .filter(item => !(item.role === 'model' && /welcome to yousound ai/i.test(item.text)))
       .slice(-8);
     if (!alreadyDisplayed) setMessages(current => [...current, { role: 'user', text: message }]);
+    try { await saveConversation(conversationId, [...(alreadyDisplayed ? messages.slice(0, -1) : messages), { role: 'user', text: message }]); } catch (saveError: any) { setError(saveError?.message || 'Your conversation could not be saved.'); }
     setLastQuestion(message);
     setKnowledgeFeedback('');
     setDraft('');
@@ -85,7 +137,9 @@ export const AIStudio: React.FC = () => {
         const diagnostic = data.requestId ? ' (Diagnostic code: ' + data.requestId + ')' : '';
         throw new Error((data.error || 'YouSound AI could not answer right now.') + diagnostic);
       }
-      setMessages(current => [...current, { role: 'model', text: data.reply }]);
+      const completed = [...(alreadyDisplayed ? messages.slice(0, -1) : messages), { role: 'user' as const, text: message }, { role: 'model' as const, text: data.reply }];
+      setMessages(completed);
+      await saveConversation(conversationId, completed);
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
     } catch (err: any) {
       setError(err?.message || 'The AI service is unavailable.');
@@ -136,9 +190,9 @@ export const AIStudio: React.FC = () => {
       </section>
 
       <section className="overflow-hidden rounded-[26px] border border-white/10 bg-[#0a111e] text-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-2 text-sm font-black"><Sparkles className="h-4 w-4 text-cyan-200" /> Conversation</div>
-          <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Gemini powered</span>
+          <div className="flex items-center gap-2"><select value={conversationId} onChange={event => { const found = conversations.find(item => item.id === event.target.value); if (found) { setConversationId(found.id); setMessages(found.messages?.length ? found.messages : [welcome]); setLastQuestion(''); setError(''); } }} className="max-w-[180px] rounded-lg border border-white/10 bg-[#101b2a] px-2 py-2 text-[10px] text-slate-200"><option value="">Loading conversations…</option>{conversations.map(item => <option key={item.id} value={item.id}>{item.title || 'Conversation'}</option>)}</select><button type="button" onClick={() => void startNewConversation().catch(err => setError(err.message))} disabled={conversationsLoading || conversations.length >= 30} className="rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 py-2 text-[10px] font-bold text-cyan-100 disabled:opacity-40">New chat</button></div>
         </div>
         <div className="max-h-[55vh] min-h-[280px] space-y-4 overflow-y-auto p-4 sm:p-5">
           {messages.map((item, index) => (
@@ -172,7 +226,7 @@ export const AIStudio: React.FC = () => {
         {knowledgeFeedback && <div className="border-t border-cyan-300/15 bg-cyan-300/[.06] px-5 py-3 text-xs text-cyan-100">{knowledgeFeedback}</div>}
         <form onSubmit={event => { event.preventDefault(); void send(draft); }} className="flex items-end gap-2 border-t border-white/10 p-3 sm:p-4">
           <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1200} placeholder="Ask YouSound AI…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/40" />
-          <button type="submit" disabled={busy || !draft.trim()} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-cyan-200 text-slate-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}</button>
+          <button type="submit" disabled={busy || conversationsLoading || !conversationId || !draft.trim()} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-cyan-200 text-slate-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}</button>
         </form>
         <div className="px-5 pb-4 text-[9px] leading-4 text-slate-500">AI responses can be wrong. Do not share passwords or private account information in the chat.</div>
       </section>
