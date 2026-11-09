@@ -1430,6 +1430,27 @@ const AI_REQUESTS_SETTING = 'ai_temporary_question_requests_v1';
 const AI_DIAGNOSTICS_SETTING = 'ai_provider_diagnostics_v1';
 const LEGACY_AI_KNOWLEDGE_SETTING = 'ai_site_knowledge_v1';
 const LEGACY_AI_REQUESTS_SETTING = 'ai_knowledge_requests_v1';
+const AI_CONVERSATIONS_SETTING = 'ai_conversations_v1';
+const ADMIN_AI_CONVERSATIONS_SETTING = 'admin_ai_conversations_v1';
+type AiConversationMessage = { role: 'user' | 'model'; text: string };
+type AiConversation = { id: string; title: string; createdAt: string; updatedAt: string; messages: AiConversationMessage[] };
+async function getAiConversations(uid: string, admin = false): Promise<AiConversation[]> {
+  const key = (admin ? ADMIN_AI_CONVERSATIONS_SETTING : AI_CONVERSATIONS_SETTING) + (admin ? '' : ':' + uid);
+  const stored = await getPersistentSettingDb<AiConversation[]>(key);
+  return Array.isArray(stored) ? stored.slice(-30) : [];
+}
+async function saveAiConversation(uid: string, conversation: AiConversation, admin = false): Promise<AiConversation> {
+  const key = (admin ? ADMIN_AI_CONVERSATIONS_SETTING : AI_CONVERSATIONS_SETTING) + (admin ? '' : ':' + uid);
+  await ensurePersistentSettingDb(key, []);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const old = await getPersistentSettingDb<AiConversation[]>(key);
+    const list = Array.isArray(old) ? old : [];
+    const next = [...list.filter(item => item.id !== conversation.id), conversation].sort((a,b) => a.updatedAt.localeCompare(b.updatedAt)).slice(-30);
+    if (await compareAndSetPersistentSettingDb(key, old, next)) return conversation;
+  }
+  throw new Error('Conversation changed while saving. Please retry.');
+}
+
 let betterStackStatusCache: { expiresAt: number; value: BetterStackStatus } | null = null;
 
 function getBetterStackStatusPageUrl(): string {
@@ -1670,6 +1691,57 @@ app.get('/api/ai/health', async (req: Request, res: Response) => {
   } catch (error: any) {
     return res.status(503).json({ success: false, error: error.message || 'Could not check YouSound AI configuration.' });
   }
+});
+
+
+app.get('/api/ai/conversations', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    return res.json({ success: true, conversations: (await getAiConversations(session.uid)).reverse() });
+  } catch (error: any) { return res.status(500).json({ success: false, error: error.message || 'Could not load conversations.' }); }
+});
+app.post('/api/ai/conversations', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const account = await getUserByUid(session.uid);
+    if (!account || !account.isApproved || account.isSuspended || account.isLocked || (account.role !== 'admin' && account.aiBetaEnabled !== true)) return res.status(403).json({ success: false, error: 'YouSound AI is not enabled for this account.' });
+    const now = new Date().toISOString();
+    const conversation: AiConversation = { id: 'aic_' + randomBytes(12).toString('hex'), title: 'New conversation', createdAt: now, updatedAt: now, messages: [] };
+    await saveAiConversation(session.uid, conversation);
+    return res.json({ success: true, conversation });
+  } catch (error: any) { return res.status(500).json({ success: false, error: error.message || 'Could not create conversation.' }); }
+});
+app.put('/api/ai/conversations/:id', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const list = await getAiConversations(session.uid);
+    const current = list.find(item => item.id === req.params.id);
+    if (!current) return res.status(404).json({ success: false, error: 'Conversation not found.' });
+    const raw = Array.isArray(req.body?.messages) ? req.body.messages.slice(-60) : null;
+    if (!raw) return res.status(400).json({ success: false, error: 'Conversation messages are required.' });
+    const messages: AiConversationMessage[] = raw.filter((item: any) => ['user','model'].includes(item?.role) && typeof item?.text === 'string').map((item: any) => ({ role: item.role, text: item.text.slice(0, 5000) }));
+    const title = messages.find(item => item.role === 'user')?.text.slice(0, 60) || 'New conversation';
+    const saved = await saveAiConversation(session.uid, { ...current, title, updatedAt: new Date().toISOString(), messages });
+    return res.json({ success: true, conversation: saved });
+  } catch (error: any) { return res.status(500).json({ success: false, error: error.message || 'Could not save conversation.' }); }
+});
+app.delete('/api/ai/conversations/:id', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const key = AI_CONVERSATIONS_SETTING + ':' + session.uid;
+    await ensurePersistentSettingDb(key, []);
+    for (let attempt=0; attempt<8; attempt++) {
+      const old = await getPersistentSettingDb<AiConversation[]>(key);
+      const list = Array.isArray(old) ? old : [];
+      if (!list.some(item => item.id === req.params.id)) return res.status(404).json({ success: false, error: 'Conversation not found.' });
+      if (await compareAndSetPersistentSettingDb(key, old, list.filter(item => item.id !== req.params.id))) return res.json({ success: true });
+    }
+    return res.status(409).json({ success: false, error: 'Conversation list changed. Retry.' });
+  } catch (error: any) { return res.status(500).json({ success: false, error: error.message || 'Could not delete conversation.' }); }
 });
 
 app.post('/api/ai/assistant', async (req: Request, res: Response) => {
