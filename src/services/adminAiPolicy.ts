@@ -16,7 +16,7 @@ export type AdminAiActionType =
 export function isAdminAiActionExplicitlyRequested(message: string, type: AdminAiActionType | string): boolean {
   const text = String(message || '').toLowerCase();
   if (!text.trim()) return false;
-  if (/\b(don't|do not|never|without|avoid|not|no need to|don't want to)\b/.test(text)) return false;
+  if (/\b(don't|do not|never|without|avoid|not|no need to|don't want to|can't|cannot|won't|will not|shouldn't|should not|mustn't|must not|wouldn't|would not|refuse to)\b/.test(text)) return false;
   const has = (pattern: RegExp) => pattern.test(text);
   if (type === 'answer_question') {
     return has(/\b(answer|reply|respond|send)\b/) && has(/\b(question|request|message)\b/);
