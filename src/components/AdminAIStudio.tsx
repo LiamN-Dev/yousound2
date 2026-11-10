@@ -7,7 +7,7 @@ type Question = { id: string; uid: string; username: string; question: string; s
 type SafetyFlag = { id: string; threadId: string; senderUsername: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: string; lockedByAi?: boolean };
 type AppealThread = { id: string; username: string; userId: string; reason: string; isTerminated: boolean; lastMessage?: string; lastMessageAt?: string };
 type AuditEntry = { id: string; action: string; targetId: string; reason?: string; createdAt: string; result?: any };
-type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'ban_user'; targetId: string; value?: boolean; reason?: string; answer?: string };
+type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'ban_user' | 'approve_user'; targetId: string; value?: boolean; reason?: string; answer?: string };
 
 async function requestJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init });
@@ -18,7 +18,7 @@ async function requestJson(url: string, init?: RequestInit) {
 
 export const AdminAIStudio: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Administrator AI is ready. I can summarize flagged conversations, review suspension appeals, answer operational questions, and help you decide what needs attention. I will not apply moderation actions without an explicit administrator action.' }
+    { role: 'model', text: 'Administrator AI is ready to operate YouSound. When you directly instruct me, I can automatically answer a pending member question or lock a conversation. Member approvals, suspensions, and unlocking conversations still require your approval. Every change is audited.' }
   ]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
@@ -159,6 +159,7 @@ export const AdminAIStudio: React.FC = () => {
       unlock_conversation: 'unlock this conversation',
       answer_question: 'send the proposed answer to the member',
       ban_user: actionProposal.value ? 'suspend this member from YouSound' : 'remove this member’s suspension',
+      approve_user: 'approve this member account',
     };
     const label = labels[actionProposal.type];
     if (!window.confirm('Admin AI wants to ' + label + '.\n\nTarget ID: ' + actionProposal.targetId + '\n\nThis action will be recorded. Continue?')) return;
@@ -255,7 +256,7 @@ export const AdminAIStudio: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.22em] text-violet-200"><ShieldCheck className="h-4 w-4" /> Administrator-only workspace</div>
             <h2 className="mt-2 text-3xl font-black tracking-tight">Admin AI</h2>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-300">An AI operations administrator that can inspect live queues and propose real site actions. Confirmed actions run through administrator-only server permissions and are written to an audit log.</p>
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-300">An autonomous AI operations administrator. Explicitly requested routine actions can run automatically; member approvals, suspensions, and unlocking conversations require your approval. Changes are permission-checked and audited.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-xl border border-amber-200/20 bg-amber-200/10 px-3 py-2 text-[10px] font-bold text-amber-100">{pendingQuestions.length} questions</span>
@@ -297,15 +298,15 @@ export const AdminAIStudio: React.FC = () => {
             ))}
             {busy && <div className="flex items-center gap-2 text-xs text-violet-100"><Loader2 className="h-4 w-4 animate-spin" /> Reviewing operations…</div>}
             {actionProposal && <div className="rounded-2xl border border-amber-200/30 bg-amber-200/[.08] p-4">
-              <div className="flex items-center gap-2 text-xs font-black text-amber-100"><ShieldCheck className="h-4 w-4" /> Proposed admin action</div>
+              <div className="flex items-center gap-2 text-xs font-black text-amber-100"><ShieldCheck className="h-4 w-4" /> Administrator approval required</div>
               <div className="mt-2 text-xs leading-5 text-slate-200">{actionProposal.type.replace(/_/g, ' ')} · Target: <span className="font-mono text-amber-100">{actionProposal.targetId}</span></div>
               {actionProposal.reason && <p className="mt-1 text-[11px] text-slate-400">Reason: {actionProposal.reason}</p>}
               {actionProposal.answer && <p className="mt-2 rounded-lg bg-black/20 p-3 text-xs text-slate-200">{actionProposal.answer}</p>}
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => void executeProposal()} disabled={!!actionBusy} className="rounded-lg bg-amber-200 px-3 py-2 text-[10px] font-black text-slate-950 disabled:opacity-50">{actionBusy === 'ai-proposal' ? 'Executing…' : 'Confirm and execute'}</button>
+                <button type="button" onClick={() => void executeProposal()} disabled={!!actionBusy} className="rounded-lg bg-amber-200 px-3 py-2 text-[10px] font-black text-slate-950 disabled:opacity-50">{actionBusy === 'ai-proposal' ? 'Executing…' : 'Approve and execute'}</button>
                 <button type="button" onClick={() => setActionProposal(null)} disabled={!!actionBusy} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] font-bold text-slate-300">Dismiss</button>
               </div>
-              <p className="mt-2 text-[9px] text-slate-500">No change occurs until you confirm. Execution is permission-checked and audited on the server.</p>
+              <p className="mt-2 text-[9px] text-slate-500">Routine member replies and conversation locks are performed automatically after an explicit instruction. This action is higher-impact, so your approval is required. The server rechecks permissions and records the result.</p>
             </div>}
           </div>
           <div className="border-t border-white/10 p-3 sm:p-4">
@@ -314,7 +315,7 @@ export const AdminAIStudio: React.FC = () => {
               <button type="button" onClick={() => void send('Summarize the unanswered user questions and identify which ones need an administrator response. Do not invent answers.')} disabled={busy || loading} className="rounded-lg border border-amber-200/15 bg-amber-200/[.06] px-3 py-2 text-[9px] font-bold text-amber-100 disabled:opacity-40">Triage user questions</button>
             </div>
             <form onSubmit={event => { event.preventDefault(); void send(draft); }} className="flex items-end gap-2">
-              <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1600} placeholder="Ask Admin AI about moderation, appeals, users, or site operations…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-xs text-white outline-none placeholder:text-slate-500 focus:border-violet-200/40" />
+              <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1600} placeholder="Tell Admin AI what to do: answer a member question, review an appeal, approve an account, or manage a conversation…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-xs text-white outline-none placeholder:text-slate-500 focus:border-violet-200/40" />
               <button type="submit" disabled={busy || !draft.trim() || !activeConversationId} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-300 text-slate-950 hover:bg-violet-200 disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button>
             </form>
           </div>
