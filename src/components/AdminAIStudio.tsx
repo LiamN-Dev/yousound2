@@ -144,7 +144,13 @@ export const AdminAIStudio: React.FC = () => {
       const completed = [...next, { role: 'model' as const, text: response.reply }];
       setMessages(completed);
       setActionProposal(response.actionProposal && typeof response.actionProposal === 'object' ? response.actionProposal as AdminActionProposal : null);
-      await persist(activeConversationId, completed);
+      try {
+        await persist(activeConversationId, completed);
+      } catch (historyError: any) {
+        setFeedback(response.actionResult
+          ? 'The requested operation completed, but the conversation history could not be saved: ' + (historyError?.message || 'storage error')
+          : 'The AI response arrived, but the conversation history could not be saved: ' + (historyError?.message || 'storage error'));
+      }
       if (response.actionResult) await loadOverview();
     } catch (err: any) {
       setError(err?.message || 'Administrator AI could not complete that request. Your question was saved.');
@@ -177,9 +183,13 @@ export const AdminAIStudio: React.FC = () => {
       const summary = 'Action completed: ' + label + '. The server confirmed the change.' + (data.auditWarning ? ' WARNING: ' + data.auditWarning : ' The action was recorded in the Admin AI audit log.');
       const next = [...messages, { role: 'model' as const, text: summary }];
       setMessages(next);
-      await persist(activeConversationId, next);
       setActionProposal(null);
       setFeedback(summary);
+      try {
+        await persist(activeConversationId, next);
+      } catch (historyError: any) {
+        setFeedback(summary + ' The conversation history could not be saved: ' + (historyError?.message || 'storage error'));
+      }
       await loadOverview();
     } catch (err: any) {
       setError(err?.message || 'Admin AI could not execute this action.');
