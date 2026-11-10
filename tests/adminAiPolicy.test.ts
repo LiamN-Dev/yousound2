@@ -26,6 +26,8 @@ test('negative instructions never execute an action', () => {
   assert.equal(isAdminAiActionExplicitlyRequested('Do not lock this conversation.', 'lock_conversation'), false);
   assert.equal(isAdminAiActionExplicitlyRequested('Never dismiss safety flags.', 'dismiss_safety_flag'), false);
   assert.equal(isAdminAiActionExplicitlyRequested('Do not suspend this user.', 'ban_user'), false);
+  assert.equal(isAdminAiActionExplicitlyRequested("I won't lock this conversation.", 'lock_conversation'), false);
+  assert.equal(isAdminAiActionExplicitlyRequested("You must not dismiss this flag.", 'dismiss_safety_flag'), false);
 });
 
 test('unknown action types are never considered explicitly authorized', () => {
