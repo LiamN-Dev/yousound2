@@ -2184,7 +2184,8 @@ async function getSongGameAccount(req: Request, res: Response) {
     res.status(403).json({ success: false, error: 'This account is not allowed to play games.' });
     return null;
   }
-  // The Community Arcade is available to all approved, active members. Admins still control track approval.\n  return { uid: user.uid, username: user.username, isAdmin };
+  // The Community Arcade is available to all approved, active members. Admins still control track approval.
+  return { uid: user.uid, username: user.username, isAdmin };
 }
 
 function songGuessRoundPayload(round: SongGuessRoundRecord, roundIndex: number, totalRounds: number, attempts = 0) {
