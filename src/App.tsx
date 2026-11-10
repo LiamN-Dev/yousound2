@@ -169,10 +169,10 @@ const MainAppContent: React.FC = () => {
   }, [spotlightActive, isAdmin, activeTab]);
 
   useEffect(() => {
-    if (!isAdmin && !currentUser?.gamesEnabled && activeTab === 'games') {
+    if (!isAdmin && (!currentUser?.isApproved || currentUser?.isSuspended || currentUser?.isLocked) && activeTab === 'games') {
       setActiveTab('library');
     }
-  }, [isAdmin, currentUser?.gamesEnabled, activeTab]);
+  }, [isAdmin, currentUser?.isApproved, currentUser?.isSuspended, currentUser?.isLocked, activeTab]);
 
   useEffect(() => {
     if (!isAdmin && !currentUser?.aiBetaEnabled && activeTab === 'ai') setActiveTab('library');
@@ -382,7 +382,7 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
-        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && (
+        {activeTab === 'games' && (isAdmin || (currentUser.isApproved && !currentUser.isSuspended && !currentUser.isLocked)) && (
           <GamesHub
             isAdmin={isAdmin}
             songs={adminAllSongs}
