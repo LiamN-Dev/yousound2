@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { checkSqlAvailability, createPool } from '../db/index.ts';
-import { canAccessCrossyRoad, isPlausibleCrossyRoadScore } from '../services/crossyRoadPolicy.ts';
+import { canAccessCrossyRoad, isPlausibleCrossyRoadScore, resolveCrossyRoadHost } from '../services/crossyRoadPolicy.ts';
 
 const router = Router();
 
@@ -17,34 +17,10 @@ router.use((req: any, res, next) => {
 });
 
 router.get('/host', (_req, res) => {
-  const configured = String(
-    process.env.GOOGLE_CROSSY_ROAD_URL || process.env.VITE_GOOGLE_CROSSY_ROAD_URL || ''
-  ).trim();
-  if (!configured) {
-    return res.json({
-      success: true,
-      url: null,
-      error: 'The Google Apps Script Crossy Road deployment has not been configured on the server.',
-    });
-  }
-  try {
-    const url = new URL(configured);
-    const allowedOrigins = new Set([
-      'https://script.google.com',
-      'https://script.googleusercontent.com',
-    ]);
-    if (url.protocol !== 'https:' || !allowedOrigins.has(url.origin)) {
-      throw new Error('unsupported origin');
-    }
-    url.hash = '';
-    return res.json({ success: true, url: url.toString() });
-  } catch {
-    return res.json({
-      success: true,
-      url: null,
-      error: 'The Crossy Road host must be a valid HTTPS Google Apps Script deployment URL.',
-    });
-  }
+  const config = resolveCrossyRoadHost(
+    process.env.GOOGLE_CROSSY_ROAD_URL || process.env.VITE_GOOGLE_CROSSY_ROAD_URL
+  );
+  return res.json({ success: true, ...config });
 });
 
 let schemaReady: Promise<void> | null = null;
