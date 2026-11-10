@@ -7,7 +7,7 @@ type Question = { id: string; uid: string; username: string; question: string; s
 type SafetyFlag = { id: string; threadId: string; senderUsername: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: string; lockedByAi?: boolean };
 type AppealThread = { id: string; username: string; userId: string; reason: string; isTerminated: boolean; lastMessage?: string; lastMessageAt?: string };
 type AuditEntry = { id: string; action: string; targetId: string; reason?: string; createdAt: string; result?: any };
-type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'ban_user' | 'approve_user'; targetId: string; value?: boolean; reason?: string; answer?: string };
+type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'ban_user' | 'approve_user' | 'game_approval' | 'dismiss_safety_flag'; targetId: string; value?: boolean; reason?: string; answer?: string };
 
 async function requestJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init });
@@ -145,6 +145,7 @@ export const AdminAIStudio: React.FC = () => {
       setMessages(completed);
       setActionProposal(response.actionProposal && typeof response.actionProposal === 'object' ? response.actionProposal as AdminActionProposal : null);
       await persist(activeConversationId, completed);
+      if (response.actionResult) await loadOverview();
     } catch (err: any) {
       setError(err?.message || 'Administrator AI could not complete that request. Your question was saved.');
     } finally {
@@ -160,6 +161,8 @@ export const AdminAIStudio: React.FC = () => {
       answer_question: 'send the proposed answer to the member',
       ban_user: actionProposal.value ? 'suspend this member from YouSound' : 'remove this member’s suspension',
       approve_user: 'approve this member account',
+      game_approval: actionProposal.value ? 'approve this song for games' : 'remove this song from games',
+      dismiss_safety_flag: 'dismiss this safety flag',
     };
     const label = labels[actionProposal.type];
     if (!window.confirm('Admin AI wants to ' + label + '.\n\nTarget ID: ' + actionProposal.targetId + '\n\nThis action will be recorded. Continue?')) return;
