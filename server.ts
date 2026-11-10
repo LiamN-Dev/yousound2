@@ -1947,15 +1947,10 @@ app.post('/api/admin/ai/assistant', async (req: Request, res: Response) => {
       };
       // Write-ahead audit: no autonomous mutation proceeds unless the intent is durably recorded.
       await writeAdminAiAuditEntry(auditEntry);
+
+      let result: any;
       try {
-        const result = await performAdminAiAction(actionProposal);
-        await writeAdminAiAuditEntry({ ...auditEntry, status: 'completed', result, completedAt: new Date().toISOString() });
-        reply = (reply || 'Done.') + '\n\nCompleted automatically: ' + (
-          actionProposal.type === 'answer_question'
-            ? 'the pending member question has been answered.'
-            : 'the selected conversation has been locked.'
-        );
-        return res.json({ success: true, reply, actionProposal: null, actionResult: result });
+        result = await performAdminAiAction(actionProposal);
       } catch (actionError: any) {
         await writeAdminAiAuditEntry({
           ...auditEntry, status: 'failed',
@@ -1965,6 +1960,24 @@ app.post('/api/admin/ai/assistant', async (req: Request, res: Response) => {
         reply = (reply || 'I could not complete the requested action.') + '\n\nI did not complete the action: ' + String(actionError?.message || 'Please retry.').slice(0, 300);
         return res.json({ success: true, reply, actionProposal: null, actionError: true });
       }
+
+      let auditWarning = '';
+      try {
+        await writeAdminAiAuditEntry({ ...auditEntry, status: 'completed', result, completedAt: new Date().toISOString() });
+      } catch (auditError: any) {
+        console.error('[Admin AI] Action completed but final audit status could not be updated:', auditError);
+        auditWarning = ' The action completed, but the audit entry remains in its initial state because the final audit update failed.';
+      }
+
+      const completionText = actionProposal.type === 'answer_question'
+        ? 'the pending member question was answered'
+        : actionProposal.type === 'lock_conversation'
+          ? 'the selected conversation was locked'
+          : actionProposal.type === 'game_approval'
+            ? (actionProposal.value ? 'the song was approved for games' : 'the song was removed from games')
+            : 'the selected safety flag was dismissed';
+      reply = (reply || 'Done.') + '\n\nCompleted automatically: ' + completionText + '.' + auditWarning;
+      return res.json({ success: true, reply, actionProposal: null, actionResult: result, auditWarning: auditWarning || undefined });
     }
 
     return res.json({
@@ -1999,10 +2012,16 @@ app.post('/api/admin/ai/execute', async (req: Request, res: Response) => {
     createdAt: new Date().toISOString(),
   };
   try {
+    // Do not execute a high-impact change unless the audit intent is durable first.
     await writeAdminAiAuditEntry(auditEntry);
-    const result = await performAdminAiAction({ ...action, type, targetId });
-    await writeAdminAiAuditEntry({ ...auditEntry, status: 'completed', result, completedAt: new Date().toISOString() });
-    return res.json({ success: true, result });
+  } catch (auditError: any) {
+    console.error('[Admin AI] Could not write approval audit before action:', auditError);
+    return res.status(503).json({ success: false, error: 'The audit log is unavailable. No administrative change was made.' });
+  }
+
+  let result: any;
+  try {
+    result = await performAdminAiAction({ ...action, type, targetId });
   } catch (error: any) {
     await writeAdminAiAuditEntry({
       ...auditEntry, status: 'failed',
@@ -2012,6 +2031,15 @@ app.post('/api/admin/ai/execute', async (req: Request, res: Response) => {
     console.error('[Admin AI] Approved action failed:', error);
     return res.status(500).json({ success: false, error: error?.message || 'The administrative action failed.' });
   }
+
+  let auditWarning = '';
+  try {
+    await writeAdminAiAuditEntry({ ...auditEntry, status: 'completed', result, completedAt: new Date().toISOString() });
+  } catch (auditError: any) {
+    console.error('[Admin AI] Approved action completed but final audit status could not be updated:', auditError);
+    auditWarning = 'The action completed, but the audit entry remains in its initial state because the final audit update failed.';
+  }
+  return res.json({ success: true, result, auditWarning: auditWarning || undefined });
 });
 
 app.get('/api/admin/ai/audit', async (req: Request, res: Response) => {
