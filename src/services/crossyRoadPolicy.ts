@@ -3,6 +3,7 @@ export type CrossyRoadAccountAccess = {
   isApproved?: unknown;
   isSuspended?: unknown;
   isLocked?: unknown;
+  gamesEnabled?: unknown;
 } | null | undefined;
 
 /**
