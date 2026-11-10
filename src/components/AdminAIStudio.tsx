@@ -18,7 +18,7 @@ async function requestJson(url: string, init?: RequestInit) {
 
 export const AdminAIStudio: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'model', text: 'Administrator AI is ready to operate YouSound. When you directly instruct me, I can automatically answer a pending member question or lock a conversation. Member approvals, suspensions, and unlocking conversations still require your approval. Every change is audited.' }
+    { role: 'model', text: 'Administrator AI is ready to operate YouSound. When you directly instruct me, I can answer a pending member question, lock a conversation, approve or unapprove an individual song for games, or dismiss a specific safety flag. Member approvals, suspensions, and unlocking conversations still require your approval. Every change is audited.' }
   ]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
@@ -319,7 +319,7 @@ export const AdminAIStudio: React.FC = () => {
                 <button type="button" onClick={() => void executeProposal()} disabled={!!actionBusy} className="rounded-lg bg-amber-200 px-3 py-2 text-[10px] font-black text-slate-950 disabled:opacity-50">{actionBusy === 'ai-proposal' ? 'Executing…' : 'Approve and execute'}</button>
                 <button type="button" onClick={() => setActionProposal(null)} disabled={!!actionBusy} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] font-bold text-slate-300">Dismiss</button>
               </div>
-              <p className="mt-2 text-[9px] text-slate-500">Routine member replies and conversation locks are performed automatically after an explicit instruction. This action is higher-impact, so your approval is required. The server rechecks permissions and records the result.</p>
+              <p className="mt-2 text-[9px] text-slate-500">Member replies, conversation locks, individual Game Approved changes, and specifically requested safety-flag dismissals run automatically after a direct instruction. This action is higher-impact, so your approval is required. The server rechecks permissions and records the result.</p>
             </div>}
           </div>
           <div className="border-t border-white/10 p-3 sm:p-4">
