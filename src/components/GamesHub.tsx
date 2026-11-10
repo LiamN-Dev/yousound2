@@ -79,7 +79,7 @@ async function detectBpm(audioUrl: string): Promise<{ bpm: number; beatOffsetMs:
 }
 
 const backButton = (onClick: () => void) => (
-  <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded-xl border border-amber-200/20 bg-[#111827] px-3 py-2 text-xs font-bold text-amber-100 transition hover:border-amber-200/50 hover:bg-[#1b2637]"><ArrowLeft className="h-3.5 w-3.5"/> VIP Arcade</button>
+  <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded-xl border border-amber-200/20 bg-[#111827] px-3 py-2 text-xs font-bold text-amber-100 transition hover:border-amber-200/50 hover:bg-[#1b2637]"><ArrowLeft className="h-3.5 w-3.5"/> Community Arcade</button>
 );
 
 export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, updateSong, refreshSongLibrary }) => {
