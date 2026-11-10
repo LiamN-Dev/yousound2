@@ -170,7 +170,7 @@ export const AdminAIStudio: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: actionProposal, confirmed: true }),
       });
-      const summary = 'Action completed: ' + label + '. The server confirmed the change and recorded it in the Admin AI audit log.';
+      const summary = 'Action completed: ' + label + '. The server confirmed the change.' + (data.auditWarning ? ' WARNING: ' + data.auditWarning : ' The action was recorded in the Admin AI audit log.');
       const next = [...messages, { role: 'model' as const, text: summary }];
       setMessages(next);
       await persist(activeConversationId, next);
