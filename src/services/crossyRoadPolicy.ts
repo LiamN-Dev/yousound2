@@ -23,3 +23,24 @@ export function isPlausibleCrossyRoadScore(score: number, elapsedSeconds: number
   if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0) return false;
   return score <= Math.floor(elapsedSeconds * 8) + 4;
 }
+
+export type CrossyRoadHostResolution = { url: string | null; error: string | null };
+
+/** Accept only HTTPS Google Apps Script hosts; never silently fall back to a blocked third-party host. */
+export function resolveCrossyRoadHost(raw: unknown): CrossyRoadHostResolution {
+  const configured = typeof raw === 'string' ? raw.trim() : '';
+  if (!configured) {
+    return { url: null, error: 'The Google Apps Script Crossy Road deployment has not been configured on the server.' };
+  }
+  try {
+    const url = new URL(configured);
+    const allowedOrigins = new Set(['https://script.google.com', 'https://script.googleusercontent.com']);
+    if (url.protocol !== 'https:' || !allowedOrigins.has(url.origin)) {
+      throw new Error('unsupported origin');
+    }
+    url.hash = '';
+    return { url: url.toString(), error: null };
+  } catch {
+    return { url: null, error: 'The Crossy Road host must be a valid HTTPS Google Apps Script deployment URL.' };
+  }
+}
