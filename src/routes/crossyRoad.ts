@@ -1,15 +1,50 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { checkSqlAvailability, createPool } from '../db/index.ts';
+import { canAccessCrossyRoad, isPlausibleCrossyRoadScore } from '../services/crossyRoadPolicy.ts';
 
 const router = Router();
 
 router.use((req: any, res, next) => {
   const user = req.authUser;
-  if (!user || (user.role !== 'admin' && !user.gamesEnabled)) {
-    return res.status(403).json({ success: false, error: 'Games access has not been enabled for this account.' });
+  if (!canAccessCrossyRoad(user)) {
+    return res.status(user ? 403 : 401).json({
+      success: false,
+      error: 'Crossy Road is available to approved, active members. Sign in with an eligible account.',
+    });
   }
   next();
+});
+
+router.get('/host', (_req, res) => {
+  const configured = String(
+    process.env.GOOGLE_CROSSY_ROAD_URL || process.env.VITE_GOOGLE_CROSSY_ROAD_URL || ''
+  ).trim();
+  if (!configured) {
+    return res.json({
+      success: true,
+      url: null,
+      error: 'The Google Apps Script Crossy Road deployment has not been configured on the server.',
+    });
+  }
+  try {
+    const url = new URL(configured);
+    const allowedOrigins = new Set([
+      'https://script.google.com',
+      'https://script.googleusercontent.com',
+    ]);
+    if (url.protocol !== 'https:' || !allowedOrigins.has(url.origin)) {
+      throw new Error('unsupported origin');
+    }
+    url.hash = '';
+    return res.json({ success: true, url: url.toString() });
+  } catch {
+    return res.json({
+      success: true,
+      url: null,
+      error: 'The Crossy Road host must be a valid HTTPS Google Apps Script deployment URL.',
+    });
+  }
 });
 
 let schemaReady: Promise<void> | null = null;
@@ -142,7 +177,7 @@ router.post('/finish', async (req, res) => {
       return res.status(409).json({ success: false, error: 'This game session was already submitted or is invalid.' });
     }
     const elapsedSeconds = Number(claimed.rows[0].elapsed_seconds || 0);
-    if (score > Math.floor(elapsedSeconds * 8) + 4) {
+    if (!isPlausibleCrossyRoadScore(score, elapsedSeconds)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, error: 'That score is not valid for the recorded game duration.' });
     }
