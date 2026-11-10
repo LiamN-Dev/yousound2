@@ -6,6 +6,7 @@ type Conversation = { id: string; title: string; createdAt: string; updatedAt: s
 type Question = { id: string; uid: string; username: string; question: string; status: 'pending' | 'answered' | 'dismissed'; createdAt: string; answer?: string };
 type SafetyFlag = { id: string; threadId: string; senderUsername: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: string; lockedByAi?: boolean };
 type AppealThread = { id: string; username: string; userId: string; reason: string; isTerminated: boolean; lastMessage?: string; lastMessageAt?: string };
+type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'set_games_access' | 'ban_user'; targetId: string; value?: boolean; reason?: string; answer?: string };
 
 async function requestJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init });
@@ -32,6 +33,7 @@ export const AdminAIStudio: React.FC = () => {
   const [reviewingThread, setReviewingThread] = useState('');
   const [actionBusy, setActionBusy] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [actionProposal, setActionProposal] = useState<AdminActionProposal | null>(null);
   const [queueOpen, setQueueOpen] = useState(true);
   const [flagsOpen, setFlagsOpen] = useState(true);
   const [appealsOpen, setAppealsOpen] = useState(true);
@@ -102,6 +104,7 @@ export const AdminAIStudio: React.FC = () => {
       setConversations(current => [created, ...current].slice(0, 25));
       setActiveConversationId(created.id);
       setMessages(created.messages || []);
+      setActionProposal(null);
       setError('');
     } catch (err: any) {
       setError(err?.message || 'Could not create a new administrator conversation.');
@@ -113,6 +116,7 @@ export const AdminAIStudio: React.FC = () => {
     if (!conversation) return;
     setActiveConversationId(id);
     setMessages(conversation.messages || []);
+    setActionProposal(null);
     setError('');
   };
 
@@ -136,11 +140,45 @@ export const AdminAIStudio: React.FC = () => {
       });
       const completed = [...next, { role: 'model' as const, text: response.reply }];
       setMessages(completed);
+      setActionProposal(response.actionProposal && typeof response.actionProposal === 'object' ? response.actionProposal as AdminActionProposal : null);
       await persist(activeConversationId, completed);
     } catch (err: any) {
       setError(err?.message || 'Administrator AI could not complete that request. Your question was saved.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const executeProposal = async () => {
+    if (!actionProposal || actionBusy) return;
+    const labels: Record<AdminActionProposal['type'], string> = {
+      lock_conversation: 'lock this conversation',
+      unlock_conversation: 'unlock this conversation',
+      answer_question: 'send the proposed answer to the member',
+      set_games_access: actionProposal.value ? 'enable Games access for this member' : 'disable Games access for this member',
+      ban_user: actionProposal.value ? 'suspend this member from YouSound' : 'remove this member’s suspension',
+    };
+    const label = labels[actionProposal.type];
+    if (!window.confirm('Admin AI wants to ' + label + '.\n\nTarget ID: ' + actionProposal.targetId + '\n\nThis action will be recorded. Continue?')) return;
+    setActionBusy('ai-proposal');
+    setError('');
+    try {
+      const data = await requestJson('/api/admin/ai/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: actionProposal, confirmed: true }),
+      });
+      const summary = 'Action completed: ' + label + '. The server confirmed the change and recorded it in the Admin AI audit log.';
+      const next = [...messages, { role: 'model' as const, text: summary }];
+      setMessages(next);
+      await persist(activeConversationId, next);
+      setActionProposal(null);
+      setFeedback(summary);
+      await loadOverview();
+    } catch (err: any) {
+      setError(err?.message || 'Admin AI could not execute this action.');
+    } finally {
+      setActionBusy('');
     }
   };
 
@@ -215,7 +253,7 @@ export const AdminAIStudio: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.22em] text-violet-200"><ShieldCheck className="h-4 w-4" /> Administrator-only workspace</div>
             <h2 className="mt-2 text-3xl font-black tracking-tight">Admin AI</h2>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-300">A separate assistant for safety reviews, appeals, admin questions, and operational triage. It can analyze and recommend; only an administrator can apply moderation or account changes.</p>
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-300">An AI operations administrator that can inspect live queues and propose real site actions. Confirmed actions run through administrator-only server permissions and are written to an audit log.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-xl border border-amber-200/20 bg-amber-200/10 px-3 py-2 text-[10px] font-bold text-amber-100">{pendingQuestions.length} questions</span>
@@ -251,6 +289,17 @@ export const AdminAIStudio: React.FC = () => {
               </div>
             ))}
             {busy && <div className="flex items-center gap-2 text-xs text-violet-100"><Loader2 className="h-4 w-4 animate-spin" /> Reviewing operations…</div>}
+            {actionProposal && <div className="rounded-2xl border border-amber-200/30 bg-amber-200/[.08] p-4">
+              <div className="flex items-center gap-2 text-xs font-black text-amber-100"><ShieldCheck className="h-4 w-4" /> Proposed admin action</div>
+              <div className="mt-2 text-xs leading-5 text-slate-200">{actionProposal.type.replace(/_/g, ' ')} · Target: <span className="font-mono text-amber-100">{actionProposal.targetId}</span></div>
+              {actionProposal.reason && <p className="mt-1 text-[11px] text-slate-400">Reason: {actionProposal.reason}</p>}
+              {actionProposal.answer && <p className="mt-2 rounded-lg bg-black/20 p-3 text-xs text-slate-200">{actionProposal.answer}</p>}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => void executeProposal()} disabled={!!actionBusy} className="rounded-lg bg-amber-200 px-3 py-2 text-[10px] font-black text-slate-950 disabled:opacity-50">{actionBusy === 'ai-proposal' ? 'Executing…' : 'Confirm and execute'}</button>
+                <button type="button" onClick={() => setActionProposal(null)} disabled={!!actionBusy} className="rounded-lg border border-white/15 px-3 py-2 text-[10px] font-bold text-slate-300">Dismiss</button>
+              </div>
+              <p className="mt-2 text-[9px] text-slate-500">No change occurs until you confirm. Execution is permission-checked and audited on the server.</p>
+            </div>}
           </div>
           <div className="border-t border-white/10 p-3 sm:p-4">
             <div className="mb-2 flex flex-wrap gap-2">
