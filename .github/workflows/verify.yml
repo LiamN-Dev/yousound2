@@ -5,8 +5,9 @@ on:
     branches:
       - fix/song-admin-thumbnails-christmas-radio-reliability
       - fix-radio-sync-pipeline-moderation
+      - feature/community-arcade-admin-operator-nov-2026
   pull_request:
-    branches: [main]
+    branches: [main, fix/multi-radio-ai-safety-crossy-nov-2026]
 
 permissions:
   contents: read
