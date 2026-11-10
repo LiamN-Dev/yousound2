@@ -127,6 +127,7 @@ import {
   clearClosedFeedbackDb,
 } from './src/db/feedback.ts';
 import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile, getDriveLibraryFolderId } from './src/services/audioPipeline.ts';
+import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -1753,33 +1754,6 @@ async function writeAdminAiAuditEntry(entry: any) {
   throw new Error('The Admin AI audit log changed repeatedly. The requested action was not executed.');
 }
 
-function adminAiActionWasExplicitlyRequested(message: string, type: string): boolean {
-  const text = message.toLowerCase();
-  const has = (pattern: RegExp) => pattern.test(text);
-  if (type === 'answer_question') {
-    return has(/\b(answer|reply|respond|send)\b/) && has(/\b(question|request|message)\b/);
-  }
-  if (type === 'lock_conversation') {
-    return has(/\b(lock|close)\b/) && has(/\b(conversation|thread|chat)\b/);
-  }
-  if (type === 'unlock_conversation') {
-    return has(/\b(unlock|reopen)\b/) && has(/\b(conversation|thread|chat)\b/);
-  }
-  if (type === 'ban_user') {
-    return has(/\b(suspend|ban|unban|unsuspend|reinstate)\b/) && has(/\b(user|member|account)\b|@[a-z0-9_.-]+/);
-  }
-  if (type === 'approve_user') {
-    return has(/\b(approve|accept)\b/) && has(/\b(member|user|account|application)\b/);
-  }
-  if (type === 'game_approval') {
-    return has(/\b(approve|unapprove|enable|disable|remove|revoke)\b/) && has(/\b(game|games|arcade|crossy|rhythm|playable)\b/);
-  }
-  if (type === 'dismiss_safety_flag') {
-    return has(/\b(dismiss|clear|resolve|close)\b/) && has(/\b(flag|flags|safety)\b/);
-  }
-  return false;
-}
-
 async function performAdminAiAction(action: any) {
   const type = String(action?.type || '');
   const targetId = String(action?.targetId || '').trim().slice(0, 180);
@@ -1950,7 +1924,7 @@ app.post('/api/admin/ai/assistant', async (req: Request, res: Response) => {
         (action.type === 'game_approval' && context.songs.some((song) => song.id === targetId)) ||
         (action.type === 'dismiss_safety_flag' && context.openFlags.some((flag) => flag.id === targetId));
       const valueValid = !['ban_user', 'game_approval'].includes(action.type) || typeof action.value === 'boolean';
-      if (targetIsValid && valueValid && adminAiActionWasExplicitlyRequested(message, action.type)) {
+      if (targetIsValid && valueValid && isAdminAiActionExplicitlyRequested(message, action.type)) {
         actionProposal = {
           type: action.type,
           targetId,
