@@ -6,7 +6,7 @@ type Conversation = { id: string; title: string; createdAt: string; updatedAt: s
 type Question = { id: string; uid: string; username: string; question: string; status: 'pending' | 'answered' | 'dismissed'; createdAt: string; answer?: string };
 type SafetyFlag = { id: string; threadId: string; senderUsername: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: string; lockedByAi?: boolean };
 type AppealThread = { id: string; username: string; userId: string; reason: string; isTerminated: boolean; lastMessage?: string; lastMessageAt?: string };
-type AuditEntry = { id: string; action: string; targetId: string; reason?: string; createdAt: string; result?: any };
+type AuditEntry = { id: string; action: string; targetId: string; reason?: string; createdAt: string; completedAt?: string; status?: 'executing' | 'completed' | 'failed' | string; error?: string; result?: any };
 type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'ban_user' | 'approve_user' | 'game_approval' | 'dismiss_safety_flag'; targetId: string; value?: boolean; reason?: string; answer?: string };
 
 async function requestJson(url: string, init?: RequestInit) {
@@ -277,7 +277,7 @@ export const AdminAIStudio: React.FC = () => {
 
       <section className="rounded-2xl border border-white/10 bg-[#0b1220] p-4 text-white">
         <div className="flex items-center justify-between gap-3"><div className="text-xs font-black">Admin AI action log</div><span className="text-[9px] text-slate-500">Latest {auditEntries.length} recorded actions</span></div>
-        {auditEntries.length ? <div className="mt-3 space-y-2">{auditEntries.slice(0,8).map(entry => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-white/[.025] px-3 py-2"><div><div className="text-[10px] font-bold text-slate-200">{entry.action.replace(/_/g,' ')}</div><div className="mt-0.5 font-mono text-[9px] text-slate-500">{entry.targetId}</div></div><div className="text-[9px] text-slate-500">{new Date(entry.createdAt).toLocaleString()}</div></div>)}</div> : <p className="mt-3 text-[10px] text-slate-500">No Admin AI actions have been recorded yet.</p>}
+        {auditEntries.length ? <div className="mt-3 space-y-2">{auditEntries.slice(0,8).map(entry => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-white/[.025] px-3 py-2"><div className="min-w-0"><div className="text-[10px] font-bold text-slate-200">{entry.action.replace(/_/g,' ')}</div><div className="mt-0.5 font-mono text-[9px] text-slate-500">{entry.targetId}</div>{entry.error && <div className="mt-1 text-[9px] text-rose-300">{entry.error}</div>}</div><div className="flex flex-col items-end gap-1"><span className={'rounded-md border px-2 py-1 text-[8px] font-black uppercase tracking-wider ' + (entry.status === 'failed' ? 'border-rose-300/20 bg-rose-300/10 text-rose-200' : entry.status === 'completed' ? 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200' : 'border-amber-200/20 bg-amber-200/10 text-amber-100')}>{(entry.status || 'recorded').replace(/_/g,' ')}</span><span className="text-[9px] text-slate-500">{new Date(entry.completedAt || entry.createdAt).toLocaleString()}</span></div></div>)}</div> : <p className="mt-3 text-[10px] text-slate-500">No Admin AI actions have been recorded yet.</p>}
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
