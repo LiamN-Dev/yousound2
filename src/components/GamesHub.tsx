@@ -160,9 +160,9 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
         <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-slate-200/10 blur-3xl"/>
         <div className="absolute right-5 top-5 hidden rounded-xl border border-amber-100/20 bg-white/[.04] px-3 py-2 text-right sm:block"><div className="text-[9px] font-black tracking-[.2em] text-amber-200">EXCLUSIVE ACCESS</div><div className="mt-0.5 text-xs font-black text-slate-100">GOLD × SILVER</div></div>
         <div className="relative max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/30 bg-gradient-to-r from-amber-300/15 to-slate-100/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.2em] text-amber-100"><Crown className="h-3.5 w-3.5"/> VIP ARCADE <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[8px] text-slate-950">BETA</span></div>
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">The VIP <span className="bg-gradient-to-r from-amber-200 via-white to-slate-300 bg-clip-text text-transparent">Arcade.</span></h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">A focused arcade led by Crossy Road, alongside two music games built around the YouSound catalogue. Access is reserved for accounts with VIP Games access.</p>
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/30 bg-gradient-to-r from-amber-300/15 to-slate-100/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.2em] text-amber-100"><Crown className="h-3.5 w-3.5"/> COMMUNITY ARCADE <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[8px] text-slate-950">BETA</span></div>
+          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">The Community <span className="bg-gradient-to-r from-amber-200 via-white to-slate-300 bg-clip-text text-transparent">Arcade.</span></h1>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">A focused arcade led by Crossy Road, alongside two music games built around the YouSound catalogue. Available to every approved YouSound member.</p>
           <div className="mt-5 flex flex-wrap gap-2"><span className="rounded-lg border border-amber-200/20 bg-amber-100/10 px-3 py-2 text-[10px] font-bold text-amber-100">3 PLAYABLE GAMES</span><span className="rounded-lg border border-slate-200/20 bg-slate-100/10 px-3 py-2 text-[10px] font-bold text-slate-200">EXCLUSIVE BUILD</span><span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">MORE GAMES IN DEVELOPMENT</span></div>
         </div>
         <div className="pointer-events-none absolute bottom-0 right-0 h-1 w-full bg-gradient-to-r from-transparent via-amber-200/70 to-slate-100/70"/>
@@ -184,7 +184,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
         ))}
       </div>
 
-      <section className="rounded-3xl border border-amber-100/15 bg-gradient-to-r from-[#171c28] to-[#252b36] p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-200/20 bg-amber-100/10 text-amber-200"><Shield className="h-5 w-5"/></div><div><div className="text-xs font-black text-white">VIP Arcade Access</div><div className="mt-0.5 text-[10px] text-slate-400">Games are visible only to members who have been granted Games access by an administrator.</div></div></div><div className="inline-flex items-center gap-1.5 rounded-full border border-slate-100/15 bg-white/5 px-3 py-1.5 text-[9px] font-black tracking-wider text-slate-200"><Crown className="h-3.5 w-3.5 text-amber-200"/> GOLD · SILVER</div></div></section>
+      <section className="rounded-3xl border border-amber-100/15 bg-gradient-to-r from-[#171c28] to-[#252b36] p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-200/20 bg-amber-100/10 text-amber-200"><Shield className="h-5 w-5"/></div><div><div className="text-xs font-black text-white">Community Arcade</div><div className="mt-0.5 text-[10px] text-slate-400">The arcade is open to approved members. Admins control which tracks can be played.</div></div></div><div className="inline-flex items-center gap-1.5 rounded-full border border-slate-100/15 bg-white/5 px-3 py-1.5 text-[9px] font-black tracking-wider text-slate-200"><Crown className="h-3.5 w-3.5 text-amber-200"/> GOLD · SILVER</div></div></section>
 
       {isAdmin && <section className="overflow-hidden rounded-3xl border border-amber-200/20 bg-[#111925] shadow-sm">
         <div className="border-b border-white/10 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-black text-white">Song Game Management</h2><p className="mt-1 text-xs text-slate-400">Bulk approve tracks for Crossy Road and the music games. Seasonal song tagging lives in Song Studio.</p></div><span className="rounded-xl border border-amber-200/20 bg-amber-100/10 px-3 py-2 text-xs font-bold text-amber-100">{songs.filter(song=>song.gameApproved).length} Game Approved</span></div>
@@ -198,7 +198,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, upd
           <p className="text-[10px] leading-relaxed text-slate-500">Beat analysis runs one track at a time in your browser. Unusual timing may still need a manual BPM correction.</p>
         </div>
       </section>}
-      <p className="text-center text-[9px] text-slate-500">YouSong VIP Arcade · Hosted browser games + original music challenges · Beta</p>
+      <p className="text-center text-[9px] text-slate-500">YouSound Community Arcade · Hosted browser games + original music challenges · Beta</p>
     </div>
   );
 };
