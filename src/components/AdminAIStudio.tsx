@@ -6,7 +6,8 @@ type Conversation = { id: string; title: string; createdAt: string; updatedAt: s
 type Question = { id: string; uid: string; username: string; question: string; status: 'pending' | 'answered' | 'dismissed'; createdAt: string; answer?: string };
 type SafetyFlag = { id: string; threadId: string; senderUsername: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: string; lockedByAi?: boolean };
 type AppealThread = { id: string; username: string; userId: string; reason: string; isTerminated: boolean; lastMessage?: string; lastMessageAt?: string };
-type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'set_games_access' | 'ban_user'; targetId: string; value?: boolean; reason?: string; answer?: string };
+type AuditEntry = { id: string; action: string; targetId: string; reason?: string; createdAt: string; result?: any };
+type AdminActionProposal = { type: 'lock_conversation' | 'unlock_conversation' | 'answer_question' | 'ban_user'; targetId: string; value?: boolean; reason?: string; answer?: string };
 
 async function requestJson(url: string, init?: RequestInit) {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init });
@@ -34,6 +35,7 @@ export const AdminAIStudio: React.FC = () => {
   const [actionBusy, setActionBusy] = useState('');
   const [feedback, setFeedback] = useState('');
   const [actionProposal, setActionProposal] = useState<AdminActionProposal | null>(null);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [queueOpen, setQueueOpen] = useState(true);
   const [flagsOpen, setFlagsOpen] = useState(true);
   const [appealsOpen, setAppealsOpen] = useState(true);
@@ -43,7 +45,8 @@ export const AdminAIStudio: React.FC = () => {
 
   const loadOverview = async () => {
     try {
-      const data = await requestJson('/api/admin/ai/operations');
+      const [data, audit] = await Promise.all([requestJson('/api/admin/ai/operations'), requestJson('/api/admin/ai/audit')]);
+      setAuditEntries(Array.isArray(audit.entries) ? audit.entries : []);
       setQuestions(Array.isArray(data.questions) ? data.questions : []);
       setFlags(Array.isArray(data.flags) ? data.flags : []);
       setAppeals(Array.isArray(data.appeals) ? data.appeals : []);
@@ -155,7 +158,6 @@ export const AdminAIStudio: React.FC = () => {
       lock_conversation: 'lock this conversation',
       unlock_conversation: 'unlock this conversation',
       answer_question: 'send the proposed answer to the member',
-      set_games_access: actionProposal.value ? 'enable Games access for this member' : 'disable Games access for this member',
       ban_user: actionProposal.value ? 'suspend this member from YouSound' : 'remove this member’s suspension',
     };
     const label = labels[actionProposal.type];
@@ -268,6 +270,11 @@ export const AdminAIStudio: React.FC = () => {
         {overviewError && <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">{overviewError}</div>}
         {feedback && <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">{feedback}</div>}
       </div>}
+
+      <section className="rounded-2xl border border-white/10 bg-[#0b1220] p-4 text-white">
+        <div className="flex items-center justify-between gap-3"><div className="text-xs font-black">Admin AI action log</div><span className="text-[9px] text-slate-500">Latest {auditEntries.length} recorded actions</span></div>
+        {auditEntries.length ? <div className="mt-3 space-y-2">{auditEntries.slice(0,8).map(entry => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/5 bg-white/[.025] px-3 py-2"><div><div className="text-[10px] font-bold text-slate-200">{entry.action.replace(/_/g,' ')}</div><div className="mt-0.5 font-mono text-[9px] text-slate-500">{entry.targetId}</div></div><div className="text-[9px] text-slate-500">{new Date(entry.createdAt).toLocaleString()}</div></div>)}</div> : <p className="mt-3 text-[10px] text-slate-500">No Admin AI actions have been recorded yet.</p>}
+      </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="overflow-hidden rounded-3xl border border-white/10 bg-[#0b1220] text-white shadow-xl">
