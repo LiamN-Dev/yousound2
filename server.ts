@@ -1773,7 +1773,7 @@ app.post('/api/admin/ai/assistant', async (req: Request, res: Response) => {
     });
     const raw = String(generated.response.text || '').trim();
     let payload: any = null;
-    try { payload = JSON.parse(raw.replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, '')); } catch { payload = null; }
+    try { payload = JSON.parse(raw.replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, '')); } catch { payload = null; }
     const reply = typeof payload?.reply === 'string' ? payload.reply.trim().slice(0,5000) : raw.slice(0,5000);
     let actionProposal: any = null;
     const action = payload?.action;
@@ -1828,11 +1828,17 @@ app.post('/api/admin/ai/execute', async (req: Request, res: Response) => {
     } else {
       return res.status(400).json({ success: false, error: 'This administrative action is not available to Admin AI.' });
     }
-    const log = await getPersistentSettingDb<any[]>('admin_ai_action_audit_v1');
-    const entries = Array.isArray(log) ? log : [];
     const auditEntry = { id: 'aia_' + randomBytes(8).toString('hex'), actor: getAuthUser(req)?.uid || 'admin', action: type, targetId, reason, result, createdAt: new Date().toISOString() };
-    await setPersistentSettingDb('admin_ai_action_audit_v1', [...entries, auditEntry].slice(-300));
-    return res.json({ success: true, result, auditEntry });
+    let auditWarning = '';
+    try {
+      const log = await getPersistentSettingDb<any[]>('admin_ai_action_audit_v1');
+      const entries = Array.isArray(log) ? log : [];
+      await setPersistentSettingDb('admin_ai_action_audit_v1', [...entries, auditEntry].slice(-300));
+    } catch (auditError) {
+      console.error('[Admin AI] Action succeeded but audit log write failed:', auditError);
+      auditWarning = 'The action succeeded, but the audit log could not be saved. Check database health.';
+    }
+    return res.json({ success: true, result, auditEntry: auditWarning ? null : auditEntry, auditWarning });
   } catch (error: any) {
     console.error('[Admin AI] Action failed:', error);
     return res.status(500).json({ success: false, error: error?.message || 'The administrative action failed.' });
