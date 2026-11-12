@@ -46,6 +46,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [notice, setNotice] = useState('');
   const [embeddedGame, setEmbeddedGame] = useState<ArcadeGame | null>(null);
   const [youCraftOpen, setYouCraftOpen] = useState(false);
+  const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
 
   const loadCatalog = async () => {
     setLoading(true);
@@ -57,6 +58,8 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
         const overview = await readJson(await fetch('/api/admin/games/overview', { credentials: 'same-origin', cache: 'no-store' }));
         setGames(Array.isArray(overview.games) ? overview.games : []);
         setRecentLaunches(Array.isArray(overview.recentLaunches) ? overview.recentLaunches : []);
+        const youCraft = await readJson(await fetch('/api/youcraft/admin/overview', { credentials: 'same-origin', cache: 'no-store' }));
+        setYouCraftOverview({ players: Array.isArray(youCraft.players) ? youCraft.players : [], matches: Array.isArray(youCraft.matches) ? youCraft.matches : [] });
       }
     } catch (loadError: any) {
       setError(loadError?.message || 'The Arcade could not be loaded.');
@@ -292,10 +295,41 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
             <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
               {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
                 <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
-                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'infinite-craft' ? 'Infinite Craft' : 'OpenFront'}</strong></div>
+                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'infinite-craft' ? 'Infinite Craft' : event.gameId === 'youcraft' ? 'YouCraft' : 'OpenFront'}</strong></div>
                   <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
                 </div>
               ))}
+            </div>
+          </div>
+          <div className="border-t border-white/10 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-white">YouCraft community oversight</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Account-level discovery totals and the latest multiplayer arenas. No private chat content is exposed here.</p>
+              </div>
+              <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{youCraftOverview?.players.length || 0} PLAYERS · {youCraftOverview?.matches.length || 0} MATCHES</span>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <div className="border-b border-white/10 bg-white/[.03] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Most recent player activity</div>
+                {(youCraftOverview?.players || []).slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,12).map((player) => (
+                  <div key={player.uid} className="flex items-center justify-between gap-2 border-b border-white/5 px-3 py-2.5 last:border-0">
+                    <span className="truncate text-xs text-slate-200">{player.username || player.uid}</span>
+                    <span className="shrink-0 text-[10px] tabular-nums text-cyan-200">{player.discoveryCount} discoveries</span>
+                  </div>
+                ))}
+                {!youCraftOverview?.players.length && <p className="p-4 text-center text-xs text-slate-500">No YouCraft players yet.</p>}
+              </div>
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <div className="border-b border-white/10 bg-white/[.03] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Recent strategy matches</div>
+                {(youCraftOverview?.matches || []).slice(0,12).map((match) => (
+                  <div key={match.id} className="border-b border-white/5 px-3 py-2.5 last:border-0">
+                    <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs font-bold text-white">{match.code}</span><span className="text-[10px] uppercase text-cyan-200">{match.status}</span></div>
+                    <div className="mt-1 truncate text-[10px] text-slate-400">{match.players.join(' vs ') || 'Waiting'} · turn {match.turnNumber}</div>
+                  </div>
+                ))}
+                {!youCraftOverview?.matches.length && <p className="p-4 text-center text-xs text-slate-500">No strategy matches yet.</p>}
+              </div>
             </div>
           </div>
         </section>
