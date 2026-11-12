@@ -38,8 +38,8 @@ test('known crafting recipes resolve instantly and are order-independent', () =>
 test('unknown combinations are not made up locally', () => {
   const water = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Water')!;
   const air = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Air')!;
-  const key = canonicalYouCraftRecipe('Water', 'Air + Unicorn').key;
   const unknown = { ...air, name: 'Unicorn' };
+  const key = canonicalYouCraftRecipe(water.name, unknown.name).key;
   assert.equal(createInstantYouCraftDiscovery(water, unknown, key), null);
 });
 
