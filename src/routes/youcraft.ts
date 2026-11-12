@@ -302,8 +302,8 @@ async function requestImmediateRecipe(pair: PlannedPair, discoveries: YouCraftIt
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
-      temperature: 0.2,
-      maxOutputTokens: 420,
+      thinkingConfig: { thinkingLevel: 'medium' },
+      maxOutputTokens: 1000,
     },
   });
   const raw = String(response.text || '').trim().replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\x60{3}$/i, '');
