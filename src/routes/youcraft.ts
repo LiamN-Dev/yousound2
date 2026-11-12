@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import {
   getPersistentSettingDb,
-  setPersistentSettingDb,
   ensurePersistentSettingDb,
   compareAndSetPersistentSettingDb,
 } from '../db/queries.ts';
@@ -34,7 +33,7 @@ async function getAccount(req: Request, res: Response) {
   const auth = getAuthUser(req);
   if (!auth) { res.status(401).json({ success: false, error: 'Sign in to play YouCraft.' }); return null; }
   const user = await getUserByUid(auth.uid);
-  if (!user || (user.role !== 'admin' && (!user.isApproved || user.isSuspended || user.isLocked || user.gamesEnabled === false))) {
+  if (!user || (user.role !== 'admin' && (!user.isApproved || user.isSuspended || user.isLocked))) {
     res.status(403).json({ success: false, error: 'This account is not currently allowed to use games.' });
     return null;
   }
