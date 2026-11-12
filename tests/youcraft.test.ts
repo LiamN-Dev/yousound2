@@ -45,6 +45,15 @@ test('unknown combinations are not made up locally', () => {
   assert.equal(createInstantYouCraftDiscovery(water, unknown, key), null);
 });
 
+test('logical but unlisted pairs are deferred to the live AI recipe thinker', () => {
+  const fire = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Fire')!;
+  const air = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Air')!;
+  const sky = { ...air, id: 'test-sky', name: 'Sky' };
+  const lava = { ...fire, id: 'test-lava', name: 'Lava' };
+  const key = canonicalYouCraftRecipe(sky.name, lava.name).key;
+  assert.equal(createInstantYouCraftDiscovery(sky, lava, key), null);
+});
+
 test('two players can join a match and alternate turns', () => {
   const host = { uid: 'host', username: 'Host' };
   const guest = { uid: 'guest', username: 'Guest' };
