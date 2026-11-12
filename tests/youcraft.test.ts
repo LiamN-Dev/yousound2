@@ -4,6 +4,7 @@ import {
   YOUCRAFT_STARTER_ITEMS,
   canonicalYouCraftRecipe,
   normalizeYouCraftItem,
+  createInstantYouCraftDiscovery,
   createInitialYouCraftBattleState,
   joinYouCraftBattleState,
   applyYouCraftAction,
@@ -21,6 +22,26 @@ test('generated item stats are bounded and stable by recipe', () => {
   assert.equal(item.attack, 9);
   assert.equal(item.defense, 1);
   assert.equal(item.energyCost, 3);
+});
+
+test('known crafting recipes resolve instantly and are order-independent', () => {
+  const water = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Water')!;
+  const fire = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Fire')!;
+  const recipe = canonicalYouCraftRecipe(water.name, fire.name);
+  const steam = createInstantYouCraftDiscovery(water, fire, recipe.key);
+  const reversed = createInstantYouCraftDiscovery(fire, water, recipe.key);
+  assert.equal(steam.name, 'Steam');
+  assert.equal(steam.id, reversed.id);
+  assert.equal(steam.name, reversed.name);
+});
+
+test('unknown recipes use a deterministic local fallback', () => {
+  const [water, fire, earth] = YOUCRAFT_STARTER_ITEMS;
+  const key = canonicalYouCraftRecipe(water.name, earth.name).key;
+  const first = createInstantYouCraftDiscovery(water, earth, key);
+  const second = createInstantYouCraftDiscovery(water, earth, key);
+  assert.equal(first.name, second.name);
+  assert.equal(first.attack + first.defense >= 9, true);
 });
 
 test('two players can join a match and alternate turns', () => {
