@@ -2360,7 +2360,7 @@ app.get('/api/admin/ai/diagnostics/:id', async (req: Request, res: Response) => 
 // ----------------- YOUSOUND ARCADE CATALOG -----------------
 type ArcadeLaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGameConfig = {
-  id: 'infinite-craft' | 'openfront' | 'youcraft';
+  id: 'openfront' | 'youcraft';
   title: string;
   description: string;
   enabled: boolean;
@@ -2382,17 +2382,6 @@ type ArcadeLaunchEvent = {
 const ARCADE_CATALOG_SETTING = 'arcade_game_catalog_v1';
 const ARCADE_LAUNCHES_SETTING = 'arcade_game_launches_v1';
 const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
-  {
-    id: 'infinite-craft',
-    title: 'Infinite Craft',
-    description: 'The original Neal.fun discovery game. Combine elements and discover new creations.',
-    enabled: true,
-    featured: true,
-    launchUrl: 'https://neal.fun/infinite-craft/',
-    launchMode: 'new-tab',
-    playerMode: 'solo',
-    providerLabel: 'Official Neal.fun game',
-  },
   {
     id: 'openfront',
     title: 'OpenFront',
@@ -2427,8 +2416,8 @@ async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
       ...defaults,
       enabled: saved.enabled === true,
       featured: saved.featured === true,
-      launchUrl: defaults.id === 'infinite-craft' ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
-      launchMode: defaults.id === 'infinite-craft' ? 'new-tab' : defaults.id === 'youcraft' ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
+      launchUrl: defaults.id === 'youcraft' ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
+      launchMode: defaults.id === 'youcraft' ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
     };
   });
 }
@@ -2472,10 +2461,6 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
       const item = submitted.find((candidate: any) => candidate?.id === defaults.id);
       if (!item || typeof item.enabled !== 'boolean' || typeof item.featured !== 'boolean') {
         return res.status(400).json({ success: false, error: 'A game entry is missing a valid activation or featured setting.' });
-      }
-      if (defaults.id === 'infinite-craft') {
-        normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'new-tab' });
-        continue;
       }
       if (defaults.id === 'youcraft') {
         normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'native' });
