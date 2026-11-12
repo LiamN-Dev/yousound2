@@ -92,7 +92,7 @@ async function generateDiscovery(first: YouCraftItem, second: YouCraftItem, reci
         contents: prompt,
         config: { responseMimeType: 'application/json', temperature: 0.85, maxOutputTokens: 260 },
       });
-      const raw = String(response.text || '').trim().replace(/^\`\`\`json\\s*/i, '').replace(/^\`\`\`/, '').replace(/\`\`\`$/, '');
+      const raw = String(response.text || '').trim().replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '');
       const parsed = JSON.parse(raw);
       return normalizeYouCraftItem(parsed, recipeKey);
     } catch (error: any) {
