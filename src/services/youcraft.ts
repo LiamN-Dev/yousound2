@@ -41,7 +41,7 @@ export const YOUCRAFT_STARTER_ITEMS: YouCraftItem[] = [
 ];
 
 export function canonicalYouCraftRecipe(first: string, second: string) {
-  const normalize = (value: string) => value.trim().normalize('NFKC').toLowerCase().replace(/\\s+/g, ' ');
+  const normalize = (value: string) => value.trim().normalize('NFKC').toLowerCase().replace(/\s+/g, ' ');
   const pair = [normalize(first), normalize(second)].sort();
   const key = createHash('sha256').update(pair.join(' + ')).digest('hex');
   return { inputA: pair[0], inputB: pair[1], key };
@@ -49,7 +49,7 @@ export function canonicalYouCraftRecipe(first: string, second: string) {
 
 function cleanText(value: unknown, fallback: string, max: number): string {
   const result = typeof value === 'string'
-    ? value.replace(/[<>\u0000-\u001f]/g, '').replace(/\\s+/g, ' ').trim()
+    ? value.replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim()
     : '';
   return (result || fallback).slice(0, max);
 }
