@@ -127,6 +127,7 @@ import {
 } from './src/db/feedback.ts';
 import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile, getDriveLibraryFolderId } from './src/services/audioPipeline.ts';
 import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy.ts';
+import youCraftRouter from './src/routes/youcraft.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -279,6 +280,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
+app.use('/api/youcraft', youCraftRouter);
 app.use('/api/games/crossy-road', (_req: Request, res: Response) => {
   return res.status(410).json({ success: false, error: 'Crossy Road has been retired from the YouSound Arcade.' });
 });
