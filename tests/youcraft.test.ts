@@ -35,13 +35,12 @@ test('known crafting recipes resolve instantly and are order-independent', () =>
   assert.equal(steam.name, reversed.name);
 });
 
-test('unknown recipes use a deterministic local fallback', () => {
-  const [water, fire, earth] = YOUCRAFT_STARTER_ITEMS;
-  const key = canonicalYouCraftRecipe(water.name, earth.name).key;
-  const first = createInstantYouCraftDiscovery(water, earth, key);
-  const second = createInstantYouCraftDiscovery(water, earth, key);
-  assert.equal(first.name, second.name);
-  assert.equal(first.attack + first.defense >= 9, true);
+test('unknown combinations are not made up locally', () => {
+  const water = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Water')!;
+  const air = YOUCRAFT_STARTER_ITEMS.find((item) => item.name === 'Air')!;
+  const key = canonicalYouCraftRecipe('Water', 'Air + Unicorn').key;
+  const unknown = { ...air, name: 'Unicorn' };
+  assert.equal(createInstantYouCraftDiscovery(water, unknown, key), null);
 });
 
 test('two players can join a match and alternate turns', () => {
