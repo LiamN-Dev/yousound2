@@ -205,8 +205,9 @@ router.post('/matches/join', async (req, res) => {
       const match = Object.values(current).find((entry) => entry.code === code && entry.status === 'waiting');
       if (!match) throw new Error('No waiting match was found for that code.');
       if (match.state.players.some((player) => player.uid === account.uid)) throw new Error('You are already in this match.');
-      savedMatch.value = { ...match, status: 'active', updatedAt: new Date().toISOString(), state: joinYouCraftBattleState(match.state, { uid: account.uid, username: account.username }, profile.discoveries) };
-      return { ...current, [match.id]: savedMatch.value };
+      const nextMatch: MatchRecord = { ...match, status: 'active', updatedAt: new Date().toISOString(), state: joinYouCraftBattleState(match.state, { uid: account.uid, username: account.username }, profile.discoveries) };
+      savedMatch.value = nextMatch;
+      return { ...current, [match.id]: nextMatch };
     });
     const updated = savedMatch.value!;
     return res.json({ success: true, match: { id: updated.id, code: updated.code, status: updated.status, state: updated.state } });
@@ -237,8 +238,9 @@ router.post('/matches/:id/action', async (req, res) => {
       const match = current[req.params.id];
       if (!match || !match.state.players.some((player) => player.uid === account.uid)) throw new Error('Match not found.');
       const state = applyYouCraftAction(match.state, account.uid, action, String(req.body?.itemId || ''));
-      savedMatch.value = { ...match, state, status: state.winnerUid ? 'finished' : 'active', updatedAt: new Date().toISOString() };
-      return { ...current, [match.id]: savedMatch.value };
+      const nextMatch: MatchRecord = { ...match, state, status: state.winnerUid ? 'finished' : 'active', updatedAt: new Date().toISOString() };
+      savedMatch.value = nextMatch;
+      return { ...current, [match.id]: nextMatch };
     });
     const updated = savedMatch.value!;
     return res.json({ success: true, match: { id: updated.id, code: updated.code, status: updated.status, state: updated.state } });
