@@ -51,9 +51,10 @@ async function mutateMap<T>(key: string, update: (current: Record<string, T>) =>
   throw new Error('The game data changed repeatedly. Please try again.');
 }
 
-async function getProfile(uid: string): Promise<Profile> {
+async function getProfile(uid: string, username: string): Promise<Profile> {
   const profiles = await getPersistentSettingDb<Record<string, Profile>>(PROFILE_KEY) || {};
-  return profiles[uid] || { uid, discoveries: YOUCRAFT_STARTER_ITEMS.map((item) => ({ ...item })), combinations: 0, updatedAt: new Date().toISOString() };
+  const saved = profiles[uid];
+  return saved ? { ...saved, username: saved.username || username } : { uid, username, discoveries: YOUCRAFT_STARTER_ITEMS.map((item) => ({ ...item })), combinations: 0, updatedAt: new Date().toISOString() };
 }
 
 async function saveProfile(profile: Profile): Promise<void> {
@@ -125,7 +126,7 @@ router.post('/combine', async (req, res) => {
     const a = safeItemName(req.body?.itemA);
     const b = safeItemName(req.body?.itemB);
     if (!a || !b || a.toLowerCase() === b.toLowerCase()) return res.status(400).json({ success: false, error: 'Choose two different items.' });
-    const profile = await getProfile(account.uid);
+    const profile = await getProfile(account.uid, account.username);
     const first = profile.discoveries.find((item) => item.id === a);
     const second = profile.discoveries.find((item) => item.id === b);
     if (!first || !second) return res.status(400).json({ success: false, error: 'You can only combine items in your own collection.' });
