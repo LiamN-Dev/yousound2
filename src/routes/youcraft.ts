@@ -52,7 +52,6 @@ type PlannerRuntime = PlannerStatus & { lastAttemptAt: number };
 type MatchRecord = { id: string; code: string; status: 'waiting' | 'active' | 'finished'; createdAt: string; updatedAt: string; state: YouCraftBattleState };
 const PROFILE_KEY = 'youcraft_profiles_v1';
 const RECIPE_KEY = 'youcraft_recipes_v2';
-const LEGACY_RECIPE_KEY = 'youcraft_recipes_v1';
 const MATCH_KEY = 'youcraft_matches_v1';
 const PLANNER_BATCH_SIZE = 10;
 const MAX_CANDIDATES_PER_PROFILE = 24;
@@ -168,7 +167,7 @@ async function getPlannerStatus(uid: string, discoveries: YouCraftItem[]): Promi
   };
 }
 
-function validatePlannedRecipe(raw: any, pair: PlannedPair): YouCraftItem | null {
+function validatePlannedRecipe(raw: any, pair: PlannedPair, discoveries: YouCraftItem[]): YouCraftItem | null {
   const name = safeItemName(raw?.name);
   const description = typeof raw?.description === 'string' ? raw.description.replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150) : '';
   const category = safeItemName(raw?.category).slice(0, 18);
@@ -181,6 +180,8 @@ function validatePlannedRecipe(raw: any, pair: PlannedPair): YouCraftItem | null
     && name.split(/\s+/).length <= 4
     && name.toLowerCase() !== pair.first.name.toLowerCase()
     && name.toLowerCase() !== pair.second.name.toLowerCase()
+    && !discoveries.some((item) => item.name.toLowerCase() === name.toLowerCase())
+    && Number(raw?.confidence) >= 0.82
     && !/^(unknown|mystery|discovery|fusion|something|anything)$/i.test(name);
   if (!validName || description.length < 16 || !category || !emoji || !abilityName || abilityDescription.length < 10) return null;
   const hash = Number.parseInt(pair.key.slice(0, 8), 16) || 0;
@@ -204,11 +205,12 @@ async function requestPlannedBatch(pairs: PlannedPair[], discoveries: YouCraftIt
     'Never invent nonsense words, mash two input words together, add arbitrary syllables, or return generic filler.',
     'Do not simply concatenate inputs. Do not use a result identical to either input.',
     'If there is no defensible, recognizable result, return status "no_recipe" for that pair instead of making something up.',
+    'Include a confidence number from 0 to 1. Set confidence to at least 0.82 only when the result is a clear, established connection; otherwise return no_recipe.',
     'Prefer established combinations and satisfying lateral connections. Descriptions must explain the actual connection in one factual sentence.',
     'Each successful result needs a short real category, emoji, concise description, and a game ability themed around the result.',
     'Do not create attack, defense, or energy stats; the game assigns balanced stats itself.',
     'Avoid returning any of these already-discovered names unless there is no reasonable alternative: ' + JSON.stringify(known.slice(-60)),
-    'Return ONLY strict JSON in this exact shape: {"recipes":[{"id":"p0","status":"ok","name":"...","emoji":"...","category":"...","description":"...","abilityName":"...","abilityDescription":"..."},{"id":"p1","status":"no_recipe"}]}. Include exactly one entry per pair ID.',
+    'Return ONLY strict JSON in this exact shape: {"recipes":[{"id":"p0","status":"ok","confidence":0.94,"name":"...","emoji":"...","category":"...","description":"...","abilityName":"...","abilityDescription":"..."},{"id":"p1","status":"no_recipe"}]}. Include exactly one entry per pair ID.',
     'Pairs to plan: ' + JSON.stringify(pairs.map((pair) => ({
       id: pair.id,
       inputA: { name: pair.first.name, description: pair.first.description },
@@ -272,7 +274,7 @@ function schedulePlanning(uid: string, profile: Profile): void {
             };
             continue;
           }
-          const item = validatePlannedRecipe(raw, pair);
+          const item = validatePlannedRecipe(raw, pair, profile.discoveries);
           if (!item) {
             next[pair.key] = {
               key: pair.key, inputA: pair.inputA, inputB: pair.inputB,
