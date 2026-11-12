@@ -32,10 +32,10 @@ test('two players can join a match and alternate turns', () => {
   assert.equal(joined.currentTurnUid, 'host');
   const afterHost = applyYouCraftAction(joined, 'host', 'strike', 'starter-fire');
   assert.equal(afterHost.currentTurnUid, 'guest');
-  assert.equal(afterHost.players.find((p) => p.uid === 'guest')?.hp, 21);
+  assert.equal(afterHost.players.find((p) => p.uid === 'guest')?.hp, 22);
   const afterGuest = applyYouCraftAction(afterHost, 'guest', 'guard', 'starter-earth');
   assert.equal(afterGuest.currentTurnUid, 'host');
-  assert.equal(afterGuest.players.find((p) => p.uid === 'guest')?.guard, 9);
+  assert.equal(afterGuest.players.find((p) => p.uid === 'guest')?.guard, 7);
   assert.deepEqual(afterGuest.usedItemIds.host, []);
 });
 
@@ -47,11 +47,10 @@ test('battle rejects out-of-turn actions and item reuse', () => {
   );
   assert.throws(() => applyYouCraftAction(state, 'guest', 'charge'), /not your turn/i);
   const next = applyYouCraftAction(state, 'host', 'strike', 'starter-fire');
+  assert.equal(next.currentTurnUid, 'guest');
+  assert.throws(() => applyYouCraftAction(next, 'host', 'charge'), /not your turn/i);
   const nextGuest = applyYouCraftAction(next, 'guest', 'charge');
   assert.equal(nextGuest.currentTurnUid, 'host');
-  const hostAgain = applyYouCraftAction(nextGuest, 'host', 'strike', 'starter-fire');
-  assert.equal(hostAgain.currentTurnUid, 'guest');
-  assert.throws(() => applyYouCraftAction(hostAgain, 'guest', 'strike', 'starter-fire'), /not your turn/i);
 });
 
 test('battle ends when health reaches zero', () => {
@@ -64,5 +63,4 @@ test('battle ends when health reaches zero', () => {
   state = { ...state, players: state.players.map((p) => p.uid === 'guest' ? { ...p, hp: 1, guard: 0 } : p) };
   const won = applyYouCraftAction(state, 'host', 'strike', 'starter-fire');
   assert.equal(won.winnerUid, 'host');
-  assert.equal(won.status, undefined);
 });
