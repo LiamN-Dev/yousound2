@@ -131,23 +131,40 @@ router.post('/combine', async (req, res) => {
     const second = profile.discoveries.find((item) => item.id === b);
     if (!first || !second) return res.status(400).json({ success: false, error: 'You can only combine items in your own collection.' });
     if (profile.discoveries.length >= 250) return res.status(409).json({ success: false, error: 'Your discovery collection is full. Remove or archive some items first.' });
+    combineAttempts.set(account.uid, [...recent, now]);
     const recipe = canonicalYouCraftRecipe(first.name, second.name);
     const existingRecipes = await getPersistentSettingDb<Record<string, RecipeRecord>>(RECIPE_KEY) || {};
     const existing = existingRecipes[recipe.key];
     let item = existing?.item;
     if (!item) item = await generateDiscovery(first, second, recipe.key);
-    if (profile.discoveries.some((entry) => entry.id === item!.id)) {
+
+    // Only one generated result wins globally for a recipe, even if two users combine it simultaneously.
+    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => recipes[recipe.key] ? recipes : ({
+      ...recipes,
+      [recipe.key]: { key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB, item: item!, createdAt: new Date().toISOString() },
+    }));
+    item = canonicalRecipes[recipe.key].item;
+
+    let updated: Profile | null = null;
+    await mutateMap<Profile>(PROFILE_KEY, (profiles) => {
+      const current = profiles[account.uid] || profile;
+      if (current.discoveries.some((entry) => entry.id === item!.id)) {
+        updated = current;
+        return profiles;
+      }
+      if (current.discoveries.length >= 250) throw new Error('Your discovery collection is full.');
+      updated = {
+        ...current,
+        username: account.username,
+        discoveries: [...current.discoveries, item!],
+        combinations: current.combinations + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      return { ...profiles, [account.uid]: updated };
+    });
+    if (!updated || updated.discoveries.every((entry) => entry.id !== item!.id)) {
       return res.status(409).json({ success: false, error: 'You already discovered this combination. Try a different pair.' });
     }
-    if (!existing) {
-      await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => recipes[recipe.key] ? recipes : ({
-        ...recipes,
-        [recipe.key]: { key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB, item: item!, createdAt: new Date().toISOString() },
-      }));
-    }
-    const updated: Profile = { ...profile, discoveries: [...profile.discoveries, item], combinations: profile.combinations + 1, updatedAt: new Date().toISOString() };
-    await saveProfile(updated);
-    combineAttempts.set(account.uid, [...recent, now]);
     return res.json({ success: true, item, profile: updated, reusedRecipe: Boolean(existing) });
   } catch (error: any) {
     console.error('[YouCraft] Combine failed:', error);
@@ -180,15 +197,17 @@ router.post('/matches/join', async (req, res) => {
     const account = await getAccount(req, res); if (!account) return;
     const code = String(req.body?.code || '').trim().toUpperCase();
     if (!/^[A-F0-9]{6}$/.test(code)) return res.status(400).json({ success: false, error: 'Enter the six-character match code.' });
-    const matches = await getPersistentSettingDb<Record<string, MatchRecord>>(MATCH_KEY) || {};
-    const match = Object.values(matches).find((entry) => entry.code === code && entry.status === 'waiting');
-    if (!match) return res.status(404).json({ success: false, error: 'No waiting match was found for that code.' });
-    if (match.state.players.some((player) => player.uid === account.uid)) return res.status(409).json({ success: false, error: 'You are already in this match.' });
     const profile = await getProfile(account.uid, account.username);
     await saveProfile(profile);
-    const updated = { ...match, status: 'active' as const, updatedAt: new Date().toISOString(), state: joinYouCraftBattleState(match.state, { uid: account.uid, username: account.username }, profile.discoveries) };
-    await saveMatch(updated);
-    return res.json({ success: true, match: { id: updated.id, code: updated.code, status: updated.status, state: updated.state } });
+    let updated: MatchRecord | null = null;
+    await mutateMap<MatchRecord>(MATCH_KEY, (current) => {
+      const match = Object.values(current).find((entry) => entry.code === code && entry.status === 'waiting');
+      if (!match) throw new Error('No waiting match was found for that code.');
+      if (match.state.players.some((player) => player.uid === account.uid)) throw new Error('You are already in this match.');
+      updated = { ...match, status: 'active', updatedAt: new Date().toISOString(), state: joinYouCraftBattleState(match.state, { uid: account.uid, username: account.username }, profile.discoveries) };
+      return { ...current, [match.id]: updated };
+    });
+    return res.json({ success: true, match: { id: updated!.id, code: updated!.code, status: updated!.status, state: updated!.state } });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error?.message || 'Could not join that match.' });
   }
@@ -211,13 +230,15 @@ router.post('/matches/:id/action', async (req, res) => {
     const account = await getAccount(req, res); if (!account) return;
     const action = String(req.body?.action || '') as YouCraftAction;
     if (!['strike', 'guard', 'charge'].includes(action)) return res.status(400).json({ success: false, error: 'Choose a valid battle action.' });
-    const matches = await getPersistentSettingDb<Record<string, MatchRecord>>(MATCH_KEY) || {};
-    const match = matches[req.params.id];
-    if (!match || !match.state.players.some((player) => player.uid === account.uid)) return res.status(404).json({ success: false, error: 'Match not found.' });
-    const state = applyYouCraftAction(match.state, account.uid, action, String(req.body?.itemId || ''));
-    const updated: MatchRecord = { ...match, state, status: state.winnerUid ? 'finished' : 'active', updatedAt: new Date().toISOString() };
-    await saveMatch(updated);
-    return res.json({ success: true, match: { id: updated.id, code: updated.code, status: updated.status, state: updated.state } });
+    let updated: MatchRecord | null = null;
+    await mutateMap<MatchRecord>(MATCH_KEY, (current) => {
+      const match = current[req.params.id];
+      if (!match || !match.state.players.some((player) => player.uid === account.uid)) throw new Error('Match not found.');
+      const state = applyYouCraftAction(match.state, account.uid, action, String(req.body?.itemId || ''));
+      updated = { ...match, state, status: state.winnerUid ? 'finished' : 'active', updatedAt: new Date().toISOString() };
+      return { ...current, [match.id]: updated };
+    });
+    return res.json({ success: true, match: { id: updated!.id, code: updated!.code, status: updated!.status, state: updated!.state } });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error?.message || 'That move could not be played.' });
   }
