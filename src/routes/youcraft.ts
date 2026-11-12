@@ -232,7 +232,7 @@ router.get('/admin/overview', async (req, res) => {
     ]);
     return res.json({
       success: true,
-      players: Object.values(profiles || {}).map((profile) => ({ uid: profile.uid, discoveryCount: profile.discoveries.length, combinations: profile.combinations, updatedAt: profile.updatedAt })),
+      players: Object.values(profiles || {}).map((profile) => ({ uid: profile.uid, username: profile.username, discoveryCount: profile.discoveries.length, combinations: profile.combinations, updatedAt: profile.updatedAt })),
       matches: Object.values(matches || {}).map((match) => ({ id: match.id, code: match.code, status: match.status, players: match.state.players.map((player) => player.username), turnNumber: match.state.turnNumber, winnerUid: match.state.winnerUid, updatedAt: match.updatedAt })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 50),
     });
   } catch (error) {
