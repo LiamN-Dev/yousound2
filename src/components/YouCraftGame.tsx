@@ -8,11 +8,13 @@ type BattleState = { players: Player[]; currentTurnUid: string; turnNumber: numb
 type Match = { id: string; code: string; status: 'waiting'|'active'|'finished'; state: BattleState };
 
 async function api(path: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const response = await fetch('/api/youcraft' + path, {
     credentials: 'same-origin',
     cache: 'no-store',
     ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers,
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.success) throw new Error(data.error || 'YouCraft request failed.');
