@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import crossyRoadRouter from './src/routes/crossyRoad.ts';
 import { GoogleGenAI } from '@google/genai';
 import path from 'path';
 import fs from 'fs';
@@ -280,7 +279,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
-app.use('/api/games/crossy-road', crossyRoadRouter);
+app.use('/api/games/crossy-road', (_req: Request, res: Response) => {
+  return res.status(410).json({ success: false, error: 'Crossy Road has been retired from the YouSound Arcade.' });
+});
 
 // Statically serve images and assets so covers never 404
 app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
@@ -2352,6 +2353,209 @@ app.get('/api/admin/ai/diagnostics/:id', async (req: Request, res: Response) => 
   return item
     ? res.json({ success: true, diagnostic: item })
     : res.status(404).json({ success: false, error: 'Diagnostic not found in stored records. Check the Render logs for the time the error occurred.' });
+});
+
+// ----------------- YOUSOUND ARCADE CATALOG -----------------
+type ArcadeLaunchMode = 'new-tab' | 'embedded';
+type ArcadeGameConfig = {
+  id: 'infinite-craft' | 'openfront';
+  title: string;
+  description: string;
+  enabled: boolean;
+  featured: boolean;
+  launchUrl: string;
+  launchMode: ArcadeLaunchMode;
+  playerMode: 'solo' | 'multiplayer';
+  providerLabel: string;
+};
+
+type ArcadeLaunchEvent = {
+  id: string;
+  gameId: string;
+  username: string;
+  userId: string;
+  launchedAt: string;
+};
+
+const ARCADE_CATALOG_SETTING = 'arcade_game_catalog_v1';
+const ARCADE_LAUNCHES_SETTING = 'arcade_game_launches_v1';
+const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
+  {
+    id: 'infinite-craft',
+    title: 'Infinite Craft',
+    description: 'The original Neal.fun discovery game. Combine elements and discover new creations.',
+    enabled: true,
+    featured: true,
+    launchUrl: 'https://neal.fun/infinite-craft/',
+    launchMode: 'new-tab',
+    playerMode: 'solo',
+    providerLabel: 'Official Neal.fun game',
+  },
+  {
+    id: 'openfront',
+    title: 'OpenFront',
+    description: 'The original real-time multiplayer world-conquest strategy game.',
+    enabled: false,
+    featured: false,
+    launchUrl: 'https://openfront.io/',
+    launchMode: 'new-tab',
+    playerMode: 'multiplayer',
+    providerLabel: 'Official OpenFront game',
+  },
+];
+
+async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
+  const stored = await getPersistentSettingDb<ArcadeGameConfig[]>(ARCADE_CATALOG_SETTING);
+  if (!Array.isArray(stored)) return DEFAULT_ARCADE_GAMES.map((game) => ({ ...game }));
+  return DEFAULT_ARCADE_GAMES.map((defaults) => {
+    const saved = stored.find((item) => item && item.id === defaults.id);
+    if (!saved) return { ...defaults };
+    return {
+      ...defaults,
+      enabled: saved.enabled === true,
+      featured: saved.featured === true,
+      launchUrl: defaults.id === 'infinite-craft' ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
+      launchMode: defaults.id === 'infinite-craft' ? 'new-tab' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
+    };
+  });
+}
+
+async function getArcadeAccount(req: Request, res: Response) {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    res.status(401).json({ success: false, error: 'Please sign in to use the Arcade.' });
+    return null;
+  }
+  const user = await getUserByUid(authUser.uid);
+  if (!user || (user.role !== 'admin' && (!user.isApproved || user.isSuspended || user.isLocked))) {
+    res.status(403).json({ success: false, error: 'This account is not allowed to use the Arcade.' });
+    return null;
+  }
+  return { uid: user.uid, username: user.username, isAdmin: user.role === 'admin' };
+}
+
+app.get('/api/games/catalog', async (req: Request, res: Response) => {
+  try {
+    const account = await getArcadeAccount(req, res);
+    if (!account) return;
+    const games = await getArcadeCatalog();
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, games: account.isAdmin ? games : games.filter((game) => game.enabled) });
+  } catch (error: any) {
+    console.error('[Arcade] Catalog load failed:', error);
+    return res.status(500).json({ success: false, error: 'The Arcade catalog could not be loaded.' });
+  }
+});
+
+app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const submitted = req.body?.games;
+    if (!Array.isArray(submitted) || submitted.length !== DEFAULT_ARCADE_GAMES.length) {
+      return res.status(400).json({ success: false, error: 'The complete Arcade game catalog is required.' });
+    }
+    const normalized: ArcadeGameConfig[] = [];
+    for (const defaults of DEFAULT_ARCADE_GAMES) {
+      const item = submitted.find((candidate: any) => candidate?.id === defaults.id);
+      if (!item || typeof item.enabled !== 'boolean' || typeof item.featured !== 'boolean') {
+        return res.status(400).json({ success: false, error: 'A game entry is missing a valid activation or featured setting.' });
+      }
+      if (defaults.id === 'infinite-craft') {
+        normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'new-tab' });
+        continue;
+      }
+      const rawUrl = String(item.launchUrl || '').trim();
+      let parsedUrl: URL;
+      try { parsedUrl = new URL(rawUrl); }
+      catch { return res.status(400).json({ success: false, error: 'OpenFront needs a valid HTTPS game URL.' }); }
+      if (parsedUrl.protocol !== 'https:' || !parsedUrl.hostname || parsedUrl.username || parsedUrl.password || rawUrl.length > 500) {
+        return res.status(400).json({ success: false, error: 'OpenFront URL must be a public HTTPS address without embedded credentials.' });
+      }
+      const launchMode: ArcadeLaunchMode = item.launchMode === 'embedded' ? 'embedded' : 'new-tab';
+      const officialOpenFrontHost = parsedUrl.hostname === 'openfront.io' || parsedUrl.hostname.endsWith('.openfront.io');
+      if (launchMode === 'embedded' && officialOpenFrontHost) {
+        return res.status(400).json({ success: false, error: 'The official OpenFront site is not configured as a YouSound embed. Use a separately hosted instance whose frame policy permits YouSound.' });
+      }
+      normalized.push({
+        ...defaults,
+        enabled: item.enabled,
+        featured: item.enabled && item.featured,
+        launchUrl: parsedUrl.toString(),
+        launchMode,
+      });
+    }
+    if (new Set(submitted.map((item: any) => item?.id)).size !== DEFAULT_ARCADE_GAMES.length) {
+      return res.status(400).json({ success: false, error: 'Duplicate game entries are not allowed.' });
+    }
+    await setPersistentSettingDb(ARCADE_CATALOG_SETTING, normalized);
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, games: normalized });
+  } catch (error: any) {
+    console.error('[Arcade] Catalog save failed:', error);
+    return res.status(500).json({ success: false, error: 'The Arcade settings could not be saved.' });
+  }
+});
+
+app.post('/api/games/launch', async (req: Request, res: Response) => {
+  try {
+    const account = await getArcadeAccount(req, res);
+    if (!account) return;
+    const gameId = String(req.body?.gameId || '');
+    const game = (await getArcadeCatalog()).find((item) => item.id === gameId && item.enabled);
+    if (!game) return res.status(403).json({ success: false, error: 'This game is not currently activated.' });
+
+    await ensurePersistentSettingDb(ARCADE_LAUNCHES_SETTING, []);
+    const event: ArcadeLaunchEvent = {
+      id: randomBytes(10).toString('hex'),
+      gameId: game.id,
+      username: account.username,
+      userId: account.uid,
+      launchedAt: new Date().toISOString(),
+    };
+    let saved = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const previous = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
+      const entries = Array.isArray(previous) ? previous : [];
+      if (await compareAndSetPersistentSettingDb(ARCADE_LAUNCHES_SETTING, previous, [...entries, event].slice(-200))) {
+        saved = true;
+        break;
+      }
+    }
+    if (!saved) throw new Error('Arcade activity changed repeatedly while saving.');
+    return res.json({ success: true, recorded: true });
+  } catch (error: any) {
+    console.error('[Arcade] Launch activity could not be recorded:', error);
+    return res.status(500).json({ success: false, error: 'The game launch could not be recorded.' });
+  }
+});
+
+app.get('/api/admin/games/overview', async (_req: Request, res: Response) => {
+  if (!isAdminReq(_req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const [games, storedLaunches] = await Promise.all([
+      getArcadeCatalog(),
+      getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING),
+    ]);
+    const recentLaunches = Array.isArray(storedLaunches) ? storedLaunches.slice(-50).reverse() : [];
+    const launchCounts = recentLaunches.reduce((counts: Record<string, number>, event) => {
+      counts[event.gameId] = (counts[event.gameId] || 0) + 1;
+      return counts;
+    }, {});
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, games, recentLaunches, launchCounts, retentionWindow: 'latest 50 launches' });
+  } catch (error: any) {
+    console.error('[Arcade] Admin overview failed:', error);
+    return res.status(500).json({ success: false, error: 'The Arcade oversight panel could not be loaded.' });
+  }
+});
+
+// The retired games are deliberately inaccessible through their former API routes.
+// A hidden card or removed button alone would not be an access-control boundary.
+app.use('/api/games/guess-track', (_req: Request, res: Response) => {
+  return res.status(410).json({ success: false, error: 'Guess the Track has been retired from the YouSound Arcade.' });
+});
+app.use('/api/games/rhythm', (_req: Request, res: Response) => {
+  return res.status(410).json({ success: false, error: 'Rhythm Battle has been retired from the YouSound Arcade.' });
 });
 
 // ----------------- GAMES: GUESS THE TRACK -----------------

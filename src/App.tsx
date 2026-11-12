@@ -383,13 +383,7 @@ const MainAppContent: React.FC = () => {
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
         {activeTab === 'games' && (isAdmin || (currentUser.isApproved && !currentUser.isSuspended && !currentUser.isLocked)) && (
-          <GamesHub
-            isAdmin={isAdmin}
-            songs={adminAllSongs}
-            bulkUpdateSongs={bulkUpdateSongs}
-            updateSong={updateSong}
-            refreshSongLibrary={refreshSongLibrary}
-          />
+          <GamesHub isAdmin={isAdmin} />
         )}
         {activeTab === 'ai' && (isAdmin || currentUser?.aiBetaEnabled === true) && <AIStudio />}
 
