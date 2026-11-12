@@ -7,7 +7,7 @@ import {
   compareAndSetPersistentSettingDb,
 } from '../db/queries.ts';
 import { getUserByUid } from '../db/queries.ts';
-import { getAuthUser, isAdminReq } from './auth.ts';
+import { getAuthUser, isAdminReq } from '../services/auth.ts';
 import {
   YOUCRAFT_STARTER_ITEMS,
   canonicalYouCraftRecipe,
