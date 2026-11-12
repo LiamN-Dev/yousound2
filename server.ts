@@ -2396,7 +2396,7 @@ const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
   {
     id: 'youcraft',
     title: 'YouCraft',
-    description: 'Combine discoveries with AI, build a collection of unique powers, and challenge friends in Craft Wars.',
+    description: 'Drag elements together to discover combinations instantly, build a collection, and challenge friends in Craft Wars.',
     enabled: true,
     featured: true,
     launchUrl: '/youcraft',
