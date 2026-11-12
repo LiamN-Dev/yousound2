@@ -78,6 +78,73 @@ export function normalizeYouCraftItem(raw: any, recipeKey: string): YouCraftItem
   };
 }
 
+type LocalRecipe = {
+  name: string;
+  emoji: string;
+  category: string;
+  description: string;
+  abilityName: string;
+  abilityDescription: string;
+};
+
+const LOCAL_CRAFT_RECIPES: Record<string, LocalRecipe> = {
+  "fire + water": { name: "Steam", emoji: "♨️", category: "Vapor", description: "Water heated by fire becomes rising steam.", abilityName: "Vaporize", abilityDescription: "Turns heat into motion." },
+  "earth + water": { name: "Plant", emoji: "🌱", category: "Nature", description: "Earth and water give life a place to grow.", abilityName: "Regrow", abilityDescription: "Finds a way to grow in tough conditions." },
+  "earth + fire": { name: "Lava", emoji: "🌋", category: "Nature", description: "Molten rock flows from the heat beneath the earth.", abilityName: "Eruption", abilityDescription: "A powerful burst of heat." },
+  "air + fire": { name: "Smoke", emoji: "💨", category: "Vapor", description: "Fire sends smoke drifting through the air.", abilityName: "Smokescreen", abilityDescription: "Uses the air to hide what comes next." },
+  "air + water": { name: "Wave", emoji: "🌊", category: "Water", description: "Moving air pushes water into waves.", abilityName: "Surge", abilityDescription: "Builds momentum with every movement." },
+  "air + earth": { name: "Dust", emoji: "🌫️", category: "Earth", description: "Wind lifts tiny particles of earth into the air.", abilityName: "Dust Cloud", abilityDescription: "A cloud of fine particles obscures the field." },
+  "air + air": { name: "Windstorm", emoji: "🌪️", category: "Weather", description: "Two currents of air gather into a windstorm.", abilityName: "Gale", abilityDescription: "A fast-moving burst of force." },
+  "earth + earth": { name: "Mountain", emoji: "⛰️", category: "Land", description: "Layers of earth rise into a mountain.", abilityName: "High Ground", abilityDescription: "The elevated ground gives extra protection." },
+  "fire + fire": { name: "Energy", emoji: "⚡", category: "Power", description: "Two flames release a stronger source of energy.", abilityName: "Overcharge", abilityDescription: "Stores a burst of raw power." },
+  "water + water": { name: "Lake", emoji: "🏞️", category: "Water", description: "Two bodies of water gather into a lake.", abilityName: "Stillwater", abilityDescription: "A deep reserve of calm energy." },
+  "dust + water": { name: "Mud", emoji: "🟤", category: "Earth", description: "Dust and water make thick mud.", abilityName: "Mire", abilityDescription: "Slows anything that crosses it." },
+  "fire + plant": { name: "Ash", emoji: "🌋", category: "Earth", description: "A plant left in a flame becomes ash.", abilityName: "Afterglow", abilityDescription: "Something useful remains after the fire." },
+  "air + steam": { name: "Cloud", emoji: "☁️", category: "Weather", description: "Steam cools and gathers into a cloud.", abilityName: "Cloudburst", abilityDescription: "Gathers moisture for a later move." },
+  "cloud + water": { name: "Rain", emoji: "🌧️", category: "Weather", description: "A water-filled cloud releases rain.", abilityName: "Downpour", abilityDescription: "Restores strength over time." },
+  "earth + lava": { name: "Stone", emoji: "🪨", category: "Earth", description: "Cooling lava hardens into stone.", abilityName: "Solidify", abilityDescription: "A durable defensive form." },
+  "fire + mud": { name: "Brick", emoji: "🧱", category: "Material", description: "Heat hardens mud into a brick.", abilityName: "Reinforce", abilityDescription: "Builds a sturdy defense." },
+  "fire + sand": { name: "Glass", emoji: "🪟", category: "Material", description: "Extreme heat melts sand into glass.", abilityName: "Reflect", abilityDescription: "Turns incoming force aside." },
+  "plant + water": { name: "Swamp", emoji: "🐸", category: "Nature", description: "Water and plants combine into a swamp.", abilityName: "Bog", abilityDescription: "Makes the ground difficult to cross." },
+  "plant + plant": { name: "Forest", emoji: "🌳", category: "Nature", description: "Many plants grow together into a forest.", abilityName: "Canopy", abilityDescription: "The forest offers strong cover." },
+  "sand + water": { name: "Beach", emoji: "🏖️", category: "Land", description: "Water meets sand to create a beach.", abilityName: "Shoreline", abilityDescription: "A flexible boundary between land and water." },
+  "stone + air": { name: "Sand", emoji: "🏜️", category: "Earth", description: "Wind wears stone down into sand.", abilityName: "Erosion", abilityDescription: "Slowly reshapes the battlefield." },
+  "tree + water": { name: "Paper", emoji: "📄", category: "Material", description: "Wood fibers and water can become paper.", abilityName: "Blueprint", abilityDescription: "Turns an idea into a plan." },
+  "wood + fire": { name: "Charcoal", emoji: "⬛", category: "Material", description: "Wood heated by fire becomes charcoal.", abilityName: "Ember", abilityDescription: "Keeps a useful spark alive." },
+};
+
+function fallbackCraftName(first: string, second: string): string {
+  const words = [first.trim(), second.trim()].sort((a, b) => a.localeCompare(b));
+  if (words[0].toLowerCase() === words[1].toLowerCase()) return "Super " + words[0];
+  const left = words[0].replace(/[^a-z0-9]/gi, "");
+  const right = words[1].replace(/[^a-z0-9]/gi, "");
+  const blend = left.slice(0, Math.max(2, Math.ceil(left.length * 0.55))) + right.slice(Math.floor(right.length * 0.45));
+  const clean = blend.slice(0, 1).toUpperCase() + blend.slice(1).toLowerCase();
+  return clean.length >= 4 ? clean : words.join(" ");
+}
+
+export function createInstantYouCraftDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): YouCraftItem {
+  const key = [first.name, second.name].map((name) => name.trim().toLowerCase()).sort().join(" + ");
+  const known = LOCAL_CRAFT_RECIPES[key];
+  const hash = Number.parseInt(recipeKey.slice(0, 8), 16) || 0;
+  const attack = 3 + (hash % 6);
+  const defense = 12 - attack;
+  const recipe = known || {
+    name: fallbackCraftName(first.name, second.name),
+    emoji: "✨",
+    category: "Discovery",
+    description: first.name + " and " + second.name + " combine into a brand-new discovery.",
+    abilityName: "Fusion",
+    abilityDescription: "An unexpected combination with its own potential.",
+  };
+  return normalizeYouCraftItem({
+    ...recipe,
+    attack,
+    defense,
+    energyCost: 1 + ((hash >>> 8) % 3),
+  }, recipeKey);
+}
+
 export function createInitialYouCraftBattleState(host: { uid: string; username: string }, items: YouCraftItem[]): YouCraftBattleState {
   const player: YouCraftPlayer = {
     uid: host.uid,
