@@ -61,6 +61,8 @@ const combineAttempts = new Map<string, number[]>();
 const plannerRuntime = new Map<string, PlannerRuntime>();
 const plannerTasks = new Map<string, Promise<void>>();
 const recipesInFlight = new Set<string>();
+const immediateRecipeTasks = new Map<string, Promise<YouCraftItem | null>>();
+const recipeLockWaiters = new Map<string, Set<() => void>>();
 
 async function getAccount(req: Request, res: Response) {
   const auth = getAuthUser(req);
@@ -82,6 +84,38 @@ async function mutateMap<T>(key: string, update: (current: Record<string, T>) =>
     if (await compareAndSetPersistentSettingDb(key, before, next)) return next;
   }
   throw new Error('The game data changed repeatedly. Please try again.');
+}
+
+function releaseRecipeLock(key: string): void {
+  recipesInFlight.delete(key);
+  const waiters = recipeLockWaiters.get(key);
+  if (!waiters) return;
+  recipeLockWaiters.delete(key);
+  for (const wake of waiters) wake();
+}
+
+function waitForRecipeLock(key: string, timeoutMs = 8_000): Promise<void> {
+  if (!recipesInFlight.has(key)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      recipeLockWaiters.get(key)?.delete(wake);
+      resolve();
+    };
+    const wake = () => finish();
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      recipeLockWaiters.get(key)?.delete(wake);
+      reject(new Error('That recipe is already being planned. Please try again in a moment.'));
+    }, timeoutMs);
+    const waiters = recipeLockWaiters.get(key) || new Set<() => void>();
+    waiters.add(wake);
+    recipeLockWaiters.set(key, waiters);
+  });
 }
 
 function isOldFabricatedFallback(item: YouCraftItem): boolean {
@@ -229,6 +263,105 @@ async function requestPlannedBatch(pairs: PlannedPair[], discoveries: YouCraftIt
   return parsed.recipes;
 }
 
+async function requestImmediateRecipe(pair: PlannedPair, discoveries: YouCraftItem[]): Promise<YouCraftItem | null> {
+  const apiKey = plannerApiKey();
+  if (!apiKey) {
+    throw new Error('YouCraft needs its own API key. Add YOUCRAFT_GEMINI_API_KEY to the real YouSound production service.');
+  }
+
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      timeout: 12_000,
+      retryOptions: { attempts: 1 },
+    },
+  });
+  const known = discoveries.map((item) => item.name);
+  const prompt = [
+    'You are the live combination thinker for YouCraft, a discovery game.',
+    'Think briefly and choose the strongest recognizable result for these two ingredients.',
+    'Do not invent words, blend syllables, or force a result just to fill the slot.',
+    'For unusual or imaginative pairs, look for a real established connection through cause and effect, physical interaction, shared setting, properties, or a familiar concept.',
+    'For example, Sky + Lava can reasonably connect to a Volcanic Ash Cloud: an eruption throws ash and hot material into the sky.',
+    'Do not require a literal chemical reaction. A logical, memorable, established concept is enough.',
+    'Return one real, recognizable thing, material, organism, place, natural phenomenon, tool, food, or established concept connected to BOTH inputs.',
+    'Do not simply concatenate the input names. Do not return either input itself.',
+    'If you can defend a meaningful connection, return status "ok" and confidence from 0 to 1. Use confidence >= 0.82 only when the result is genuinely clear.',
+    'Use status "no_recipe" only when no recognizable, defensible connection exists. Do not use it merely because the pair is unusual.',
+    'The description must explain the actual relationship in one factual sentence.',
+    'Return a concise ability name and description themed around the result.',
+    'Do not return attack, defense, or energy stats; the game assigns balanced stats.',
+    'Avoid these already discovered names unless no reasonable alternative exists: ' + JSON.stringify(known.slice(-80)),
+    'Return ONLY strict JSON with either this shape: {"status":"ok","confidence":0.93,"name":"...","emoji":"...","category":"...","description":"...","abilityName":"...","abilityDescription":"..."} or {"status":"no_recipe"}.',
+    'Ingredient A: ' + JSON.stringify({ name: pair.first.name, description: pair.first.description }),
+    'Ingredient B: ' + JSON.stringify({ name: pair.second.name, description: pair.second.description }),
+  ].join('\n');
+
+  const response = await ai.models.generateContent({
+    model: process.env.YOUCRAFT_GEMINI_MODEL || 'gemini-3.8-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      temperature: 0.2,
+      maxOutputTokens: 420,
+    },
+  });
+  const raw = String(response.text || '').trim().replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\x60{3}$/i, '');
+  const parsed = JSON.parse(raw);
+  if (parsed?.status === 'no_recipe') return null;
+  return validatePlannedRecipe(parsed, pair, discoveries);
+}
+
+async function getImmediateRecipe(pair: PlannedPair, discoveries: YouCraftItem[]): Promise<YouCraftItem | null> {
+  const existingTask = immediateRecipeTasks.get(pair.key);
+  if (existingTask) return existingTask;
+
+  const task = (async () => {
+    // If the background planner owns this pair, reuse its result rather than
+    // sending a second request for the same recipe.
+    for (let wait = 0; wait < 2 && recipesInFlight.has(pair.key); wait += 1) {
+      await waitForRecipeLock(pair.key);
+    }
+    if (recipesInFlight.has(pair.key)) {
+      throw new Error('That recipe is still being planned in the background. Please try again shortly.');
+    }
+
+    const cached = await getPersistentSettingDb<Record<string, RecipeRecord>>(RECIPE_KEY) || {};
+    if (cached[pair.key]?.status === 'ready' && cached[pair.key]?.item) return cached[pair.key].item;
+
+    recipesInFlight.add(pair.key);
+    try {
+      const item = await requestImmediateRecipe(pair, discoveries);
+      const record: RecipeRecord = {
+        key: pair.key,
+        inputA: pair.inputA,
+        inputB: pair.inputB,
+        item,
+        status: item ? 'ready' : 'no_recipe',
+        source: 'ai',
+        createdAt: new Date().toISOString(),
+      };
+      const saved = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => {
+        const current = recipes[pair.key];
+        if (current?.status === 'ready' && current.item) return recipes;
+        // A live request can replace a previous background "no recipe" result.
+        return { ...recipes, [pair.key]: record };
+      });
+      const canonical = saved[pair.key];
+      return canonical?.status === 'ready' ? canonical.item : null;
+    } finally {
+      releaseRecipeLock(pair.key);
+    }
+  })();
+
+  immediateRecipeTasks.set(pair.key, task);
+  try {
+    return await task;
+  } finally {
+    if (immediateRecipeTasks.get(pair.key) === task) immediateRecipeTasks.delete(pair.key);
+  }
+}
+
 function schedulePlanning(uid: string, profile: Profile): void {
   const apiKey = plannerApiKey();
   const existing = plannerRuntime.get(uid);
@@ -294,7 +427,7 @@ function schedulePlanning(uid: string, profile: Profile): void {
       state.lastError = String(error?.message || 'The YouCraft recipe planner failed.').slice(0, 240);
       console.error('[YouCraft] Recipe planning failed:', state.lastError);
     } finally {
-      batch.forEach((pair) => recipesInFlight.delete(pair.key));
+      batch.forEach((pair) => releaseRecipeLock(pair.key));
       state.running = false;
       state.updatedAt = new Date().toISOString();
       state.pending = (await getUnplannedPairs(profile.discoveries).catch(() => [] as PlannedPair[])).length;
@@ -361,47 +494,73 @@ router.post('/combine', async (req, res) => {
     const a = safeItemName(req.body?.itemA);
     const b = safeItemName(req.body?.itemB);
     if (!a || !b) return res.status(400).json({ success: false, error: 'Choose two items.' });
+
+    const now = Date.now();
+    const recent = (combineAttempts.get(account.uid) || []).filter((stamp) => now - stamp < 60_000);
+    if (recent.length >= 12) {
+      return res.status(429).json({ success: false, error: 'Slow down for a moment before combining more items.' });
+    }
+    // Count attempts before model work so repeated clicks cannot flood the game API.
+    combineAttempts.set(account.uid, [...recent, now]);
+
     const profile = await getProfile(account.uid, account.username);
     const first = profile.discoveries.find((item) => item.id === a);
     const second = profile.discoveries.find((item) => item.id === b);
     if (!first || !second) return res.status(400).json({ success: false, error: 'You can only combine items in your own collection.' });
+    if (first.id === second.id) return res.status(400).json({ success: false, error: 'Choose two different elements.' });
     if (profile.discoveries.length >= 250) return res.status(409).json({ success: false, error: 'Your discovery collection is full. Remove or archive some items first.' });
 
     const recipe = canonicalYouCraftRecipe(first.name, second.name);
+    const pair: PlannedPair = {
+      id: 'live',
+      first,
+      second,
+      key: recipe.key,
+      inputA: recipe.inputA,
+      inputB: recipe.inputB,
+    };
     const existingRecipes = await getPersistentSettingDb<Record<string, RecipeRecord>>(RECIPE_KEY) || {};
     const existing = existingRecipes[recipe.key];
-    let item = existing?.item || null;
+    let item = existing?.status === 'ready' ? existing.item : null;
     let source: 'local' | 'ai' = existing?.source || 'ai';
-    if (existing?.status === 'no_recipe') {
-      return res.status(409).json({ success: false, error: 'The recipe planner could not find a clear, meaningful result for those two items. Try another pair.' });
-    }
+
+    // Known, verified combinations are instant. Unknown pairs get one direct
+    // AI response instead of a long client-side polling loop. Previous "no_recipe"
+    // entries are deliberately reconsidered when a user actually tries the pair.
     if (!item && !existing) {
       item = createInstantYouCraftDiscovery(first, second, recipe.key);
-      if (item) {
-        source = 'local';
-      } else {
-        schedulePlanning(account.uid, profile);
-        return res.status(202).json({ success: true, pending: true, message: 'The AI is preparing a real recipe for this pair.' });
-      }
+      if (item) source = 'local';
     }
-    if (!item) return res.status(503).json({ success: false, error: 'That recipe is not ready yet. The AI planner will retry shortly.' });
+    if (!item && source !== 'local') {
+      item = await getImmediateRecipe(pair, profile.discoveries);
+      source = 'ai';
+    }
+    if (!item) {
+      return res.status(409).json({
+        success: false,
+        error: 'The AI considered this pair but could not find a strong, recognizable result. Try another combination.',
+      });
+    }
 
-    const now = Date.now();
-    const recent = (combineAttempts.get(account.uid) || []).filter((stamp) => now - stamp < 60_000);
-    if (recent.length >= 12) return res.status(429).json({ success: false, error: 'Slow down for a moment before combining more items.' });
-    combineAttempts.set(account.uid, [...recent, now]);
-
-    // Only one canonical result wins globally for a recipe, even if two users combine it simultaneously.
-    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => recipes[recipe.key] ? recipes : ({
-      ...recipes,
-      [recipe.key]: {
-        key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB,
-        item: item!, status: 'ready', source, createdAt: new Date().toISOString(),
-      },
-    }));
+    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => {
+      const current = recipes[recipe.key];
+      if (current?.status === 'ready' && current.item) return recipes;
+      return {
+        ...recipes,
+        [recipe.key]: {
+          key: recipe.key,
+          inputA: recipe.inputA,
+          inputB: recipe.inputB,
+          item: item!,
+          status: 'ready',
+          source,
+          createdAt: new Date().toISOString(),
+        },
+      };
+    });
     const canonical = canonicalRecipes[recipe.key];
-    if (canonical.status === 'no_recipe' || !canonical.item) {
-      return res.status(409).json({ success: false, error: 'The recipe planner could not find a clear, meaningful result for those two items.' });
+    if (!canonical?.item || canonical.status !== 'ready') {
+      return res.status(409).json({ success: false, error: 'The recipe could not be saved. Please try again.' });
     }
     item = canonical.item;
 
@@ -424,17 +583,29 @@ router.post('/combine', async (req, res) => {
     });
     const updated = savedProfile.value;
     if (!updated) return res.status(500).json({ success: false, error: 'Could not save that discovery.' });
-    if (updated.discoveries.some((entry) => entry.id === item!.id) && updated.discoveries.length === profile.discoveries.length) {
+    if (updated.discoveries.length === profile.discoveries.length) {
       return res.status(409).json({ success: false, error: 'You already discovered that result.' });
     }
     schedulePlanning(account.uid, updated);
-    return res.json({ success: true, item, profile: updated, reusedRecipe: Boolean(existing), planner: await getPlannerStatus(account.uid, updated.discoveries) });
+    return res.json({
+      success: true,
+      item,
+      profile: updated,
+      reusedRecipe: Boolean(existing),
+      planner: await getPlannerStatus(account.uid, updated.discoveries),
+    });
   } catch (error: any) {
     console.error('[YouCraft] Combine failed:', error);
+    const message = String(error?.message || '');
+    if (/YOUCRAFT_GEMINI_API_KEY/.test(message)) {
+      return res.status(503).json({ success: false, error: message });
+    }
+    if (/timed out|timeout|aborted/i.test(message)) {
+      return res.status(504).json({ success: false, error: 'The recipe thinker took too long to respond. Your items were not used; try again.' });
+    }
     return res.status(503).json({ success: false, error: error?.message || 'The combination could not be created.' });
   }
 });
-
 router.post('/matches', async (req, res) => {
   try {
     const account = await getAccount(req, res); if (!account) return;
