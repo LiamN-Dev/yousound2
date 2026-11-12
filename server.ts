@@ -7519,15 +7519,9 @@ async function startServer() {
   // Ensure database has default seed data
   await seedDatabaseIfEmpty();
 
-  // Purge any legacy automated welcome broadcast completely
-  await purgeWelcomePopupsDb();
-  await cleanupExpiredPopupsDb();
-
-  // Auto-delete approved and declined song requests (12-hour rule)
-  await cleanupExpiredSongRequestsDb();
-
-  // Fix all previous uploaded songs that have incorrect or default durations
-  await fixAllPreviousSongsDuration(AUDIO_DIR);
+  // Non-essential cleanup is scheduled after the HTTP listener opens below.
+  // These jobs may scan many songs or make network requests to Drive; they must
+  // never prevent a production instance from binding its port during deploy.
 
   // Active automated background cleanup: auto-deletes expired broadcasts every 4 seconds
   setInterval(async () => {
@@ -7587,9 +7581,23 @@ async function startServer() {
     });
   }
 
-  // Harmless deployment marker: confirms a new source commit reached this server.
+  // Open the production port before running optional maintenance. Render can now
+  // complete readiness checks even if a Drive metadata request takes a long time.
   app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`YouSong Server running on port ${PORT} connected to Cloud SQL PostgreSQL`);
+
+    void (async () => {
+      try {
+        console.log('[Startup] Starting background maintenance.');
+        await purgeWelcomePopupsDb();
+        await cleanupExpiredPopupsDb();
+        await cleanupExpiredSongRequestsDb();
+        await fixAllPreviousSongsDuration(AUDIO_DIR);
+        console.log('[Startup] Background maintenance completed.');
+      } catch (err) {
+        console.warn('[Startup] Background maintenance did not complete:', err);
+      }
+    })();
   });
 }
 
