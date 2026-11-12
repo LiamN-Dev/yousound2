@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { YouCraftGame } from './YouCraftGame';
 import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play, RefreshCw, ShieldCheck, Star, Users } from 'lucide-react';
 
 type LaunchMode = 'new-tab' | 'embedded';
 type ArcadeGame = {
-  id: 'infinite-craft' | 'openfront';
+  id: 'infinite-craft' | 'openfront' | 'youcraft';
   title: string;
   description: string;
   enabled: boolean;
@@ -26,6 +27,7 @@ type Props = { isAdmin: boolean };
 const gameArtwork: Record<string, string> = {
   'infinite-craft': 'from-violet-950 via-indigo-900 to-slate-950',
   openfront: 'from-emerald-950 via-teal-900 to-slate-950',
+  youcraft: 'from-violet-950 via-fuchsia-950 to-slate-950',
 };
 
 async function readJson(response: Response) {
@@ -43,6 +45,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [embeddedGame, setEmbeddedGame] = useState<ArcadeGame | null>(null);
+  const [youCraftOpen, setYouCraftOpen] = useState(false);
 
   const loadCatalog = async () => {
     setLoading(true);
@@ -79,6 +82,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const playGame = (game: ArcadeGame) => {
     if (!game.enabled || embeddedGame) return;
     recordLaunch(game.id);
+    if (game.id === 'youcraft' || game.launchMode === 'native') {
+      setYouCraftOpen(true);
+      return;
+    }
     if (game.launchMode === 'embedded') {
       setEmbeddedGame(game);
       return;
@@ -112,6 +119,8 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
       setSaving(false);
     }
   };
+
+  if (youCraftOpen) return <YouCraftGame onBack={() => setYouCraftOpen(false)} />;
 
   if (embeddedGame) {
     return (
@@ -242,6 +251,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                 {game.id === 'infinite-craft' ? (
                   <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-400">
                     Official destination: <span className="text-slate-200">neal.fun/infinite-craft</span>. The original site blocks framing on unrelated domains, so this game must open at its official address. We do not copy or proxy its code.
+                  </div>
+                ) : game.id === 'youcraft' ? (
+                  <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
+                    Native YouSound game. AI-generated discoveries, account-saved collections, and multiplayer Craft Wars are hosted directly in YouSound. No external game URL is needed.
                   </div>
                 ) : (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
