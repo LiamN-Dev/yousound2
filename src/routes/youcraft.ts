@@ -20,7 +20,7 @@ import {
   type YouCraftAction,
 } from './youcraft.ts';
 
-type Profile = { uid: string; discoveries: YouCraftItem[]; combinations: number; updatedAt: string };
+type Profile = { uid: string; username: string; discoveries: YouCraftItem[]; combinations: number; updatedAt: string };
 type RecipeRecord = { key: string; inputA: string; inputB: string; item: YouCraftItem; createdAt: string };
 type MatchRecord = { id: string; code: string; status: 'waiting' | 'active' | 'finished'; createdAt: string; updatedAt: string; state: YouCraftBattleState };
 const PROFILE_KEY = 'youcraft_profiles_v1';
@@ -107,7 +107,7 @@ async function generateDiscovery(first: YouCraftItem, second: YouCraftItem, reci
 router.get('/profile', async (req, res) => {
   try {
     const account = await getAccount(req, res); if (!account) return;
-    const profile = await getProfile(account.uid);
+    const profile = await getProfile(account.uid, account.username);
     res.setHeader('Cache-Control', 'no-store, private');
     return res.json({ success: true, profile });
   } catch (error: any) {
