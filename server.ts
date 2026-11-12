@@ -127,6 +127,7 @@ import {
 } from './src/db/feedback.ts';
 import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile, getDriveLibraryFolderId } from './src/services/audioPipeline.ts';
 import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy.ts';
+import youCraftRouter from './src/routes/youcraft.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -279,6 +280,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
+app.use('/api/youcraft', youCraftRouter);
 app.use('/api/games/crossy-road', (_req: Request, res: Response) => {
   return res.status(410).json({ success: false, error: 'Crossy Road has been retired from the YouSound Arcade.' });
 });
@@ -2356,9 +2358,9 @@ app.get('/api/admin/ai/diagnostics/:id', async (req: Request, res: Response) => 
 });
 
 // ----------------- YOUSOUND ARCADE CATALOG -----------------
-type ArcadeLaunchMode = 'new-tab' | 'embedded';
+type ArcadeLaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGameConfig = {
-  id: 'infinite-craft' | 'openfront';
+  id: 'infinite-craft' | 'openfront' | 'youcraft';
   title: string;
   description: string;
   enabled: boolean;
@@ -2402,6 +2404,17 @@ const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
     playerMode: 'multiplayer',
     providerLabel: 'Official OpenFront game',
   },
+  {
+    id: 'youcraft',
+    title: 'YouCraft',
+    description: 'Combine discoveries with AI, build a collection of unique powers, and challenge friends in Craft Wars.',
+    enabled: true,
+    featured: true,
+    launchUrl: '/youcraft',
+    launchMode: 'native',
+    playerMode: 'multiplayer',
+    providerLabel: 'Original YouSound game',
+  },
 ];
 
 async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
@@ -2415,7 +2428,7 @@ async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
       enabled: saved.enabled === true,
       featured: saved.featured === true,
       launchUrl: defaults.id === 'infinite-craft' ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
-      launchMode: defaults.id === 'infinite-craft' ? 'new-tab' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
+      launchMode: defaults.id === 'infinite-craft' ? 'new-tab' : defaults.id === 'youcraft' ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
     };
   });
 }
@@ -2462,6 +2475,10 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
       }
       if (defaults.id === 'infinite-craft') {
         normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'new-tab' });
+        continue;
+      }
+      if (defaults.id === 'youcraft') {
+        normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'native' });
         continue;
       }
       const rawUrl = String(item.launchUrl || '').trim();
