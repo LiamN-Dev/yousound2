@@ -83,9 +83,8 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
       setEmbeddedGame(game);
       return;
     }
-    const opened = window.open(game.launchUrl, '_blank', 'noopener,noreferrer');
-    if (!opened) setNotice('Your browser blocked the new tab. Allow pop-ups for YouSound and try again.');
-    else setNotice('Opened ' + game.title + '. The game is hosted by its original provider.');
+    window.open(game.launchUrl, '_blank', 'noopener,noreferrer');
+    setNotice('Requested a new tab for ' + game.title + '. If it did not open, allow pop-ups for YouSound. The game is hosted by its original provider.');
   };
 
   const updateGame = (id: ArcadeGame['id'], patch: Partial<ArcadeGame>) => {
