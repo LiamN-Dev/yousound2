@@ -288,9 +288,9 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
               <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{recentLaunches.length} RECENT</span>
             </div>
             <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
+              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.filter((event) => event.gameId !== 'infinite-craft').map((event) => (
                 <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
-                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'youcraft' ? 'YouCraft' : event.gameId === 'infinite-craft' ? 'Retired external Craft' : 'OpenFront'}</strong></div>
+                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'youcraft' ? 'YouCraft' : 'OpenFront'}</strong></div>
                   <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
                 </div>
               ))}
