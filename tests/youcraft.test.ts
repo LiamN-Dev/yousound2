@@ -30,6 +30,8 @@ test('known crafting recipes resolve instantly and are order-independent', () =>
   const recipe = canonicalYouCraftRecipe(water.name, fire.name);
   const steam = createInstantYouCraftDiscovery(water, fire, recipe.key);
   const reversed = createInstantYouCraftDiscovery(fire, water, recipe.key);
+  assert.ok(steam);
+  assert.ok(reversed);
   assert.equal(steam.name, 'Steam');
   assert.equal(steam.id, reversed.id);
   assert.equal(steam.name, reversed.name);
