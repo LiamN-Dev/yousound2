@@ -4,33 +4,10 @@ import { ArrowLeft, Crown, Trophy, Coins, RefreshCw } from 'lucide-react';
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
 
-const CROSSY_ROAD_ORIGIN = 'https://yousound-game-assets.liamnystrom9.workers.dev';
-const GOOGLE_CROSSY_ROAD_URL = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_URL || '').trim();
-// The Apps Script build is an experimental 2D prototype, not the production-quality
-// Crossy Road experience. Keep it opt-in until its gameplay has passed real testing.
-const GOOGLE_CROSSY_ROAD_ENABLED = String((import.meta as any).env?.VITE_GOOGLE_CROSSY_ROAD_ENABLED || '').trim().toLowerCase() === 'true';
-const USE_GOOGLE_CROSSY_ROAD = Boolean(GOOGLE_CROSSY_ROAD_URL && GOOGLE_CROSSY_ROAD_ENABLED);
-const YOUSOUND_PARENT_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
-const CROSSY_ROAD_SRC = USE_GOOGLE_CROSSY_ROAD
-  ? (() => {
-      try {
-        const url = new URL(GOOGLE_CROSSY_ROAD_URL);
-        if (!['https://script.google.com', 'https://script.googleusercontent.com'].includes(url.origin)) return CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production';
-        url.searchParams.set('yousoundParentOrigin', YOUSOUND_PARENT_ORIGIN);
-        return url.toString();
-      } catch { return CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production'; }
-    })()
-  : (CROSSY_ROAD_ORIGIN + '/crossy-road/?v=20261108-production');
-const GOOGLE_SCRIPT_ORIGINS = ['https://script.google.com', 'https://script.googleusercontent.com'];
-const GOOGLE_CONFIGURED_ORIGIN = (() => {
-  try {
-    const url = USE_GOOGLE_CROSSY_ROAD ? new URL(GOOGLE_CROSSY_ROAD_URL) : null;
-    return url && GOOGLE_SCRIPT_ORIGINS.includes(url.origin) ? url.origin : '';
-  } catch { return ''; }
-})();
-const CROSSY_ROAD_ALLOWED_ORIGINS = new Set(USE_GOOGLE_CROSSY_ROAD
-  ? [...GOOGLE_SCRIPT_ORIGINS, GOOGLE_CONFIGURED_ORIGIN]
-  : [CROSSY_ROAD_ORIGIN]);
+const CROSSY_ROAD_ALLOWED_ORIGINS = new Set([
+  'https://script.google.com',
+  'https://script.googleusercontent.com',
+]);
 const CROSSY_ROAD_TARGET_ORIGINS = Array.from(CROSSY_ROAD_ALLOWED_ORIGINS);
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -56,8 +33,37 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [gameSource, setGameSource] = useState('');
+  const [hostLoading, setHostLoading] = useState(true);
+  const [hostError, setHostError] = useState('');
 
   statsRef.current = stats;
+
+  useEffect(() => {
+    let active = true;
+    api<{ url?: string | null; error?: string }>('/host')
+      .then((config) => {
+        if (!active) return;
+        if (!config.url) {
+          setHostError(config.error || 'The Google Apps Script game host is not configured.');
+          return;
+        }
+        const url = new URL(config.url);
+        if (!CROSSY_ROAD_ALLOWED_ORIGINS.has(url.origin)) {
+          throw new Error('The configured game host is not an approved Google Apps Script origin.');
+        }
+        url.searchParams.set('yousoundParentOrigin', window.location.origin);
+        setGameSource(url.toString());
+        setHostError('');
+      })
+      .catch((err: any) => {
+        if (active) setHostError(err?.message || 'Could not connect to the Crossy Road game host.');
+      })
+      .finally(() => {
+        if (active) setHostLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const sendAccountUpdate = useCallback((next: Stats) => {
     CROSSY_ROAD_TARGET_ORIGINS.forEach((origin) => {
@@ -181,7 +187,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
   return <div className="mx-auto max-w-6xl space-y-4 pb-24">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#10162a] px-3 py-2 text-xs font-bold text-slate-200"><ArrowLeft className="h-4 w-4"/> VIP Arcade</button>
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#10162a] px-3 py-2 text-xs font-bold text-slate-200"><ArrowLeft className="h-4 w-4"/> Community Arcade</button>
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-2 rounded-xl border border-yellow-300/20 bg-yellow-300/10 px-3 py-2 text-xs font-black text-yellow-100"><Coins className="h-4 w-4"/> {stats.coins.toLocaleString()} coins</span>
         <span className="inline-flex items-center gap-2 rounded-xl border border-amber-200/20 bg-amber-100/10 px-3 py-2 text-xs font-black text-amber-100"><Trophy className="h-4 w-4"/> Best: {stats.highScore.toLocaleString()}</span>
@@ -193,22 +199,30 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         <div className="text-right text-[10px] text-slate-400">{stats.totalGames.toLocaleString()} saved runs</div>
       </div>
       <div className="bg-black p-1 sm:p-2">
-        <div className="relative h-[min(76vh,860px)] min-h-[560px] w-full overflow-hidden rounded-xl bg-[#87C6FF]">
-          <iframe
-            ref={frameRef}
-            title="Crossy Road"
-            src={CROSSY_ROAD_SRC}
-            className="block h-full w-full border-0 bg-[#87C6FF]"
-            allow="autoplay; fullscreen; gamepad"
-            allowFullScreen
-          />
+        <div className="relative flex h-[min(76vh,860px)] min-h-[560px] w-full items-center justify-center overflow-hidden rounded-xl bg-[#87C6FF]">
+          {hostLoading ? (
+            <div className="rounded-xl border border-white/20 bg-slate-950/85 px-5 py-4 text-center text-sm text-white">
+              Connecting to the Google-hosted arcade…
+            </div>
+          ) : gameSource ? (
+            <iframe
+              ref={frameRef}
+              title="Crossy Road"
+              src={gameSource}
+              className="block h-full w-full border-0 bg-[#87C6FF]"
+              allow="autoplay; fullscreen; gamepad"
+              allowFullScreen
+            />
+          ) : (
+            <div role="alert" className="mx-4 max-w-xl rounded-2xl border border-rose-200/30 bg-slate-950/95 p-6 text-center text-white shadow-2xl">
+              <h3 className="text-lg font-black">Crossy Road host is not configured</h3>
+              <p className="mt-2 text-xs leading-5 text-rose-100">{hostError}</p>
+              <p className="mt-3 text-[11px] leading-5 text-slate-300">Set GOOGLE_CROSSY_ROAD_URL on the YouSound Render service to the deployed Google Apps Script web-app URL ending in /exec. The site will not fall back to the blocked workers.dev host.</p>
+            </div>
+          )}
         </div>
       </div>
-      {!USE_GOOGLE_CROSSY_ROAD && <div className="border-t border-amber-300/15 bg-amber-300/[.04] px-4 py-3 text-[11px] leading-5 text-amber-100/80">
-        {GOOGLE_CROSSY_ROAD_URL
-          ? 'Google Apps Script URL detected, but its experimental 2D prototype is intentionally not enabled in the live arcade. The production game remains on the full hosted build until the Google version passes gameplay testing. Do not enable it just to make the URL appear.'
-          : 'The production arcade is loading the full hosted Crossy Road build. Some school networks block its host; ask school IT to review the official game-host domain rather than using the untested Google prototype.'}
-      </div>}
+      {gameSource && <div className="border-t border-cyan-300/15 bg-cyan-300/[.04] px-4 py-3 text-[11px] leading-5 text-cyan-100">Google Apps Script arcade host connected. Your Crossy Road account stats and leaderboard are saved by YouSound.</div>}
       {(message || error) && <div className={'border-t border-white/10 px-4 py-3 text-xs ' + (error ? 'text-rose-300' : 'text-emerald-200')}>{error || message}</div>}
     </section>
     <section className="overflow-hidden rounded-3xl border border-amber-200/20 bg-[#111925] text-white shadow-lg">

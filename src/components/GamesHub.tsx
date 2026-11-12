@@ -1,204 +1,339 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, AudioLines, Crown, Gamepad2, Headphones, Music2, Search, Shield, Sparkles, Trophy, Zap } from 'lucide-react';
-import { Song } from '../types';
-import { GuessTrackGame } from './GuessTrackGame';
-import { RhythmGame } from './RhythmGame';
-import { CrossyRoadGame } from './CrossyRoadGame';
+import React, { useEffect, useMemo, useState } from 'react';
+import { YouCraftGame } from './YouCraftGame';
+import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play, RefreshCw, ShieldCheck, Star, Users } from 'lucide-react';
 
-type SelectedGame = 'menu' | 'guess' | 'rhythm' | 'crossy';
-type Props = {
-  isAdmin: boolean;
-  songs: Song[];
-  bulkUpdateSongs: (songIds: string[], updates: Partial<Song>) => Promise<boolean>;
-  updateSong: (id: string, updates: Partial<Song>) => Promise<boolean>;
-  refreshSongLibrary: () => void;
+type LaunchMode = 'new-tab' | 'embedded' | 'native';
+type ArcadeGame = {
+  id: 'infinite-craft' | 'openfront' | 'youcraft';
+  title: string;
+  description: string;
+  enabled: boolean;
+  featured: boolean;
+  launchUrl: string;
+  launchMode: LaunchMode;
+  playerMode: 'solo' | 'multiplayer';
+  providerLabel: string;
+};
+type LaunchEvent = {
+  id: string;
+  gameId: string;
+  username: string;
+  userId: string;
+  launchedAt: string;
 };
 
-function playableUrl(raw: string) {
-  const value = String(raw || '').trim();
-  if (!value) return value;
-  if (value.startsWith('/api/drive/stream/')) return value;
-  const legacy = value.match(/^\/api\/media\/drive-stream\/([A-Za-z0-9_-]{10,200})/);
-  if (legacy) return '/api/drive/stream/' + encodeURIComponent(legacy[1]);
-  try {
-    const url = new URL(value);
-    if (!['drive.google.com', 'docs.google.com', 'drive.usercontent.google.com', 'www.drive.google.com'].includes(url.hostname.toLowerCase())) return value;
-    const parts = url.pathname.split('/').filter(Boolean);
-    const d = parts.indexOf('d');
-    const id = (d >= 0 ? parts[d + 1] : '') || url.searchParams.get('id') || '';
-    return /^[A-Za-z0-9_-]{10,200}$/.test(id) ? '/api/drive/stream/' + encodeURIComponent(id) : value;
-  } catch { return value; }
+type Props = { isAdmin: boolean };
+
+const gameArtwork: Record<string, string> = {
+  'infinite-craft': 'from-violet-950 via-indigo-900 to-slate-950',
+  openfront: 'from-emerald-950 via-teal-900 to-slate-950',
+  youcraft: 'from-violet-950 via-fuchsia-950 to-slate-950',
+};
+
+async function readJson(response: Response) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || 'The Arcade request failed.');
+  return data;
 }
 
-/** Estimates BPM and the opening beat offset from the transient energy in the first 30 seconds. */
-async function detectBpm(audioUrl: string): Promise<{ bpm: number; beatOffsetMs: number }> {
-  const response = await fetch(playableUrl(audioUrl), { credentials: 'same-origin', cache: 'no-store' });
-  if (!response.ok) throw new Error('Audio download failed (' + response.status + ').');
-  const bytes = await response.arrayBuffer();
-  const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-  if (!AudioContextCtor) throw new Error('This browser does not support audio analysis.');
-  const context: AudioContext = new AudioContextCtor();
-  try {
-    const decoded = await context.decodeAudioData(bytes.slice(0));
-    const samples = decoded.getChannelData(0);
-    const windowSize = 1024;
-    const hop = 512;
-    const sampleLimit = Math.min(samples.length, decoded.sampleRate * 30);
-    const energy: number[] = [];
-    for (let start = 0; start + windowSize < sampleLimit; start += hop) {
-      let sum = 0;
-      for (let i = start; i < start + windowSize; i += 4) sum += samples[i] * samples[i];
-      energy.push(Math.sqrt(sum / (windowSize / 4)));
-    }
-    const onset = energy.map((value, index) => index ? Math.max(0, value - energy[index - 1]) : 0);
-    const average = onset.reduce((sum, value) => sum + value, 0) / Math.max(1, onset.length);
-    for (let i = 0; i < onset.length; i++) onset[i] = Math.max(0, onset[i] - average);
-    const framesPerSecond = decoded.sampleRate / hop;
-    let bestLag = 0;
-    let bestScore = 0;
-    for (let bpm = 60; bpm <= 200; bpm++) {
-      const lag = Math.round(framesPerSecond * 60 / bpm);
-      if (lag < 1 || lag >= onset.length / 2) continue;
-      let score = 0;
-      for (let i = lag; i < onset.length; i++) score += onset[i] * onset[i - lag];
-      if (score > bestScore) { bestScore = score; bestLag = lag; }
-    }
-    if (!bestLag || bestScore <= 0) throw new Error('No reliable beat pattern was found.');
-    let bestPhase = 0;
-    let phaseScore = -Infinity;
-    for (let phase = 0; phase < bestLag; phase++) {
-      let score = 0;
-      for (let i = phase; i < onset.length; i += bestLag) score += onset[i];
-      if (score > phaseScore) { phaseScore = score; bestPhase = phase; }
-    }
-    return {
-      bpm: Math.max(60, Math.min(200, Math.round(framesPerSecond * 60 / bestLag))),
-      beatOffsetMs: Math.max(0, Math.min(2000, Math.round(bestPhase * hop / decoded.sampleRate * 1000))),
-    };
-  } finally { await context.close().catch(() => undefined); }
-}
+export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
+  const [tab, setTab] = useState<'arcade' | 'control'>('arcade');
+  const [games, setGames] = useState<ArcadeGame[]>([]);
+  const [recentLaunches, setRecentLaunches] = useState<LaunchEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [embeddedGame, setEmbeddedGame] = useState<ArcadeGame | null>(null);
+  const [youCraftOpen, setYouCraftOpen] = useState(false);
+  const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
 
-const backButton = (onClick: () => void) => (
-  <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded-xl border border-amber-200/20 bg-[#111827] px-3 py-2 text-xs font-bold text-amber-100 transition hover:border-amber-200/50 hover:bg-[#1b2637]"><ArrowLeft className="h-3.5 w-3.5"/> VIP Arcade</button>
-);
-
-export const GamesHub: React.FC<Props> = ({ isAdmin, songs, bulkUpdateSongs, updateSong, refreshSongLibrary }) => {
-  const [selectedGame, setSelectedGame] = useState<SelectedGame>('menu');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [search, setSearch] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [analysis, setAnalysis] = useState({ done: 0, total: 0, active: false, failed: 0 });
-  const analysisStarted = useRef(false);
-  const songsSnapshot = useRef(songs);
-  songsSnapshot.current = songs;
-
-  const filteredSongs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return songs.filter(song => !q || song.title.toLowerCase().includes(q) || song.artist.toLowerCase().includes(q));
-  }, [songs, search]);
-
-  const applyBulk = async (updates: Partial<Song>, description: string) => {
-    if (!selectedIds.length || busy) return;
-    setBusy(true);
-    setMessage('');
+  const loadCatalog = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const ok = await bulkUpdateSongs(selectedIds, updates);
-      if (!ok) throw new Error('The server did not confirm the bulk update.');
-      setMessage(description + ' for ' + selectedIds.length + ' songs.');
-      setSelectedIds([]);
-      refreshSongLibrary();
-    } catch (error: any) { setMessage(error?.message || 'Bulk update failed.'); }
-    finally { setBusy(false); }
-  };
-
-  useEffect(() => {
-    if (!isAdmin || analysisStarted.current) return;
-    const pending = songsSnapshot.current.filter(song => song.gameBpmDetected !== true && !!song.audioUrl && !song.audioUrl.startsWith('data:'));
-    if (!pending.length) return;
-    analysisStarted.current = true;
-    let cancelled = false;
-    setAnalysis({ done: 0, total: pending.length, active: true, failed: 0 });
-    void (async () => {
-      let done = 0, failed = 0;
-      for (const song of pending) {
-        if (cancelled) break;
-        try {
-          const detected = await detectBpm(song.audioUrl);
-          if (cancelled) break;
-          await updateSong(song.id, { gameBpm: detected.bpm, gameBeatOffsetMs: detected.beatOffsetMs, gameBpmDetected: true });
-        } catch (error) { failed += 1; console.warn('[Games] BPM analysis failed for ' + song.title, error); }
-        done += 1;
-        setAnalysis({ done, total: pending.length, active: !cancelled && done < pending.length, failed });
+      const catalog = await readJson(await fetch('/api/games/catalog', { credentials: 'same-origin', cache: 'no-store' }));
+      setGames(Array.isArray(catalog.games) ? catalog.games : []);
+      if (isAdmin) {
+        const overview = await readJson(await fetch('/api/admin/games/overview', { credentials: 'same-origin', cache: 'no-store' }));
+        setGames(Array.isArray(overview.games) ? overview.games : []);
+        setRecentLaunches(Array.isArray(overview.recentLaunches) ? overview.recentLaunches : []);
+        const youCraft = await readJson(await fetch('/api/youcraft/admin/overview', { credentials: 'same-origin', cache: 'no-store' }));
+        setYouCraftOverview({ players: Array.isArray(youCraft.players) ? youCraft.players : [], matches: Array.isArray(youCraft.matches) ? youCraft.matches : [] });
       }
-      if (!cancelled) { refreshSongLibrary(); setAnalysis({ done, total: pending.length, active: false, failed }); }
-    })();
-    return () => { cancelled = true; };
-  }, [isAdmin, songs.length > 0]);
-
-  const returnToMenu = () => setSelectedGame('menu');
-  if (selectedGame === 'guess') return <div className="space-y-4">{backButton(returnToMenu)}<GuessTrackGame/></div>;
-  if (selectedGame === 'rhythm') return <div className="space-y-4">{backButton(returnToMenu)}<RhythmGame/></div>;
-  if (selectedGame === 'crossy') return <CrossyRoadGame onBack={returnToMenu}/>
-
-  const cards = [
-    { id:'crossy' as const, title:'Crossy Road', subtitle:'FEATURED ARCADE GAME', genre:'VOXEL CROSSING · ENDLESS RUN', desc:'The featured YouSound arcade adventure. Dodge traffic, cross rivers, avoid trains, collect coins, and chase the leaderboard.', color:'lime', keys:'ACCOUNT COINS · LEADERBOARD', icon:<ArrowRight className="h-6 w-6"/> },
-    { id:'guess' as const, title:'Guess the Track', subtitle:'YOUSONG MUSIC QUIZ', genre:'MUSIC TRIVIA', desc:'Hear short clips from approved YouSong tracks, identify the song, and compete for the highest score.', color:'silver', keys:'10 ROUNDS · LEADERBOARD', icon:<Headphones className="h-6 w-6"/> },
-    { id:'rhythm' as const, title:'Rhythm Battle', subtitle:'FOUR-LANE RHYTHM', genre:'MUSIC ACTION', desc:'Play falling-note charts synced to the detected beat of Game Approved songs. Choose Easy, Normal, or Hard.', color:'gold', keys:'BPM-SYNCED GAMEPLAY', icon:<AudioLines className="h-6 w-6"/> },
-  ];
-  const cardTone:Record<string,string> = {
-    amber:'border-amber-300/25 bg-gradient-to-br from-[#322816] via-[#171c29] to-[#101725] text-amber-200',
-    fuchsia:'border-fuchsia-300/25 bg-gradient-to-br from-[#2a1741] via-[#17182c] to-[#101725] text-fuchsia-200',
-    lime:'border-lime-300/25 bg-gradient-to-br from-[#1e3525] via-[#17252a] to-[#101725] text-lime-200',
-    silver:'border-slate-200/25 bg-gradient-to-br from-[#303949] via-[#192333] to-[#101725] text-slate-200',
-    gold:'border-yellow-200/30 bg-gradient-to-br from-[#3a301b] via-[#202332] to-[#101725] text-yellow-200',
+    } catch (loadError: any) {
+      setError(loadError?.message || 'The Arcade could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
   };
-  return (
-    <div className="ys-games-hub mx-auto max-w-6xl space-y-5 pb-28 animate-in fade-in">
-      <section className="relative overflow-hidden rounded-[30px] border border-amber-200/30 bg-[#0b1220] p-6 text-white shadow-2xl sm:p-8">
-        <div className="pointer-events-none absolute -right-16 -top-24 h-80 w-80 rounded-full bg-amber-400/15 blur-3xl"/>
-        <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-slate-200/10 blur-3xl"/>
-        <div className="absolute right-5 top-5 hidden rounded-xl border border-amber-100/20 bg-white/[.04] px-3 py-2 text-right sm:block"><div className="text-[9px] font-black tracking-[.2em] text-amber-200">EXCLUSIVE ACCESS</div><div className="mt-0.5 text-xs font-black text-slate-100">GOLD × SILVER</div></div>
-        <div className="relative max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/30 bg-gradient-to-r from-amber-300/15 to-slate-100/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.2em] text-amber-100"><Crown className="h-3.5 w-3.5"/> VIP ARCADE <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[8px] text-slate-950">BETA</span></div>
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">The VIP <span className="bg-gradient-to-r from-amber-200 via-white to-slate-300 bg-clip-text text-transparent">Arcade.</span></h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">A focused arcade led by Crossy Road, alongside two music games built around the YouSound catalogue. Access is reserved for accounts with VIP Games access.</p>
-          <div className="mt-5 flex flex-wrap gap-2"><span className="rounded-lg border border-amber-200/20 bg-amber-100/10 px-3 py-2 text-[10px] font-bold text-amber-100">3 PLAYABLE GAMES</span><span className="rounded-lg border border-slate-200/20 bg-slate-100/10 px-3 py-2 text-[10px] font-bold text-slate-200">EXCLUSIVE BUILD</span><span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">MORE GAMES IN DEVELOPMENT</span></div>
+
+  useEffect(() => { void loadCatalog(); }, [isAdmin]);
+
+  const activeGames = useMemo(() => games.filter((game) => game.enabled), [games]);
+
+  const recordLaunch = (gameId: string) => {
+    void fetch('/api/games/launch', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId }),
+      keepalive: true,
+    }).catch(() => undefined);
+  };
+
+  const playGame = (game: ArcadeGame) => {
+    if (!game.enabled || embeddedGame) return;
+    recordLaunch(game.id);
+    if (game.id === 'youcraft' || game.launchMode === 'native') {
+      setYouCraftOpen(true);
+      return;
+    }
+    if (game.launchMode === 'embedded') {
+      setEmbeddedGame(game);
+      return;
+    }
+    window.open(game.launchUrl, '_blank', 'noopener,noreferrer');
+    setNotice('Requested a new tab for ' + game.title + '. If it did not open, allow pop-ups for YouSound. The game is hosted by its original provider.');
+  };
+
+  const updateGame = (id: ArcadeGame['id'], patch: Partial<ArcadeGame>) => {
+    setGames((current) => current.map((game) => game.id === id ? { ...game, ...patch } : game));
+  };
+
+  const saveCatalog = async () => {
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const data = await readJson(await fetch('/api/admin/games/catalog', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ games }),
+      }));
+      setGames(Array.isArray(data.games) ? data.games : games);
+      setNotice('Arcade activation settings saved. Inactive games are hidden from members.');
+      await loadCatalog();
+      setTab('control');
+    } catch (saveError: any) {
+      setError(saveError?.message || 'The Arcade settings could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (youCraftOpen) return <YouCraftGame onBack={() => setYouCraftOpen(false)} />;
+
+  if (embeddedGame) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-4 pb-24">
+        <button type="button" onClick={() => setEmbeddedGame(null)} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+          <ArrowLeft className="h-4 w-4" /> Back to Arcade
+        </button>
+        <div className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-white">
+            <div className="font-bold">{embeddedGame.title}</div>
+            <a href={embeddedGame.launchUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-xs text-cyan-300 hover:text-white">Open separately <ExternalLink className="h-3.5 w-3.5" /></a>
+          </div>
+          <iframe
+            title={embeddedGame.title}
+            src={embeddedGame.launchUrl}
+            className="h-[78vh] min-h-[520px] w-full bg-black"
+            allow="fullscreen; autoplay"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
         </div>
-        <div className="pointer-events-none absolute bottom-0 right-0 h-1 w-full bg-gradient-to-r from-transparent via-amber-200/70 to-slate-100/70"/>
+        <p className="text-xs text-slate-500">Embedded games must be hosted by a provider that permits YouSound in its frame policy. The official Infinite Craft and OpenFront sites are not silently proxied or modified.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 pb-28 animate-in fade-in">
+      <section className="relative overflow-hidden rounded-[30px] border border-cyan-300/20 bg-slate-950 p-6 text-white shadow-2xl sm:p-8">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-indigo-500/10 blur-3xl" />
+        <div className="relative">
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[.2em] text-cyan-100">
+            <Gamepad2 className="h-4 w-4" /> YouSound Arcade
+          </div>
+          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">Play together. <span className="text-cyan-200">Discover more.</span></h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Only games activated by the YouSound administrator appear here. The Arcade launches real games from their official providers or from a separately hosted game service.</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-200">{activeGames.length} ACTIVATED GAME{activeGames.length === 1 ? '' : 'S'}</span>
+            <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-200">CHROME BROWSER</span>
+          </div>
+        </div>
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map((card,index)=>(
-          <button key={card.id} type="button" onClick={()=>setSelectedGame(card.id)} className={'group relative min-h-[250px] overflow-hidden rounded-3xl border p-5 text-left shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl '+cardTone[card.color]}>
-            <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/[.06] blur-2xl transition group-hover:bg-white/[.12]"/>
-            <div className="relative flex h-full flex-col">
-              <div className="flex items-start justify-between gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-current/20 bg-black/20">{card.icon}</span><span className="rounded-full border border-current/20 bg-black/20 px-2.5 py-1 text-[8px] font-black tracking-[.13em]">{card.genre}</span></div>
-              <div className="mt-5 text-[9px] font-black uppercase tracking-[.24em] opacity-75">{card.subtitle}</div>
-              <h2 className="mt-1 text-2xl font-black tracking-tight text-white">{card.title}</h2>
-              <p className="mt-2 flex-1 text-xs leading-5 text-slate-300">{card.desc}</p>
-              <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-3 text-[9px] font-black tracking-wider"><span className="text-white/60">{card.keys}</span><span className="inline-flex items-center gap-1 text-white transition group-hover:gap-2">PLAY <ArrowRight className="h-3.5 w-3.5"/></span></div>
+      {isAdmin && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setTab('arcade')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'arcade' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Arcade preview</button>
+          <button type="button" onClick={() => setTab('control')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'control' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Game Control & Activity</button>
+        </div>
+      )}
+
+      {error && <div role="alert" className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>}
+      {notice && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm text-cyan-100">{notice}</div>}
+
+      {tab === 'arcade' && (
+        <>
+          {loading ? (
+            <div className="flex items-center justify-center gap-3 rounded-3xl border border-white/10 bg-slate-950/60 p-12 text-sm text-slate-300"><Loader2 className="h-5 w-5 animate-spin" /> Loading activated games…</div>
+          ) : activeGames.length === 0 ? (
+            <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-10 text-center">
+              <Gamepad2 className="mx-auto h-10 w-10 text-slate-500" />
+              <h2 className="mt-4 text-xl font-bold text-white">No games are active right now</h2>
+              <p className="mt-2 text-sm text-slate-400">The administrator has not published any games yet.</p>
             </div>
-            {index<3&&<span className="absolute bottom-3 right-3 h-1 w-12 rounded-full bg-gradient-to-r from-amber-200/80 to-slate-100/70 opacity-50"/>}
-          </button>
-        ))}
-      </div>
+          ) : (
+            <div className="grid gap-5 md:grid-cols-2">
+              {activeGames.map((game) => (
+                <article key={game.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-xl">
+                  <div className={'relative flex min-h-44 items-end bg-gradient-to-br p-5 ' + (gameArtwork[game.id] || 'from-slate-800 to-slate-950')}>
+                    <div className="absolute right-5 top-5 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">{game.featured ? 'Featured' : 'Activated'}</div>
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-[.2em] text-white/70">{game.providerLabel}</div>
+                      <h2 className="mt-2 text-3xl font-black text-white">{game.title}</h2>
+                    </div>
+                  </div>
+                  <div className="space-y-4 p-5">
+                    <p className="text-sm leading-6 text-slate-300">{game.description}</p>
+                    <div className="flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-wider">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-slate-200">
+                        {game.playerMode === 'multiplayer' ? <Users className="h-3.5 w-3.5" /> : <Gamepad2 className="h-3.5 w-3.5" />}
+                        {game.playerMode === 'multiplayer' ? 'Multiplayer' : 'Solo'}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-slate-200"><Globe2 className="h-3.5 w-3.5" /> Browser game</span>
+                    </div>
+                    <button type="button" onClick={() => playGame(game)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-200">
+                      <Play className="h-4 w-4 fill-current" /> Play {game.title}
+                      {game.launchMode === 'new-tab' && <ArrowUpRight className="h-4 w-4" />}
+                    </button>
+                    {game.launchMode === 'new-tab' && <p className="text-[11px] text-slate-500">Opens the real game at its provider. School network filters may still restrict the provider's domain.</p>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
-      <section className="rounded-3xl border border-amber-100/15 bg-gradient-to-r from-[#171c28] to-[#252b36] p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-200/20 bg-amber-100/10 text-amber-200"><Shield className="h-5 w-5"/></div><div><div className="text-xs font-black text-white">VIP Arcade Access</div><div className="mt-0.5 text-[10px] text-slate-400">Games are visible only to members who have been granted Games access by an administrator.</div></div></div><div className="inline-flex items-center gap-1.5 rounded-full border border-slate-100/15 bg-white/5 px-3 py-1.5 text-[9px] font-black tracking-wider text-slate-200"><Crown className="h-3.5 w-3.5 text-amber-200"/> GOLD · SILVER</div></div></section>
-
-      {isAdmin && <section className="overflow-hidden rounded-3xl border border-amber-200/20 bg-[#111925] shadow-sm">
-        <div className="border-b border-white/10 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-black text-white">Song Game Management</h2><p className="mt-1 text-xs text-slate-400">Bulk approve tracks for Crossy Road and the music games. Seasonal song tagging lives in Song Studio.</p></div><span className="rounded-xl border border-amber-200/20 bg-amber-100/10 px-3 py-2 text-xs font-bold text-amber-100">{songs.filter(song=>song.gameApproved).length} Game Approved</span></div>
-          {analysis.total>0&&<div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-3"><div className="flex justify-between gap-3 text-xs"><span className="font-bold text-cyan-100">{analysis.active?'Automatically detecting song beats…':'Beat analysis finished'}</span><span className="tabular-nums text-cyan-200">{analysis.done}/{analysis.total}{analysis.failed?' · '+analysis.failed+' not detected':''}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/30"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:(analysis.done/analysis.total*100)+'%'}}/></div></div>}
-        </div>
-        <div className="space-y-4 p-5">
-          <div className="flex flex-wrap items-center gap-2"><div className="relative min-w-48 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search songs or artists…" className="w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-9 pr-3 text-xs text-white outline-none focus:border-amber-200/50"/></div><button type="button" onClick={()=>setSelectedIds(current=>{const visible=filteredSongs.map(song=>song.id);return visible.every(id=>current.includes(id))?current.filter(id=>!visible.includes(id)):Array.from(new Set([...current,...visible]));})} className="rounded-xl border border-white/15 px-3 py-2.5 text-xs font-bold text-slate-200">Select visible</button><span className="text-xs text-slate-400">{selectedIds.length} selected</span></div>
-          <div className="flex flex-wrap gap-2"><button type="button" disabled={!selectedIds.length||busy} onClick={()=>void applyBulk({gameApproved:true},'Game Approved enabled')} className="rounded-xl bg-amber-300 px-3 py-2.5 text-xs font-black text-slate-950 disabled:opacity-40">Approve for Games</button><button type="button" disabled={!selectedIds.length||busy} onClick={()=>void applyBulk({gameApproved:false},'Game approval removed')} className="rounded-xl border border-slate-200/20 px-3 py-2.5 text-xs font-bold text-slate-200 disabled:opacity-40">Unapprove</button></div>
-          {message&&<p className="text-xs font-semibold text-amber-100">{message}</p>}
-          <div className="max-h-[430px] overflow-y-auto rounded-2xl border border-white/10">{filteredSongs.map(song=><label key={song.id} className="flex cursor-pointer items-center gap-3 border-b border-white/5 p-3 last:border-0 hover:bg-white/[.03]"><input type="checkbox" checked={selectedIds.includes(song.id)} onChange={()=>setSelectedIds(current=>current.includes(song.id)?current.filter(id=>id!==song.id):[...current,song.id])} className="h-4 w-4 accent-amber-300"/><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-white">{song.title}</div><div className="truncate text-[10px] text-slate-400">{song.artist}</div></div><div className="flex shrink-0 flex-wrap justify-end gap-1.5">{song.gameApproved&&<span className="rounded-md bg-amber-100/10 px-2 py-1 text-[9px] font-bold text-amber-100">Approved</span>}{song.isChristmasEdition&&<span className="rounded-md bg-emerald-500/10 px-2 py-1 text-[9px] font-bold text-emerald-200">Christmas</span>}<span className="rounded-md bg-white/5 px-2 py-1 text-[9px] text-slate-400">{song.gameBpmDetected?song.gameBpm+' BPM':'Beat pending'}</span></div></label>)}{!filteredSongs.length&&<p className="p-6 text-center text-xs text-slate-500">No matching songs.</p>}</div>
-          <p className="text-[10px] leading-relaxed text-slate-500">Beat analysis runs one track at a time in your browser. Unusual timing may still need a manual BPM correction.</p>
-        </div>
-      </section>}
-      <p className="text-center text-[9px] text-slate-500">YouSong VIP Arcade · Hosted browser games + original music challenges · Beta</p>
+      {tab === 'control' && isAdmin && (
+        <section className="space-y-5 rounded-3xl border border-cyan-200/20 bg-slate-950/80 p-5 shadow-xl sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-white">Game Control Room</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-400">Publish or unpublish each game. Unpublished games are hidden from members and rejected by the game-launch API.</p>
+            </div>
+            <button type="button" onClick={() => void loadCatalog()} disabled={loading || saving} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-white/5 disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
+          </div>
+          <div className="space-y-4">
+            {games.map((game) => (
+              <div key={game.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-black text-white">{game.title}</h3>
+                      <span className="rounded-md border border-white/10 px-2 py-1 text-[9px] font-bold uppercase text-slate-400">{game.playerMode}</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">{game.description}</p>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white">
+                    <input type="checkbox" checked={game.enabled} onChange={(event) => updateGame(game.id, { enabled: event.target.checked, featured: event.target.checked && game.featured })} className="h-4 w-4 accent-cyan-300" />
+                    {game.enabled ? 'Activated' : 'Inactive'}
+                  </label>
+                </div>
+                <label className="mt-4 flex items-center gap-2 text-xs font-semibold text-slate-300">
+                  <input type="checkbox" checked={game.featured} disabled={!game.enabled} onChange={(event) => updateGame(game.id, { featured: event.target.checked })} className="h-4 w-4 accent-cyan-300" />
+                  Feature this game in the Arcade
+                  <Star className="h-3.5 w-3.5 text-amber-300" />
+                </label>
+                {game.id === 'infinite-craft' ? (
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-400">
+                    Official destination: <span className="text-slate-200">neal.fun/infinite-craft</span>. The original site blocks framing on unrelated domains, so this game must open at its official address. We do not copy or proxy its code.
+                  </div>
+                ) : game.id === 'youcraft' ? (
+                  <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
+                    Native YouSound game. AI-generated discoveries, account-saved collections, and multiplayer Craft Wars are hosted directly in YouSound. No external game URL is needed.
+                  </div>
+                ) : (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1 text-xs font-semibold text-slate-300">
+                      OpenFront game URL
+                      <input value={game.launchUrl} onChange={(event) => updateGame(game.id, { launchUrl: event.target.value })} type="url" maxLength={500} placeholder="https://your-openfront-host.example" className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/50" />
+                    </label>
+                    <label className="space-y-1 text-xs font-semibold text-slate-300">
+                      How it opens
+                      <select value={game.launchMode} onChange={(event) => updateGame(game.id, { launchMode: event.target.value as LaunchMode })} className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/50">
+                        <option value="new-tab">Open separately</option>
+                        <option value="embedded">Embed self-hosted instance</option>
+                      </select>
+                    </label>
+                    <p className="md:col-span-2 text-[11px] leading-5 text-slate-500">For an in-YouSound embed, use a separately hosted OpenFront instance whose own frame policy permits YouSound. The official OpenFront host cannot be forced into an iframe. A URL change does not deploy or create that server.</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+            <p className="text-[11px] text-slate-500">Only activated games can be launched, including by administrators.</p>
+            <button type="button" onClick={() => void saveCatalog()} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-5 py-3 text-xs font-black text-slate-950 hover:bg-cyan-200 disabled:opacity-50">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save game settings
+            </button>
+          </div>
+          <div className="border-t border-white/10 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-white">Recent community launches</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Latest 50 launch events recorded by YouSound. These are launch records, not proof that the external game finished loading or that a player remains online.</p>
+              </div>
+              <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{recentLaunches.length} RECENT</span>
+            </div>
+            <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
+              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
+                <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
+                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'infinite-craft' ? 'Infinite Craft' : event.gameId === 'youcraft' ? 'YouCraft' : 'OpenFront'}</strong></div>
+                  <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="border-t border-white/10 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-white">YouCraft community oversight</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Account-level discovery totals and the latest multiplayer arenas. No private chat content is exposed here.</p>
+              </div>
+              <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{youCraftOverview?.players.length || 0} PLAYERS · {youCraftOverview?.matches.length || 0} MATCHES</span>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <div className="border-b border-white/10 bg-white/[.03] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Most recent player activity</div>
+                {(youCraftOverview?.players || []).slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,12).map((player) => (
+                  <div key={player.uid} className="flex items-center justify-between gap-2 border-b border-white/5 px-3 py-2.5 last:border-0">
+                    <span className="truncate text-xs text-slate-200">{player.username || player.uid}</span>
+                    <span className="shrink-0 text-[10px] tabular-nums text-cyan-200">{player.discoveryCount} discoveries</span>
+                  </div>
+                ))}
+                {!youCraftOverview?.players.length && <p className="p-4 text-center text-xs text-slate-500">No YouCraft players yet.</p>}
+              </div>
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <div className="border-b border-white/10 bg-white/[.03] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Recent strategy matches</div>
+                {(youCraftOverview?.matches || []).slice(0,12).map((match) => (
+                  <div key={match.id} className="border-b border-white/5 px-3 py-2.5 last:border-0">
+                    <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs font-bold text-white">{match.code}</span><span className="text-[10px] uppercase text-cyan-200">{match.status}</span></div>
+                    <div className="mt-1 truncate text-[10px] text-slate-400">{match.players.join(' vs ') || 'Waiting'} · turn {match.turnNumber}</div>
+                  </div>
+                ))}
+                {!youCraftOverview?.matches.length && <p className="p-4 text-center text-xs text-slate-500">No strategy matches yet.</p>}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 };

@@ -6,7 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import { MediaCover } from './MediaCover';
 
 type Program = { name: string; description?: string; songIds: string[]; startsAt?: string | null };
+type RadioStationOption = { id: string; name: string; description: string; enabled: boolean };
 type Station = {
+  stationId?: string;
   enabled: boolean; stationName: string; stationDescription: string;
   currentProgram: Program | null; currentSong: Song | null; playlist?: Song[];
   currentIndex: number; elapsedSeconds: number; nextProgram: Program | null;
@@ -39,6 +41,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const chatFetchInFlight = useRef(false);
   const stationFetchInFlight = useRef(false);
   const [station, setStation] = useState<Station | null>(null);
+  const [radioStations, setRadioStations] = useState<RadioStationOption[]>([]);
+  const [selectedStationId, setSelectedStationId] = useState('main');
+  const selectedStationIdRef = useRef('main');
+  const [newStationName, setNewStationName] = useState('');
+  const [stationCreateError, setStationCreateError] = useState('');
+  const [creatingStation, setCreatingStation] = useState(false);
   const latestStationServerTimeRef = useRef(0);
   // NTP-style samples map the server epoch clock to this tab's monotonic performance clock.
   const serverClockOffsetRef = useRef<number | null>(null);
@@ -76,6 +84,66 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
   const [banReason, setBanReason] = useState('');
   const loadedProgramKey = useRef('');
 
+  const refreshStations = useCallback(async () => {
+    try {
+      const response = await fetch('/api/radio/stations', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load radio channels.');
+      const next = Array.isArray(data.stations) ? data.stations as RadioStationOption[] : [];
+      setRadioStations(next);
+      if (selectedStationId !== 'main' && !next.some((item) => item.id === selectedStationId)) {
+        selectedStationIdRef.current = 'main';
+        setSelectedStationId('main');
+        setStation(null);
+      }
+    } catch (e: any) {
+      setStationCreateError(e?.message || 'Could not load radio channels.');
+    }
+  }, [selectedStationId]);
+
+  const createStation = async () => {
+    const name = newStationName.trim();
+    if (name.length < 2 || creatingStation) return;
+    setCreatingStation(true);
+    setStationCreateError('');
+    try {
+      const response = await fetch('/api/admin/radio/stations', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success || !data.station?.id) throw new Error(data.error || 'Could not create the radio station.');
+      setNewStationName('');
+      await refreshStations();
+      selectedStationIdRef.current = String(data.station.id);
+      setSelectedStationId(String(data.station.id));
+      setStation(null);
+      setStationCreateError('Station created. Build its playlist and start it independently.');
+    } catch (e: any) {
+      setStationCreateError(e?.message || 'Could not create the radio station.');
+    } finally {
+      setCreatingStation(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshStations();
+    const timer = window.setInterval(() => void refreshStations(), 10000);
+    return () => window.clearInterval(timer);
+  }, [active, refreshStations]);
+
+  useEffect(() => {
+    setJoined(false);
+    setSyncing(false);
+    setStation(null);
+    setMessages([]);
+    previousStationClockRef.current = { songId: null, paused: null, syncRevision: null };
+    latestStationServerTimeRef.current = 0;
+    serverClockOffsetRef.current = null;
+    clockSamplesRef.current = [];
+    leaveRadio();
+  }, [selectedStationId, leaveRadio]);
+
   useEffect(() => {
     if (joined && playbackError) {
       setError(playbackError);
@@ -96,11 +164,13 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (stationFetchInFlight.current) return;
     stationFetchInFlight.current = true;
     try {
+      const requestedStationId = selectedStationId;
       const requestStartedAt = performance.now();
-      const response = await fetch('/api/radio/state', { credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch('/api/radio/state?stationId=' + encodeURIComponent(requestedStationId), { credentials: 'same-origin', cache: 'no-store' });
       const receivedAt = performance.now();
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Radio is unavailable.');
+      if (selectedStationIdRef.current !== requestedStationId) return;
       const state = data.state as Station;
       const serverTime = Date.parse(state.serverNow || '');
       // Reject stale responses, but never compare the server clock to the device clock.
@@ -182,7 +252,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     } finally {
       stationFetchInFlight.current = false;
     }
-  }, [joined, playRadioSong, joinRadioPlayback, leaveRadio]);
+  }, [joined, playRadioSong, joinRadioPlayback, leaveRadio, selectedStationId]);
 
   useEffect(() => {
     if (!active && !joined) return;
@@ -202,7 +272,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     if (!joined || chatFetchInFlight.current) return;
     chatFetchInFlight.current = true;
     try {
-      const response = await fetch('/api/radio/chat', { credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch('/api/radio/chat?stationId=' + encodeURIComponent(selectedStationId), { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Chat could not load.');
       setMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -217,7 +287,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     } finally {
       chatFetchInFlight.current = false;
     }
-  }, [joined, isAdmin]);
+  }, [joined, isAdmin, selectedStationId]);
 
   useEffect(() => {
     if (!active || !joined) return;
@@ -228,10 +298,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
   useEffect(() => {
     if (!isAdmin) return;
+    const requestedStationId = selectedStationId;
     void (async () => {
       try {
-        const configRes = await fetch('/api/admin/radio/config', { credentials: 'same-origin' });
+        const configRes = await fetch('/api/admin/radio/config?stationId=' + encodeURIComponent(requestedStationId), { credentials: 'same-origin', cache: 'no-store' });
         const configData = await configRes.json().catch(() => ({}));
+        if (selectedStationIdRef.current !== requestedStationId) return;
         const config = configData.config;
         if (config) {
           setStationName(config.stationName || 'YouSong Radio');
@@ -247,7 +319,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         }
       } catch { /* Retryable when the admin opens the control room again. */ }
     })();
-  }, [isAdmin]);
+  }, [isAdmin, selectedStationId]);
 
   const refreshBanList = useCallback(async () => {
     if (!isAdmin) return;
@@ -341,7 +413,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
     try {
       const response = await fetch('/api/radio/chat', {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: clean }),
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: clean, stationId: selectedStationId }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) {
@@ -373,6 +445,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          stationId: selectedStationId,
           enabled, startNow, stationName, stationDescription,
           currentProgram: { name: programName, description: programDescription, songIds: currentIds },
           nextProgram: scheduled,
@@ -397,7 +470,7 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
       const requestStartedAt = performance.now();
       const response = await fetch('/api/admin/radio/control', {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }),
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stationId: selectedStationId, action, ...extra }),
       });
       const receivedAt = performance.now();
       const data = await response.json().catch(() => ({}));
@@ -574,6 +647,14 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
 
   return (
     <section className="ys-radio-view space-y-4 pb-28">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-950/80 p-3 text-white">
+        <label className="min-w-0 flex-1 text-[10px] font-semibold text-slate-300">Choose a radio channel
+          <select value={selectedStationId} onChange={(event) => { if (joined) leave(); selectedStationIdRef.current = event.target.value; setSelectedStationId(event.target.value); setStation(null); }} className="mt-1 block w-full max-w-md rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white">
+            {radioStations.map((item) => <option key={item.id} value={item.id}>{item.name}{item.enabled ? ' · LIVE' : ' · OFF AIR'}</option>)}
+          </select>
+        </label>
+        <span className="text-[10px] text-emerald-200">{radioStations.filter((item) => item.enabled).length} live channel{radioStations.filter((item) => item.enabled).length === 1 ? '' : 's'}</span>
+      </div>
       <div className="ys-radio-hero rounded-2xl border border-cyan-400/20 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -614,6 +695,12 @@ export const RadioView: React.FC<{ active: boolean }> = ({ active }) => {
           {isAdmin && <details className="rounded-2xl border border-amber-400/25 bg-slate-950 p-4 text-white" open>
             <summary className="cursor-pointer list-none flex items-center justify-between gap-2 text-sm font-bold"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-amber-300" /> Radio control room</span><span className="text-[9px] font-normal text-slate-400">Admin only</span></summary>
             <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-cyan-300/15 bg-cyan-400/[.04] p-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-100">Independent stations</div>
+                <div className="flex flex-wrap gap-2"><input value={newStationName} onChange={(event) => setNewStationName(event.target.value)} maxLength={80} placeholder="New station name" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-xs text-white" /><button type="button" disabled={creatingStation || newStationName.trim().length < 2 || radioStations.length >= 12} onClick={() => void createStation()} className="rounded-lg bg-cyan-300 px-3 py-2 text-[10px] font-bold text-slate-950 disabled:opacity-40">{creatingStation ? 'Creating…' : 'Create station'}</button></div>
+                <p className="mt-2 text-[9px] text-slate-400">Each channel has its own playlist, schedule, playback clock and controls. Up to 12 stations can exist at once.</p>
+                {stationCreateError && <p className="mt-2 text-[10px] text-amber-200">{stationCreateError}</p>}
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="text-[10px] text-slate-300">Station name<input value={stationName} onChange={(e) => setStationName(e.target.value)} maxLength={80} className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" /></label>
                 <label className="text-[10px] text-slate-300">Station description<input value={stationDescription} onChange={(e) => setStationDescription(e.target.value)} maxLength={240} className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white" /></label>

@@ -31,6 +31,7 @@ import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
 import { GamesHub } from './components/GamesHub';
 import { AIStudio } from './components/AIStudio';
+import { AIAnswerNotifier } from './components/AIAnswerNotifier';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
@@ -168,10 +169,10 @@ const MainAppContent: React.FC = () => {
   }, [spotlightActive, isAdmin, activeTab]);
 
   useEffect(() => {
-    if (!isAdmin && !currentUser?.gamesEnabled && activeTab === 'games') {
+    if (!isAdmin && (!currentUser?.isApproved || currentUser?.isSuspended || currentUser?.isLocked) && activeTab === 'games') {
       setActiveTab('library');
     }
-  }, [isAdmin, currentUser?.gamesEnabled, activeTab]);
+  }, [isAdmin, currentUser?.isApproved, currentUser?.isSuspended, currentUser?.isLocked, activeTab]);
 
   useEffect(() => {
     if (!isAdmin && !currentUser?.aiBetaEnabled && activeTab === 'ai') setActiveTab('library');
@@ -381,16 +382,11 @@ const MainAppContent: React.FC = () => {
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
-        {activeTab === 'games' && (isAdmin || currentUser.gamesEnabled) && (
-          <GamesHub
-            isAdmin={isAdmin}
-            songs={adminAllSongs}
-            bulkUpdateSongs={bulkUpdateSongs}
-            updateSong={updateSong}
-            refreshSongLibrary={refreshSongLibrary}
-          />
+        {activeTab === 'games' && (isAdmin || (currentUser.isApproved && !currentUser.isSuspended && !currentUser.isLocked)) && (
+          <GamesHub isAdmin={isAdmin} />
         )}
         {activeTab === 'ai' && (isAdmin || currentUser?.aiBetaEnabled === true) && <AIStudio />}
+
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
         )}
@@ -442,6 +438,7 @@ const MainAppContent: React.FC = () => {
 
       {/* One bundled catch-up alert for song, chat, feature and bug updates after login */}
       <LoginActivityDigest />
+      <AIAnswerNotifier enabled={!!currentUser && (isAdmin || currentUser.aiBetaEnabled === true)} onOpenAI={() => setActiveTab('ai')} />
 
       {/* Edit Song Modal from Uploader */}
       {uploaderEditSong && (
