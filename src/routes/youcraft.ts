@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
-import { GoogleGenAI } from '@google/genai';
 import {
   getPersistentSettingDb,
   ensurePersistentSettingDb,
@@ -11,7 +10,7 @@ import { getAuthUser, isAdminReq } from '../services/auth.ts';
 import {
   YOUCRAFT_STARTER_ITEMS,
   canonicalYouCraftRecipe,
-  normalizeYouCraftItem,
+  createInstantYouCraftDiscovery,
   createInitialYouCraftBattleState,
   joinYouCraftBattleState,
   applyYouCraftAction,
@@ -69,40 +68,8 @@ function safeItemName(value: unknown): string {
   return typeof value === 'string' ? value.replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 32) : '';
 }
 
-async function generateDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): Promise<YouCraftItem> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (!apiKey) throw new Error('AI crafting is temporarily unavailable. The server AI key is not configured.');
-  const ai = new GoogleGenAI({ apiKey });
-  const prompt = [
-    'You are the item-combination engine for an original family-friendly discovery game called YouCraft.',
-    'Combine the two inputs into one surprising, logical, memorable new discovery. Use wordplay or lateral connections when sensible.',
-    'Return only valid JSON with keys: name, emoji, category, description, attack, defense, energyCost, abilityName, abilityDescription.',
-    'name must be 1-3 words, description one sentence, category a short noun.',
-    'attack and defense must be integers from 1 to 9; energyCost must be 1 to 3.',
-    'Make the stats total between 9 and 13; high attack should usually mean lower defense, and vice versa.',
-    'Give every result a distinct strategic ability description. Do not copy an existing franchise character or protected fictional universe.',
-    'Input A: ' + JSON.stringify(first.name + ' — ' + first.description),
-    'Input B: ' + JSON.stringify(second.name + ' — ' + second.description),
-  ].join('\n');
-  let lastError: any;
-  for (const model of ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json', temperature: 0.85, maxOutputTokens: 260 },
-      });
-      const raw = String(response.text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
-      const parsed = JSON.parse(raw);
-      return normalizeYouCraftItem(parsed, recipeKey);
-    } catch (error: any) {
-      lastError = error;
-      const status = Number(error?.status || error?.statusCode || 0);
-      if (![429, 500, 502, 503, 504].includes(status) && !/unavailable|overloaded|rate.?limit/i.test(String(error?.message || ''))) break;
-    }
-  }
-  console.error('[YouCraft] Discovery generation failed:', lastError?.message || lastError);
-  throw new Error('The discovery AI could not create this combination right now. Your items were not used.');
+function generateDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): YouCraftItem {
+  return createInstantYouCraftDiscovery(first, second, recipeKey);
 }
 
 router.get('/profile', async (req, res) => {
@@ -125,7 +92,7 @@ router.post('/combine', async (req, res) => {
     if (recent.length >= 12) return res.status(429).json({ success: false, error: 'Slow down for a moment before combining more items.' });
     const a = safeItemName(req.body?.itemA);
     const b = safeItemName(req.body?.itemB);
-    if (!a || !b || a.toLowerCase() === b.toLowerCase()) return res.status(400).json({ success: false, error: 'Choose two different items.' });
+    if (!a || !b) return res.status(400).json({ success: false, error: 'Choose two items.' });
     const profile = await getProfile(account.uid, account.username);
     const first = profile.discoveries.find((item) => item.id === a);
     const second = profile.discoveries.find((item) => item.id === b);
@@ -136,7 +103,7 @@ router.post('/combine', async (req, res) => {
     const existingRecipes = await getPersistentSettingDb<Record<string, RecipeRecord>>(RECIPE_KEY) || {};
     const existing = existingRecipes[recipe.key];
     let item = existing?.item;
-    if (!item) item = await generateDiscovery(first, second, recipe.key);
+    if (!item) item = generateDiscovery(first, second, recipe.key);
 
     // Only one generated result wins globally for a recipe, even if two users combine it simultaneously.
     const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => recipes[recipe.key] ? recipes : ({
