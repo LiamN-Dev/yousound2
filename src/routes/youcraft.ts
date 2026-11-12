@@ -158,7 +158,8 @@ router.post('/combine', async (req, res) => {
 router.post('/matches', async (req, res) => {
   try {
     const account = await getAccount(req, res); if (!account) return;
-    const profile = await getProfile(account.uid);
+    const profile = await getProfile(account.uid, account.username);
+    await saveProfile(profile);
     const matchId = randomBytes(12).toString('hex');
     const code = randomBytes(3).toString('hex').toUpperCase();
     const now = new Date().toISOString();
@@ -183,7 +184,8 @@ router.post('/matches/join', async (req, res) => {
     const match = Object.values(matches).find((entry) => entry.code === code && entry.status === 'waiting');
     if (!match) return res.status(404).json({ success: false, error: 'No waiting match was found for that code.' });
     if (match.state.players.some((player) => player.uid === account.uid)) return res.status(409).json({ success: false, error: 'You are already in this match.' });
-    const profile = await getProfile(account.uid);
+    const profile = await getProfile(account.uid, account.username);
+    await saveProfile(profile);
     const updated = { ...match, status: 'active' as const, updatedAt: new Date().toISOString(), state: joinYouCraftBattleState(match.state, { uid: account.uid, username: account.username }, profile.discoveries) };
     await saveMatch(updated);
     return res.json({ success: true, match: { id: updated.id, code: updated.code, status: updated.status, state: updated.state } });
