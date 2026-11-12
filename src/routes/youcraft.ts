@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   getPersistentSettingDb,
   ensurePersistentSettingDb,
@@ -302,7 +302,7 @@ async function requestImmediateRecipe(pair: PlannedPair, discoveries: YouCraftIt
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
-      thinkingConfig: { thinkingLevel: 'medium' },
+      thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
       maxOutputTokens: 1000,
     },
   });
