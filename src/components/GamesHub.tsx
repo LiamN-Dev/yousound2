@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { YouCraftGame } from './YouCraftGame';
 import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play, RefreshCw, ShieldCheck, Star, Users } from 'lucide-react';
 
-type LaunchMode = 'new-tab' | 'embedded';
+type LaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGame = {
   id: 'infinite-craft' | 'openfront' | 'youcraft';
   title: string;
