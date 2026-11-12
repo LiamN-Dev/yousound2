@@ -18,7 +18,7 @@ import {
   type YouCraftItem,
   type YouCraftBattleState,
   type YouCraftAction,
-} from './youcraft.ts';
+} from '../services/youcraft.ts';
 
 type Profile = { uid: string; username: string; discoveries: YouCraftItem[]; combinations: number; updatedAt: string };
 type RecipeRecord = { key: string; inputA: string; inputB: string; item: YouCraftItem; createdAt: string };
