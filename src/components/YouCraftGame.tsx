@@ -6,6 +6,7 @@ type Profile = { uid: string; discoveries: Item[]; combinations: number; updated
 type Player = { uid: string; username: string; hp: number; energy: number; guard: number; items: Item[] };
 type BattleState = { players: Player[]; currentTurnUid: string; turnNumber: number; usedItemIds: Record<string,string[]>; log: Array<{id:string;text:string;at:string}>; winnerUid: string | null };
 type Match = { id: string; code: string; status: 'waiting'|'active'|'finished'; state: BattleState };
+type PlannerStatus = { configured: boolean; running: boolean; pending: number; planned: number; lastError: string | null; updatedAt: string };
 
 async function api(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
@@ -36,6 +37,7 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [battleItemId, setBattleItemId] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [planner, setPlanner] = useState<PlannerStatus | null>(null);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [draggedItemId, setDraggedItemId] = useState('');
   const boardRef = useRef<HTMLDivElement>(null);
@@ -43,11 +45,20 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const refreshProfile = useCallback(async () => {
     const data = await api('/profile');
     setProfile(data.profile);
+    setPlanner(data.planner || null);
   }, []);
 
   useEffect(() => {
     void refreshProfile().catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, [refreshProfile]);
+
+  useEffect(() => {
+    if (!profile?.uid || !planner?.configured) return;
+    const timer = window.setInterval(() => {
+      api('/planning').then((data) => setPlanner(data.planner)).catch(() => undefined);
+    }, 2200);
+    return () => window.clearInterval(timer);
+  }, [profile?.uid, planner?.configured]);
 
   useEffect(() => {
     if (!profile) return;
@@ -79,12 +90,34 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const combineItems = async (itemAId: string, itemBId: string) => {
     if (!itemAId || !itemBId || combining) return;
     setCombining(true); setError(''); setDiscovery(null);
+    const requestBody = JSON.stringify({ itemA: itemAId, itemB: itemBId });
     try {
-      const data = await api('/combine', { method: 'POST', body: JSON.stringify({ itemA: itemAId, itemB: itemBId }) });
+      let data = await api('/combine', { method: 'POST', body: requestBody });
+      if (data.pending) {
+        let completed = false;
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1200));
+          const status = await api('/recipe-status?itemA=' + encodeURIComponent(itemAId) + '&itemB=' + encodeURIComponent(itemBId));
+          setPlanner(status.planner || null);
+          if (status.status === 'needs_api_key') {
+            throw new Error('YouCraft’s separate AI recipe key is not configured yet. Ask the administrator to add YOUCRAFT_GEMINI_API_KEY to the production service.');
+          }
+          if (status.status === 'no_recipe') {
+            throw new Error('The recipe planner could not find a clear, meaningful result for those two ingredients. Try another pair.');
+          }
+          if (status.status === 'ready') {
+            data = await api('/combine', { method: 'POST', body: requestBody });
+            completed = true;
+            break;
+          }
+        }
+        if (!completed) throw new Error('That recipe is still being planned. It has not been replaced with a made-up result; try again shortly.');
+      }
       setProfile(data.profile);
+      setPlanner(data.planner || planner);
       setDiscovery(data.item);
       setSelectedA(''); setSelectedB('');
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e.message || 'That combination could not be created.'); }
     finally { setCombining(false); }
   };
 
@@ -170,7 +203,7 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     <div className="mx-auto max-w-7xl space-y-6 pb-28 animate-in fade-in">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button onClick={onBack} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-white/10"><ArrowLeft className="h-4 w-4"/> Arcade</button>
-        <div className="flex items-center gap-2 rounded-full border border-violet-300/20 bg-violet-300/10 px-3 py-2 text-[10px] font-black uppercase tracking-[.18em] text-violet-100"><Atom className="h-4 w-4"/> YouCraft · Instant Discovery</div>
+        <div className="flex items-center gap-2 rounded-full border border-violet-300/20 bg-violet-300/10 px-3 py-2 text-[10px] font-black uppercase tracking-[.18em] text-violet-100"><Atom className="h-4 w-4"/> YouCraft · AI-Planned Discovery</div>
       </div>
 
       <section className="relative overflow-hidden rounded-[28px] border border-violet-300/20 bg-slate-950 p-6 text-white shadow-2xl sm:p-8">
@@ -178,7 +211,7 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <div className="pointer-events-none absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl"/>
         <div className="relative">
           <div className="text-[10px] font-black uppercase tracking-[.22em] text-violet-200">A world made from your ideas</div>
-          <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Combine anything. <span className="text-violet-200">Discover everything.</span></h1>
+          <h1 className="mt-3 text-4xl font-black tracking-tight sm:text-5xl">Drag, combine. <span className="text-violet-200">Discover more.</span></h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Drag one element onto another to combine them instantly. No external game link and no AI waiting. Build your collection, then challenge a friend in Craft Wars.</p>
           <div className="mt-5 flex flex-wrap gap-2 text-[10px] font-bold">
             <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">{discoveries.length} DISCOVERIES</span>
@@ -189,6 +222,20 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       </section>
 
       {error && <div role="alert" className="rounded-xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div>}
+      {!activeMatch && planner && (
+        <div role="status" className={'rounded-xl border px-4 py-3 text-xs ' + (!planner.configured ? 'border-amber-300/20 bg-amber-300/5 text-amber-100' : planner.lastError ? 'border-rose-300/20 bg-rose-300/5 text-rose-100' : 'border-cyan-300/20 bg-cyan-300/5 text-cyan-100')}>
+          {!planner.configured
+            ? 'AI recipe planning is not connected yet. Known recipes still work, but new combinations need the separate YOUCRAFT_GEMINI_API_KEY configured by the administrator.'
+            : planner.running
+              ? 'AI is pre-planning your next combinations in the background…'
+              : planner.lastError
+                ? 'Recipe planning paused: ' + planner.lastError
+                : planner.pending > 0
+                  ? planner.pending + ' more combinations are waiting to be planned.'
+                  : 'Your available combinations are planned and ready.'}
+          {planner.configured && <span className="ml-2 text-slate-400">{planner.planned} recipes planned this session.</span>}
+        </div>
+      )}
 
       {activeMatch ? (
         <section className="space-y-5 rounded-3xl border border-cyan-300/20 bg-slate-950/80 p-5 sm:p-6">
