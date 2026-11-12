@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play,
 
 type LaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGame = {
-  id: 'infinite-craft' | 'openfront' | 'youcraft';
+  id: 'openfront' | 'youcraft';
   title: string;
   description: string;
   enabled: boolean;
@@ -25,7 +25,6 @@ type LaunchEvent = {
 type Props = { isAdmin: boolean };
 
 const gameArtwork: Record<string, string> = {
-  'infinite-craft': 'from-violet-950 via-indigo-900 to-slate-950',
   openfront: 'from-emerald-950 via-teal-900 to-slate-950',
   youcraft: 'from-violet-950 via-fuchsia-950 to-slate-950',
 };
@@ -145,7 +144,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
             referrerPolicy="strict-origin-when-cross-origin"
           />
         </div>
-        <p className="text-xs text-slate-500">Embedded games must be hosted by a provider that permits YouSound in its frame policy. The official Infinite Craft and OpenFront sites are not silently proxied or modified.</p>
+        <p className="text-xs text-slate-500">Embedded games must be hosted by a provider that permits YouSound in its frame policy. Third-party games are opened only at their configured provider or self-hosted game address.</p>
       </div>
     );
   }
@@ -251,13 +250,9 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                   Feature this game in the Arcade
                   <Star className="h-3.5 w-3.5 text-amber-300" />
                 </label>
-                {game.id === 'infinite-craft' ? (
-                  <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-400">
-                    Official destination: <span className="text-slate-200">neal.fun/infinite-craft</span>. The original site blocks framing on unrelated domains, so this game must open at its official address. We do not copy or proxy its code.
-                  </div>
-                ) : game.id === 'youcraft' ? (
+                {game.id === 'youcraft' ? (
                   <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
-                    Native YouSound game. AI-generated discoveries, account-saved collections, and multiplayer Craft Wars are hosted directly in YouSound. No external game URL is needed.
+                    Native YouSound game. Drag elements together to discover combinations instantly. Your collection and Craft Wars matches are saved to your account.
                   </div>
                 ) : (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -293,9 +288,9 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
               <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{recentLaunches.length} RECENT</span>
             </div>
             <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
+              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.filter((event) => event.gameId !== 'infinite-craft').map((event) => (
                 <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
-                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'infinite-craft' ? 'Infinite Craft' : event.gameId === 'youcraft' ? 'YouCraft' : 'OpenFront'}</strong></div>
+                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'youcraft' ? 'YouCraft' : 'OpenFront'}</strong></div>
                   <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
                 </div>
               ))}
@@ -304,7 +299,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
           <div className="border-t border-white/10 pt-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-black text-white">YouCraft community oversight</h3>
+                <h3 className="text-base font-black text-white">YouCraft community overview</h3>
                 <p className="mt-1 text-[11px] text-slate-500">Account-level discovery totals and the latest multiplayer arenas. No private chat content is exposed here.</p>
               </div>
               <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{youCraftOverview?.players.length || 0} PLAYERS · {youCraftOverview?.matches.length || 0} MATCHES</span>
