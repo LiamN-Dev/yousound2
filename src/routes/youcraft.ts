@@ -66,7 +66,7 @@ async function saveMatch(match: MatchRecord): Promise<void> {
 }
 
 function safeItemName(value: unknown): string {
-  return typeof value === 'string' ? value.replace(/[<>\\u0000-\\u001f]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 32) : '';
+  return typeof value === 'string' ? value.replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 32) : '';
 }
 
 async function generateDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): Promise<YouCraftItem> {
@@ -83,7 +83,7 @@ async function generateDiscovery(first: YouCraftItem, second: YouCraftItem, reci
     'Give every result a distinct strategic ability description. Do not copy an existing franchise character or protected fictional universe.',
     'Input A: ' + JSON.stringify(first.name + ' — ' + first.description),
     'Input B: ' + JSON.stringify(second.name + ' — ' + second.description),
-  ].join('\\n');
+  ].join('\n');
   let lastError: any;
   for (const model of ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']) {
     try {
@@ -92,7 +92,7 @@ async function generateDiscovery(first: YouCraftItem, second: YouCraftItem, reci
         contents: prompt,
         config: { responseMimeType: 'application/json', temperature: 0.85, maxOutputTokens: 260 },
       });
-      const raw = String(response.text || '').trim().replace(/^```(?:json)?\\s*/i, '').replace(/```$/, '');
+      const raw = String(response.text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
       const parsed = JSON.parse(raw);
       return normalizeYouCraftItem(parsed, recipeKey);
     } catch (error: any) {
