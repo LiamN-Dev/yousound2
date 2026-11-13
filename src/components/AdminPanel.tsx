@@ -1950,7 +1950,7 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {adminTab === 'youtube' && <YouTubeAccessSettings />}
+      {adminTab === 'youtube' && <YouTubeAccessSettings users={allUsers} />}
 
       {/* Denial Feedback Modal for Song Requests */}
       {decliningSongReq && (
@@ -2216,7 +2216,7 @@ type YouTubeAccessLogEntry = {
   accountExists: boolean;
 };
 
-const YouTubeAccessSettings: React.FC = () => {
+const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
   const [code, setCode] = useState('');
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [feedback, setFeedback] = useState('');
@@ -2224,6 +2224,60 @@ const YouTubeAccessSettings: React.FC = () => {
   const [accessLog, setAccessLog] = useState<YouTubeAccessLogEntry[]>([]);
   const [logLoading, setLogLoading] = useState(false);
   const [logError, setLogError] = useState('');
+  const [codeRecipientUids, setCodeRecipientUids] = useState<string[]>([]);
+  const [shutdownTrustedUids, setShutdownTrustedUids] = useState<string[]>([]);
+  const [securitySettingsLoading, setSecuritySettingsLoading] = useState(true);
+  const [securitySettingsSaving, setSecuritySettingsSaving] = useState(false);
+  const [securitySettingsFeedback, setSecuritySettingsFeedback] = useState('');
+
+  const eligibleUsers = users.filter(user =>
+    user.role === 'user' && user.isApproved && !user.isSuspended && !user.isLocked && !user.chatBlocked
+  );
+
+  const loadSecuritySettings = async () => {
+    setSecuritySettingsLoading(true);
+    setSecuritySettingsFeedback('');
+    try {
+      const response = await fetch('/api/admin/security-bot/settings', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load Announcement Bot settings.');
+      setCodeRecipientUids(Array.isArray(data.youtubeCodeRecipientUids) ? data.youtubeCodeRecipientUids : []);
+      setShutdownTrustedUids(Array.isArray(data.shutdownTrustedUserIds) ? data.shutdownTrustedUserIds : []);
+    } catch (error: any) {
+      setSecuritySettingsFeedback(error?.message || 'Could not load Announcement Bot settings.');
+    } finally {
+      setSecuritySettingsLoading(false);
+    }
+  };
+
+  const saveSecuritySettings = async () => {
+    setSecuritySettingsSaving(true);
+    setSecuritySettingsFeedback('');
+    try {
+      const response = await fetch('/api/admin/security-bot/settings', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          youtubeCodeRecipientUids: codeRecipientUids,
+          shutdownTrustedUserIds: shutdownTrustedUids,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save Announcement Bot settings.');
+      setCodeRecipientUids(Array.isArray(data.youtubeCodeRecipientUids) ? data.youtubeCodeRecipientUids : []);
+      setShutdownTrustedUids(Array.isArray(data.shutdownTrustedUserIds) ? data.shutdownTrustedUserIds : []);
+      setSecuritySettingsFeedback('Announcement Bot recipients and Trusted Operators saved.');
+    } catch (error: any) {
+      setSecuritySettingsFeedback(error?.message || 'Could not save Announcement Bot settings.');
+    } finally {
+      setSecuritySettingsSaving(false);
+    }
+  };
+
+  const toggleUid = (list: string[], setList: React.Dispatch<React.SetStateAction<string[]>>, uid: string) => {
+    setList(current => current.includes(uid) ? current.filter(item => item !== uid) : [...current, uid]);
+  };
 
   const loadAccessLog = async () => {
     setLogLoading(true);
@@ -2252,6 +2306,7 @@ const YouTubeAccessSettings: React.FC = () => {
       .then(data => { if (!cancelled) setConfigured(!!data.configured); })
       .catch(() => { if (!cancelled) setFeedback('Could not load YouTube activation settings.'); });
     void loadAccessLog();
+    void loadSecuritySettings();
     return () => { cancelled = true; };
   }, []);
 
@@ -2268,7 +2323,9 @@ const YouTubeAccessSettings: React.FC = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save the code.');
-      setConfigured(true); setCode(''); setFeedback('YouTube activation code updated.');
+      setConfigured(true);
+      setCode('');
+      setFeedback('YouTube activation code updated. Announcement Bot delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts.');
     } catch (error: any) {
       setFeedback(error?.message || 'Could not save the code.');
     } finally { setSaving(false); }
@@ -2281,7 +2338,9 @@ const YouTubeAccessSettings: React.FC = () => {
       const response = await fetch('/api/admin/youtube-mode/code', { method: 'DELETE', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not remove the code.');
-      setConfigured(false); setCode(''); setFeedback('YouTube activation code removed.');
+      setConfigured(false);
+      setCode('');
+      setFeedback('YouTube activation code removed. ' + Number(data.notifiedRecipients || 0) + ' selected accounts were notified.');
     } catch (error: any) { setFeedback(error?.message || 'Could not remove the code.'); }
     finally { setSaving(false); }
   };
@@ -2342,6 +2401,50 @@ const YouTubeAccessSettings: React.FC = () => {
           </tbody>
         </table>
       </div>}
+    </div>
+    <div className="rounded-3xl border border-cyan-300/20 bg-[#0d1825] p-5 text-white shadow-lg sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[.2em] text-cyan-200/70">Private bot delivery</div>
+          <h3 className="mt-1 text-lg font-semibold">Announcement Bot recipients</h3>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">When you save or remove the YouTube access code, the Announcement Bot sends a private message only to accounts selected here. It never posts the code in a public community room.</p>
+        </div>
+        <button type="button" onClick={() => void loadSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs text-slate-200 disabled:opacity-40"><RefreshCw size={13} className="mr-1 inline"/>Refresh</button>
+      </div>
+      {securitySettingsLoading ? <p className="mt-4 text-xs text-slate-400">Loading account permissions…</p> : (
+        <div className="mt-4 grid gap-5 md:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <h4 className="text-xs font-semibold text-cyan-100">Receive YouTube code updates</h4>
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">These accounts receive the current code privately when you change it.</p>
+            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+              {eligibleUsers.length ? eligibleUsers.map(user => (
+                <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-200 hover:bg-white/[.04]">
+                  <input type="checkbox" checked={codeRecipientUids.includes(user.id)} onChange={() => toggleUid(codeRecipientUids, setCodeRecipientUids, user.id)} className="accent-cyan-400"/>
+                  <span>{user.username}</span>
+                </label>
+              )) : <p className="text-xs text-slate-500">No eligible member accounts.</p>}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">{codeRecipientUids.length} selected</p>
+          </div>
+          <div className="rounded-2xl border border-rose-300/20 bg-rose-950/10 p-4">
+            <h4 className="text-xs font-semibold text-rose-100">Trusted Shutdown Operators</h4>
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">Only selected, active member accounts can ask the Announcement Bot for shutdown. Each shutdown still requires a separate timed challenge and two-step confirmation.</p>
+            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+              {eligibleUsers.length ? eligibleUsers.map(user => (
+                <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-200 hover:bg-white/[.04]">
+                  <input type="checkbox" checked={shutdownTrustedUids.includes(user.id)} onChange={() => toggleUid(shutdownTrustedUids, setShutdownTrustedUids, user.id)} className="accent-rose-400"/>
+                  <span>{user.username}</span>
+                </label>
+              )) : <p className="text-xs text-slate-500">No eligible member accounts.</p>}
+            </div>
+            <p className="mt-2 text-[10px] text-slate-500">{shutdownTrustedUids.length} selected</p>
+          </div>
+        </div>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={() => void saveSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40">{securitySettingsSaving ? 'Saving…' : 'Save Bot Permissions'}</button>
+        {securitySettingsFeedback && <p role="status" className="text-xs text-cyan-100">{securitySettingsFeedback}</p>}
+      </div>
     </div>
     <div className="rounded-2xl border border-slate-200 bg-white p-5 text-slate-700 dark:border-white/10 dark:bg-white/[.035] dark:text-slate-300">
       <h3 className="text-sm font-semibold">How activation works</h3>
