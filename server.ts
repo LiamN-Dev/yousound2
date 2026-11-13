@@ -736,7 +736,7 @@ function youtubeDurationSeconds(duration: string): number {
   return Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0);
 }
 
-const YOUTUBE_SHORTS_UNSAFE_TERMS = /\\b(porn|pornography|nsfw|nude|nudity|hentai|onlyfans|sexually explicit|erotic|fetish|gore|beheading|graphic violence|self[- ]harm|suicide|rape)\\b/i;
+const YOUTUBE_SHORTS_UNSAFE_TERMS = /\b(porn|pornography|nsfw|nude|nudity|hentai|onlyfans|sexually explicit|erotic|fetish|gore|beheading|graphic violence|self[- ]harm|suicide|rape)\b/i;
 
 function youtubeCategoryLabel(categoryId: string): string {
   const categories: Record<string, string> = {
@@ -7657,6 +7657,9 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     const cleanContent = content.trim().slice(0, 2000);
     const thread: any = await getChatThreadByIdDb(threadId);
     if (!thread) return res.status(404).json({ error: 'Conversation thread not found.' });
+    if (thread.user1Id === ANNOUNCEMENT_BOT_ID || thread.user2Id === ANNOUNCEMENT_BOT_ID) {
+      return res.status(403).json({ success: false, error: 'Use the Announcement Bot command interface instead of sending a regular chat message.' });
+    }
     if (thread.isTerminated) return res.status(409).json({ error: 'This conversation has been locked by an administrator.' });
     if (!thread.isApproved && !thread.isAppealThread) return res.status(403).json({ error: 'This conversation has not been approved.' });
     if (thread.user1Id !== me.uid && thread.user2Id !== me.uid) return res.status(403).json({ error: 'You are not a participant in this conversation.' });
