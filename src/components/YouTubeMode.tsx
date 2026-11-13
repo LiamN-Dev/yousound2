@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Compass, Heart, Loader2, Play, Search, Settings2, ThumbsDown, TrendingUp, UserRound, Users, Youtube, X } from 'lucide-react';
+import { AlertCircle, Check, Clapperboard, Compass, Heart, Loader2, Play, Search, Settings2, ThumbsDown, TrendingUp, UserRound, Users, Youtube, X } from 'lucide-react';
 
 type Video = {
   videoId: string;
@@ -23,7 +23,7 @@ type Profile = {
   updatedAt?: string;
 };
 
-type Section = 'for-you' | 'trending' | 'following' | 'liked' | 'search';
+type Section = 'for-you' | 'trending' | 'shorts' | 'following' | 'liked' | 'search';
 
 const formatViews = (value = 0) => {
   if (value >= 1_000_000_000) return (value / 1_000_000_000).toFixed(1) + 'B views';
@@ -191,6 +191,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-2">
           <button type="button" onClick={()=>switchSection('for-you')} className={'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition '+(section==='for-you'?'bg-white text-slate-950':'bg-white/[.05] text-slate-300 hover:bg-white/10')}><Compass size={14}/>For You</button>
           <button type="button" onClick={()=>switchSection('trending')} className={'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition '+(section==='trending'?'bg-white text-slate-950':'bg-white/[.05] text-slate-300 hover:bg-white/10')}><TrendingUp size={14}/>Popular</button>
+          <button type="button" onClick={()=>switchSection('shorts')} className={'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition '+(section==='shorts'?'bg-white text-slate-950':'bg-white/[.05] text-slate-300 hover:bg-white/10')}><Clapperboard size={14}/>Shorts</button>
           <button type="button" onClick={()=>switchSection('following')} className={'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition '+(section==='following'?'bg-white text-slate-950':'bg-white/[.05] text-slate-300 hover:bg-white/10')}><Users size={14}/>Following</button>
           <button type="button" onClick={()=>switchSection('liked')} className={'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition '+(section==='liked'?'bg-white text-slate-950':'bg-white/[.05] text-slate-300 hover:bg-white/10')}><Heart size={14}/>Liked</button>
           <button type="button" onClick={()=>switchSection('search')} className={'flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition '+(section==='search'?'bg-white text-slate-950':'bg-white/[.05] text-slate-300 hover:bg-white/10')}><Search size={14}/>Search</button>
@@ -220,10 +221,60 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
       </form>}
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-7">
+        {section === 'shorts' ? (
+          <section className="mx-auto w-full max-w-[520px]">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[.2em] text-red-300/75">Vertical video feed</div>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight">Shorts</h1>
+              </div>
+              <span className="text-[10px] text-slate-500">Scroll to explore</span>
+            </div>
+            {error && <div className="mb-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">{error}</div>}
+            {loading && <div className="flex min-h-24 items-center justify-center gap-2 text-xs text-slate-400"><Loader2 size={16} className="animate-spin"/>Finding Shorts…</div>}
+            {!loading && !videos.length && !error && <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 text-center text-xs text-slate-400">No Shorts were returned. Try again in a moment.</div>}
+            <div className="h-[calc(100dvh-190px)] min-h-[440px] space-y-3 overflow-y-auto snap-y snap-mandatory scroll-smooth pr-1">
+              {videos.map(video => {
+                const liked = profile.likedVideoIds.includes(video.videoId);
+                const followed = profile.followedChannels.includes(video.channelId);
+                return <article key={video.videoId} className="relative mx-auto h-[calc(100dvh-210px)] min-h-[420px] max-h-[760px] w-full snap-start snap-always overflow-hidden rounded-3xl border border-white/10 bg-black shadow-2xl">
+                  {selected?.videoId === video.videoId ? (
+                    <iframe
+                      title={video.title}
+                      src={'https://www.youtube-nocookie.com/embed/'+encodeURIComponent(video.videoId)+'?autoplay=1&controls=1&rel=0&playsinline=1'}
+                      className="absolute inset-0 h-full w-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <button type="button" onClick={()=>chooseVideo(video)} className="absolute inset-0 flex h-full w-full items-center justify-center bg-black" aria-label={'Play '+video.title}>
+                      <img src={video.thumbnailUrl} alt="" className="h-full w-full object-contain" loading="lazy"/>
+                      <span className="absolute rounded-full bg-black/70 p-4 text-white shadow-xl"><Play size={24} fill="currentColor"/></span>
+                    </button>
+                  )}
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/75 to-transparent px-4 pb-5 pt-20">
+                    <div className="max-w-[78%] text-sm font-semibold leading-5 text-white">{video.title}</div>
+                    <div className="mt-1 max-w-[78%] truncate text-xs text-slate-300">{video.channelTitle}</div>
+                    <div className="mt-1 text-[10px] text-slate-400">{formatViews(video.viewCount)} · {timeAgo(video.publishedAt)}</div>
+                  </div>
+                  <div className="absolute bottom-5 right-3 flex flex-col items-center gap-3">
+                    <button type="button" onClick={()=>toggleLike(video)} className={'flex min-w-12 flex-col items-center gap-1 rounded-2xl bg-black/65 px-3 py-2 text-[10px] font-semibold backdrop-blur '+(liked?'text-rose-300':'text-white')} aria-label={liked?'Unlike Short':'Like Short'}>
+                      <Heart size={22} fill={liked?'currentColor':'none'}/><span>{liked?'Liked':'Like'}</span>
+                    </button>
+                    <button type="button" onClick={()=>toggleFollow(video)} className={'flex min-w-12 flex-col items-center gap-1 rounded-2xl bg-black/65 px-3 py-2 text-[10px] font-semibold backdrop-blur '+(followed?'text-cyan-200':'text-white')} aria-label={followed?'Unfollow channel':'Follow channel'}>
+                      <Users size={21}/><span>{followed?'Following':'Follow'}</span>
+                    </button>
+                  </div>
+                </article>;
+              })}
+            </div>
+          </section>
+        ) : (
         <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.58fr)]">
           <section className="min-w-0">
             <div className="mb-4 flex items-end justify-between gap-3">
-              <div><div className="text-[10px] font-bold uppercase tracking-[.2em] text-red-300/75">{section==='for-you'?'Personalized for your account':section==='trending'?'Popular across YouTube':section==='following'?'Channels you follow':section==='liked'?'Your saved likes':'YouTube search'}</div><h1 className="mt-1 text-2xl font-semibold tracking-tight">{section==='for-you'?'For You':section==='trending'?'Popular':section==='following'?'Following':section==='liked'?'Liked videos':'Search results'}</h1></div>
+              <div><div className="text-[10px] font-bold uppercase tracking-[.2em] text-red-300/75">{section==='for-you'?'Personalized for your account':section==='trending'?'Popular across YouTube':section==='shorts'?'Short videos on YouTube':section==='following'?'Channels you follow':section==='liked'?'Your saved likes':'YouTube search'}</div><h1 className="mt-1 text-2xl font-semibold tracking-tight">{section==='for-you'?'For You':section==='trending'?'Popular':section==='shorts'?'Shorts':section==='following'?'Following':section==='liked'?'Liked videos':'Search results'}</h1></div>
               {section!=='search'&&<span className="text-[10px] text-slate-500">Personalized independently for each YouSound account</span>}
             </div>
 
@@ -254,6 +305,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
             </div>
           </aside>
         </div>
+        )}
       </main>
     </div>
   </div>;
