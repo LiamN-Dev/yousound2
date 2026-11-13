@@ -62,6 +62,7 @@ import {
   Database,
   Snowflake,
   Power,
+  RefreshCw,
 } from 'lucide-react';
 
 const MAINTENANCE_SECTION_OPTIONS: {
@@ -2205,11 +2206,44 @@ export const AdminPanel: React.FC = () => {
 };
 
 
+type YouTubeAccessLogEntry = {
+  uid: string;
+  username: string;
+  role: string;
+  firstAccessAt: string;
+  lastAccessAt: string;
+  activationCount: number;
+  accountExists: boolean;
+};
+
 const YouTubeAccessSettings: React.FC = () => {
   const [code, setCode] = useState('');
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [feedback, setFeedback] = useState('');
   const [saving, setSaving] = useState(false);
+  const [accessLog, setAccessLog] = useState<YouTubeAccessLogEntry[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState('');
+
+  const loadAccessLog = async () => {
+    setLogLoading(true);
+    setLogError('');
+    try {
+      const response = await fetch('/api/admin/youtube-mode/access-log', { credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load YouTube access history.');
+      setAccessLog(Array.isArray(data.records) ? data.records : []);
+    } catch (error: any) {
+      setLogError(error?.message || 'Could not load YouTube access history.');
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
+  const formatAccessDate = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2217,6 +2251,7 @@ const YouTubeAccessSettings: React.FC = () => {
       .then(response => response.json())
       .then(data => { if (!cancelled) setConfigured(!!data.configured); })
       .catch(() => { if (!cancelled) setFeedback('Could not load YouTube activation settings.'); });
+    void loadAccessLog();
     return () => { cancelled = true; };
   }, []);
 
@@ -2267,6 +2302,46 @@ const YouTubeAccessSettings: React.FC = () => {
         </div>
       </form>
       {feedback && <p role="status" className="mt-4 text-xs text-emerald-200">{feedback}</p>}
+    </div>
+    <div className="rounded-3xl border border-white/10 bg-[#111827] p-5 text-white shadow-lg sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[.2em] text-cyan-300/70">Security audit</div>
+          <h3 className="mt-1 text-lg font-semibold">Successful YouTube activations</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-400">Shows which YouSound accounts entered the correct code and when. The code itself and incorrect attempts are never recorded.</p>
+        </div>
+        <button type="button" onClick={loadAccessLog} disabled={logLoading} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-50">
+          <RefreshCw size={14} className={logLoading ? 'animate-spin' : ''}/>Refresh
+        </button>
+      </div>
+      {logError && <p role="alert" className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 p-3 text-xs text-rose-200">{logError}</p>}
+      {logLoading && !accessLog.length && <p className="mt-4 text-xs text-slate-500">Loading access history…</p>}
+      {!logLoading && !logError && !accessLog.length && <div className="mt-4 rounded-2xl border border-dashed border-white/10 p-6 text-center text-xs text-slate-500">No successful YouTube activations have been recorded yet.</div>}
+      {!!accessLog.length && <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+        <table className="w-full min-w-[760px] border-collapse text-left text-xs">
+          <thead className="bg-white/[.045] text-[10px] uppercase tracking-wider text-slate-500">
+            <tr>
+              <th className="px-3 py-3 font-semibold">Account</th>
+              <th className="px-3 py-3 font-semibold">Account ID</th>
+              <th className="px-3 py-3 font-semibold">First access</th>
+              <th className="px-3 py-3 font-semibold">Last access</th>
+              <th className="px-3 py-3 text-right font-semibold">Activations</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/[.06]">
+            {accessLog.map(entry => <tr key={entry.uid} className="hover:bg-white/[.025]">
+              <td className="px-3 py-3">
+                <div className="font-semibold text-slate-100">{entry.username}</div>
+                <div className="mt-1 text-[10px] capitalize text-slate-500">{entry.accountExists ? entry.role : 'Account no longer exists'}</div>
+              </td>
+              <td className="px-3 py-3 font-mono text-[10px] text-slate-500">{entry.uid}</td>
+              <td className="px-3 py-3 whitespace-nowrap text-slate-400">{formatAccessDate(entry.firstAccessAt)}</td>
+              <td className="px-3 py-3 whitespace-nowrap text-slate-300">{formatAccessDate(entry.lastAccessAt)}</td>
+              <td className="px-3 py-3 text-right font-semibold tabular-nums text-cyan-200">{entry.activationCount}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>}
     </div>
     <div className="rounded-2xl border border-slate-200 bg-white p-5 text-slate-700 dark:border-white/10 dark:bg-white/[.035] dark:text-slate-300">
       <h3 className="text-sm font-semibold">How activation works</h3>

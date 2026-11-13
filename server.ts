@@ -284,15 +284,62 @@ app.use('/api/youcraft', youCraftRouter);
 
 // ----------------- YOUTUBE MODE -----------------
 const YOUTUBE_MODE_CODE_SETTING = 'youtube_mode_activation_hash_v1';
+const YOUTUBE_MODE_ACCESS_LOG_SETTING = 'youtube_mode_successful_access_log_v1';
+
+type YouTubeModeAccessRecord = {
+  uid: string;
+  username: string;
+  firstAccessAt: string;
+  lastAccessAt: string;
+  activationCount: number;
+};
+
+async function recordYouTubeModeAccess(uid: string, username: string): Promise<void> {
+  await ensurePersistentSettingDb(YOUTUBE_MODE_ACCESS_LOG_SETTING, []);
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const stored = await getPersistentSettingDb<YouTubeModeAccessRecord[]>(YOUTUBE_MODE_ACCESS_LOG_SETTING);
+    const current = Array.isArray(stored) ? stored : [];
+    const now = new Date().toISOString();
+    const index = current.findIndex(entry => entry.uid === uid);
+    const next = current.slice();
+    if (index >= 0) {
+      const previous = next[index];
+      next[index] = {
+        ...previous,
+        username: username || previous.username || 'Unknown account',
+        lastAccessAt: now,
+        activationCount: Math.max(0, Number(previous.activationCount) || 0) + 1,
+      };
+    } else {
+      next.push({
+        uid,
+        username: username || 'Unknown account',
+        firstAccessAt: now,
+        lastAccessAt: now,
+        activationCount: 1,
+      });
+    }
+    // Keep a bounded account-level history, not an unbounded event stream.
+    const bounded = next.slice(-5000);
+    if (await compareAndSetPersistentSettingDb(YOUTUBE_MODE_ACCESS_LOG_SETTING, stored, bounded)) return;
+  }
+  throw new Error('Could not save the YouTube access audit record after concurrent updates.');
+}
 
 app.post('/api/youtube-mode/activate', async (req: Request, res: Response) => {
   try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
     const supplied = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
     if (!supplied || supplied.length > 256) return res.json({ success: false });
     const stored = await getPersistentSettingDb<string>(YOUTUBE_MODE_CODE_SETTING);
     if (!stored) return res.json({ success: false });
     const check = await verifyPassword(supplied, stored);
-    return res.json({ success: check.ok });
+    if (!check.ok) return res.json({ success: false });
+
+    const account = await getUserByUid(member.uid);
+    await recordYouTubeModeAccess(member.uid, String(account?.username || 'Unknown account'));
+    return res.json({ success: true });
   } catch (error: any) {
     console.error('[YouTube Mode] Activation check failed:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Activation check unavailable.' });
@@ -335,58 +382,463 @@ app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) =
   }
 });
 
-app.get('/api/youtube-mode/search', async (req: Request, res: Response) => {
+app.get('/api/admin/youtube-mode/access-log', async (_req: Request, res: Response) => {
+  if (!isAdminReq(_req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
-    const session = getAuthUser(req);
-    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
-    const account = await getUserByUid(session.uid);
-    if (!account || !account.isApproved || account.isSuspended || account.isLocked) {
-      return res.status(403).json({ success: false, error: 'This account is not allowed to use YouTube Mode.' });
-    }
-
-    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
-    if (!apiKey) return res.status(503).json({ success: false, error: 'YouTube search is not configured yet. An administrator must add YOUTUBE_API_KEY to the YouSound Render service.' });
-
-    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 180) : '';
-    if (!query) return res.status(400).json({ success: false, error: 'Enter a search term.' });
-
-    const params = new URLSearchParams({
-      part: 'snippet',
-      type: 'video',
-      maxResults: '20',
-      q: query,
-      safeSearch: 'moderate',
-      key: apiKey,
-    });
-    const response = await fetch('https://www.googleapis.com/youtube/v3/search?' + params.toString(), {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(12000),
-    });
-    const payload: any = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const providerMessage = String(payload?.error?.message || 'YouTube API request failed').slice(0, 220);
-      console.warn('[YouTube Mode] Search API error:', response.status, providerMessage);
-      return res.status(response.status === 403 ? 503 : 502).json({ success: false, error: response.status === 403 ? 'YouTube API access is not enabled or its quota is unavailable.' : 'YouTube search provider is temporarily unavailable.' });
-    }
-
-    const videos = (Array.isArray(payload.items) ? payload.items : []).flatMap((item: any) => {
-      const videoId = String(item?.id?.videoId || '');
-      const snippet = item?.snippet || {};
-      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return [];
-      return [{
-        videoId,
-        title: String(snippet.title || 'Untitled video').slice(0, 300),
-        channelTitle: String(snippet.channelTitle || '').slice(0, 160),
-        description: String(snippet.description || '').slice(0, 1000),
-        thumbnailUrl: String(snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || ''),
-      }];
-    });
-    return res.json({ success: true, videos });
+    const saved = await getPersistentSettingDb<YouTubeModeAccessRecord[]>(YOUTUBE_MODE_ACCESS_LOG_SETTING);
+    const records = Array.isArray(saved) ? saved : [];
+    const users = await getUsersDb();
+    const usersByUid = new Map((Array.isArray(users) ? users : []).map((user: any) => [user.uid, user]));
+    const visible = records
+      .map(record => {
+        const account: any = usersByUid.get(record.uid);
+        return {
+          uid: record.uid,
+          username: String(account?.username || record.username || 'Unknown account'),
+          role: String(account?.role || 'unknown'),
+          firstAccessAt: record.firstAccessAt,
+          lastAccessAt: record.lastAccessAt,
+          activationCount: Math.max(0, Number(record.activationCount) || 0),
+          accountExists: Boolean(account),
+        };
+      })
+      .sort((a, b) => Date.parse(b.lastAccessAt) - Date.parse(a.lastAccessAt));
+    return res.json({ success: true, records: visible });
   } catch (error: any) {
-    console.error('[YouTube Mode] Search failed:', error?.message || error);
-    return res.status(500).json({ success: false, error: error?.name === 'TimeoutError' ? 'YouTube search timed out. Try again.' : 'YouTube search could not be completed.' });
+    console.error('[YouTube Mode] Access log load failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not load YouTube access history.' });
   }
 });
+
+type YouTubeVideoRecord = {
+  videoId: string;
+  title: string;
+  channelId: string;
+  channelTitle: string;
+  description: string;
+  thumbnailUrl: string;
+  publishedAt: string;
+  categoryId: string;
+  duration: string;
+  viewCount: number;
+  likeCount: number;
+  tags: string[];
+};
+
+type YouTubeUserProfile = {
+  interests: string[];
+  categoryWeights: Record<string, number>;
+  channelWeights: Record<string, number>;
+  likedVideoIds: string[];
+  hiddenVideoIds: string[];
+  recentVideoIds: string[];
+  followedChannels: string[];
+  recentSearches: string[];
+  updatedAt: string;
+};
+
+const youtubeResponseCache = new Map<string, { expiresAt: number; value: any }>();
+const YOUTUBE_CACHE_MS = 5 * 60 * 1000;
+
+function getYoutubeCache(key: string): any | null {
+  const entry = youtubeResponseCache.get(key);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    youtubeResponseCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setYoutubeCache(key: string, value: any, ttl = YOUTUBE_CACHE_MS): void {
+  youtubeResponseCache.set(key, { expiresAt: Date.now() + ttl, value });
+  if (youtubeResponseCache.size > 180) {
+    const oldest = youtubeResponseCache.keys().next().value;
+    if (oldest) youtubeResponseCache.delete(oldest);
+  }
+}
+
+function emptyYouTubeProfile(): YouTubeUserProfile {
+  return {
+    interests: [],
+    categoryWeights: {},
+    channelWeights: {},
+    likedVideoIds: [],
+    hiddenVideoIds: [],
+    recentVideoIds: [],
+    followedChannels: [],
+    recentSearches: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function getYouTubeProfile(uid: string): Promise<YouTubeUserProfile> {
+  const saved = await getPersistentSettingDb<YouTubeUserProfile>('youtube_mode_profile_v1:' + uid);
+  if (!saved || typeof saved !== 'object') return emptyYouTubeProfile();
+  const numberMap = (value: any) => Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {})
+      .map(([key, score]) => [String(key).slice(0, 100), Math.max(0, Math.min(100, Number(score) || 0))])
+      .slice(0, 80)
+  );
+  return {
+    interests: Array.isArray(saved.interests) ? saved.interests.slice(0, 12).map(item => String(item).slice(0, 40)) : [],
+    categoryWeights: numberMap(saved.categoryWeights),
+    channelWeights: numberMap(saved.channelWeights),
+    likedVideoIds: Array.isArray(saved.likedVideoIds) ? saved.likedVideoIds.slice(-150) : [],
+    hiddenVideoIds: Array.isArray(saved.hiddenVideoIds) ? saved.hiddenVideoIds.slice(-300) : [],
+    recentVideoIds: Array.isArray(saved.recentVideoIds) ? saved.recentVideoIds.slice(-100) : [],
+    followedChannels: Array.isArray(saved.followedChannels) ? saved.followedChannels.slice(-100) : [],
+    recentSearches: Array.isArray(saved.recentSearches) ? saved.recentSearches.slice(-20).map(item => String(item).slice(0, 100)) : [],
+    updatedAt: String(saved.updatedAt || new Date().toISOString()),
+  };
+}
+
+async function saveYouTubeProfile(uid: string, profile: YouTubeUserProfile): Promise<void> {
+  profile.updatedAt = new Date().toISOString();
+  await setPersistentSettingDb('youtube_mode_profile_v1:' + uid, profile);
+}
+
+async function requireYouTubeMember(req: Request, res: Response): Promise<{ uid: string } | null> {
+  const session = getAuthUser(req);
+  if (!session) {
+    res.status(401).json({ success: false, error: 'Please sign in again.' });
+    return null;
+  }
+  const account = await getUserByUid(session.uid);
+  if (!account || !account.isApproved || account.isSuspended || account.isLocked) {
+    res.status(403).json({ success: false, error: 'This account is not allowed to use YouTube Mode.' });
+    return null;
+  }
+  return { uid: session.uid };
+}
+
+async function callYouTubeApi(pathname: string, params: Record<string, string>, apiKey: string): Promise<any> {
+  const urlParams = new URLSearchParams({ ...params, key: apiKey });
+  const response = await fetch('https://www.googleapis.com/youtube/v3/' + pathname + '?' + urlParams.toString(), {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(12000),
+  });
+  const payload: any = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(payload?.error?.message || 'YouTube API request failed').slice(0, 220);
+    console.warn('[YouTube Mode] API error:', pathname, response.status, message);
+    const error: any = new Error(response.status === 403
+      ? 'YouTube API access is not enabled or its daily quota is unavailable.'
+      : 'YouTube search provider is temporarily unavailable.');
+    error.statusCode = response.status === 403 ? 503 : 502;
+    throw error;
+  }
+  return payload;
+}
+
+function normalizeYouTubeVideo(item: any): YouTubeVideoRecord | null {
+  const videoId = String(item?.id?.videoId || item?.id || '');
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+  const snippet = item?.snippet || {};
+  const statistics = item?.statistics || {};
+  return {
+    videoId,
+    title: String(snippet.title || 'Untitled video').slice(0, 300),
+    channelId: String(snippet.channelId || '').slice(0, 100),
+    channelTitle: String(snippet.channelTitle || '').slice(0, 160),
+    description: String(snippet.description || '').slice(0, 1000),
+    thumbnailUrl: String(snippet.thumbnails?.maxres?.url || snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || ''),
+    publishedAt: String(snippet.publishedAt || ''),
+    categoryId: String(snippet.categoryId || ''),
+    duration: String(item?.contentDetails?.duration || ''),
+    viewCount: Math.max(0, Number(statistics.viewCount || 0)),
+    likeCount: Math.max(0, Number(statistics.likeCount || 0)),
+    tags: Array.isArray(snippet.tags) ? snippet.tags.slice(0, 20).map((tag: any) => String(tag).slice(0, 60)) : [],
+  };
+}
+
+async function hydrateYouTubeVideos(ids: string[], apiKey: string): Promise<YouTubeVideoRecord[]> {
+  const validIds = [...new Set(ids)].filter(id => /^[A-Za-z0-9_-]{11}$/.test(id)).slice(0, 50);
+  if (!validIds.length) return [];
+  const payload = await callYouTubeApi('videos', {
+    part: 'snippet,contentDetails,statistics',
+    id: validIds.join(','),
+    maxResults: String(validIds.length),
+  }, apiKey);
+  const records = (Array.isArray(payload.items) ? payload.items : [])
+    .map(normalizeYouTubeVideo)
+    .filter(Boolean) as YouTubeVideoRecord[];
+  const positions = new Map(validIds.map((id, index) => [id, index]));
+  return records.sort((a, b) => (positions.get(a.videoId) ?? 999) - (positions.get(b.videoId) ?? 999));
+}
+
+function youtubeOrder(value: unknown): string {
+  const allowed = new Set(['relevance', 'date', 'viewCount', 'rating']);
+  const candidate = String(value || 'relevance');
+  return allowed.has(candidate) ? candidate : 'relevance';
+}
+
+async function searchYouTubeCached(query: string, apiKey: string, order = 'relevance'): Promise<YouTubeVideoRecord[]> {
+  const key = 'search:' + order + ':' + query.toLocaleLowerCase();
+  const cached = getYoutubeCache(key);
+  if (cached) return cached;
+  const result = await callYouTubeApi('search', {
+    part: 'snippet',
+    type: 'video',
+    maxResults: '25',
+    q: query,
+    safeSearch: 'moderate',
+    order,
+  }, apiKey);
+  const ids = (Array.isArray(result.items) ? result.items : [])
+    .map((item: any) => String(item?.id?.videoId || ''))
+    .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id));
+  const videos = await hydrateYouTubeVideos(ids, apiKey);
+  setYoutubeCache(key, videos);
+  return videos;
+}
+
+async function getTrendingYouTubeVideos(apiKey: string, regionCode = 'US', categoryId?: string): Promise<YouTubeVideoRecord[]> {
+  const safeRegion = /^[A-Z]{2}$/.test(regionCode) ? regionCode : 'US';
+  const safeCategory = categoryId && /^\d{1,4}$/.test(categoryId) ? categoryId : '';
+  const key = 'trending:' + safeRegion + ':' + safeCategory;
+  const cached = getYoutubeCache(key);
+  if (cached) return cached;
+  const params: Record<string, string> = {
+    part: 'snippet,contentDetails,statistics',
+    chart: 'mostPopular',
+    regionCode: safeRegion,
+    maxResults: '30',
+  };
+  if (safeCategory) params.videoCategoryId = safeCategory;
+  const result = await callYouTubeApi('videos', params, apiKey);
+  const videos = (Array.isArray(result.items) ? result.items : [])
+    .map(normalizeYouTubeVideo)
+    .filter(Boolean) as YouTubeVideoRecord[];
+  setYoutubeCache(key, videos, 10 * 60 * 1000);
+  return videos;
+}
+
+async function getFollowingYouTubeVideos(channelIds: string[], apiKey: string): Promise<YouTubeVideoRecord[]> {
+  const channels = [...new Set(channelIds)]
+    .filter(id => /^UC[A-Za-z0-9_-]{20,}$/.test(id))
+    .slice(-10);
+  if (!channels.length) return [];
+  const cacheKey = 'following:' + channels.join(',');
+  const cached = getYoutubeCache(cacheKey);
+  if (cached) return cached;
+
+  const channelPayload = await callYouTubeApi('channels', {
+    part: 'contentDetails',
+    id: channels.join(','),
+    maxResults: String(channels.length),
+  }, apiKey);
+  const uploads = (Array.isArray(channelPayload.items) ? channelPayload.items : [])
+    .map((item: any) => ({
+      channelId: String(item?.id || ''),
+      playlistId: String(item?.contentDetails?.relatedPlaylists?.uploads || ''),
+    }))
+    .filter((item: any) => item.channelId && item.playlistId);
+
+  const playlistResults = await Promise.all(uploads.map(async (channel: any) => {
+    const payload = await callYouTubeApi('playlistItems', {
+      part: 'snippet,contentDetails',
+      playlistId: channel.playlistId,
+      maxResults: '5',
+    }, apiKey);
+    return (Array.isArray(payload.items) ? payload.items : [])
+      .map((item: any) => String(item?.contentDetails?.videoId || item?.snippet?.resourceId?.videoId || ''))
+      .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id));
+  }));
+  const videos = await hydrateYouTubeVideos([...new Set(playlistResults.flat())], apiKey);
+  setYoutubeCache(cacheKey, videos, 5 * 60 * 1000);
+  return videos;
+}
+
+function scorePersonalizedVideo(video: YouTubeVideoRecord, profile: YouTubeUserProfile): number {
+  const text = (video.title + ' ' + video.description + ' ' + video.tags.join(' ')).toLocaleLowerCase();
+  let score = 0;
+  for (const interest of profile.interests) {
+    const needle = interest.toLocaleLowerCase();
+    if (needle && text.includes(needle)) score += 10;
+  }
+  score += (profile.categoryWeights[video.categoryId] || 0) * 4;
+  score += (profile.channelWeights[video.channelId] || 0) * 6;
+  if (profile.followedChannels.includes(video.channelId)) score += 30;
+  if (profile.likedVideoIds.includes(video.videoId)) score += 20;
+  const popularity = Math.log10(Math.max(1, video.viewCount));
+  score += Math.min(5, popularity / 2);
+  const published = Date.parse(video.publishedAt);
+  if (Number.isFinite(published)) {
+    const ageDays = Math.max(0, (Date.now() - published) / 86400000);
+    score += Math.max(0, 5 - ageDays / 7);
+  }
+  if (profile.recentVideoIds.includes(video.videoId)) score -= 50;
+  return score;
+}
+
+app.get('/api/youtube-mode/profile', async (req: Request, res: Response) => {
+  try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
+    const profile = await getYouTubeProfile(member.uid);
+    return res.json({
+      success: true,
+      profile: {
+        interests: profile.interests,
+        likedVideoIds: profile.likedVideoIds,
+        followedChannels: profile.followedChannels,
+        updatedAt: profile.updatedAt,
+      },
+    });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Profile load failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not load your YouTube preferences.' });
+  }
+});
+
+app.put('/api/youtube-mode/profile', async (req: Request, res: Response) => {
+  try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
+    const raw = Array.isArray(req.body?.interests) ? req.body.interests : [];
+    const interests = [...new Set(raw
+      .filter((value: any) => typeof value === 'string')
+      .map((value: string) => value.trim().slice(0, 40))
+      .filter((value: string) => value.length > 0))].slice(0, 12);
+    const profile = await getYouTubeProfile(member.uid);
+    profile.interests = interests;
+    await saveYouTubeProfile(member.uid, profile);
+    return res.json({ success: true, profile: { interests: profile.interests, updatedAt: profile.updatedAt } });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Profile update failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not save your YouTube preferences.' });
+  }
+});
+
+app.post('/api/youtube-mode/interaction', async (req: Request, res: Response) => {
+  try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
+    const action = String(req.body?.action || '');
+    const videoId = String(req.body?.videoId || '').trim();
+    const channelId = String(req.body?.channelId || '').trim().slice(0, 100);
+    const categoryId = String(req.body?.categoryId || '').trim().slice(0, 12);
+    if (!['play', 'like', 'unlike', 'hide', 'follow', 'unfollow'].includes(action)) {
+      return res.status(400).json({ success: false, error: 'Unsupported recommendation feedback.' });
+    }
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) && !['follow', 'unfollow'].includes(action)) {
+      return res.status(400).json({ success: false, error: 'Invalid video ID.' });
+    }
+    if (['follow', 'unfollow'].includes(action) && !channelId) {
+      return res.status(400).json({ success: false, error: 'A channel is required.' });
+    }
+
+    const profile = await getYouTubeProfile(member.uid);
+    const addUnique = (list: string[], value: string, max: number) => [...list.filter(item => item !== value), value].slice(-max);
+    const remove = (list: string[], value: string) => list.filter(item => item !== value);
+
+    if (action === 'play') {
+      profile.recentVideoIds = addUnique(profile.recentVideoIds, videoId, 100);
+      if (channelId) profile.channelWeights[channelId] = Math.min(100, (profile.channelWeights[channelId] || 0) + 1);
+      if (categoryId) profile.categoryWeights[categoryId] = Math.min(100, (profile.categoryWeights[categoryId] || 0) + 1);
+    } else if (action === 'like') {
+      profile.likedVideoIds = addUnique(profile.likedVideoIds, videoId, 150);
+      if (channelId) profile.channelWeights[channelId] = Math.min(100, (profile.channelWeights[channelId] || 0) + 3);
+      if (categoryId) profile.categoryWeights[categoryId] = Math.min(100, (profile.categoryWeights[categoryId] || 0) + 3);
+    } else if (action === 'unlike') {
+      profile.likedVideoIds = remove(profile.likedVideoIds, videoId);
+    } else if (action === 'hide') {
+      profile.hiddenVideoIds = addUnique(profile.hiddenVideoIds, videoId, 300);
+      if (categoryId) profile.categoryWeights[categoryId] = Math.max(0, (profile.categoryWeights[categoryId] || 0) - 4);
+      if (channelId) profile.channelWeights[channelId] = Math.max(0, (profile.channelWeights[channelId] || 0) - 4);
+    } else if (action === 'follow') {
+      profile.followedChannels = addUnique(profile.followedChannels, channelId, 100);
+      profile.channelWeights[channelId] = Math.min(100, (profile.channelWeights[channelId] || 0) + 4);
+    } else if (action === 'unfollow') {
+      profile.followedChannels = remove(profile.followedChannels, channelId);
+    }
+
+    await saveYouTubeProfile(member.uid, profile);
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Interaction save failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not update your recommendations.' });
+  }
+});
+
+app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
+  try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
+    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+    if (!apiKey) return res.status(503).json({ success: false, error: 'YouTube discovery is not configured. Add YOUTUBE_API_KEY to the real YouSound Render service.' });
+
+    const requestedMode = String(req.query.mode || 'for-you');
+    const mode = ['trending', 'following', 'liked'].includes(requestedMode) ? requestedMode : 'for-you';
+    const regionCode = typeof req.query.regionCode === 'string' ? req.query.regionCode.toUpperCase().slice(0, 2) : 'US';
+    const profile = await getYouTubeProfile(member.uid);
+    let candidates: YouTubeVideoRecord[] = [];
+
+    if (mode === 'trending') {
+      candidates = await getTrendingYouTubeVideos(apiKey, regionCode);
+    } else if (mode === 'liked') {
+      candidates = await hydrateYouTubeVideos([...profile.likedVideoIds].reverse().slice(0, 50), apiKey);
+    } else if (mode === 'following') {
+      candidates = await getFollowingYouTubeVideos(profile.followedChannels, apiKey);
+    } else {
+      const categories = Object.entries(profile.categoryWeights)
+        .filter(([, weight]) => Number(weight) > 0)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 2)
+        .map(([categoryId]) => categoryId);
+
+      const requests: Promise<YouTubeVideoRecord[]>[] = [
+        getTrendingYouTubeVideos(apiKey, regionCode, categories[0]),
+      ];
+      if (categories[1]) requests.push(getTrendingYouTubeVideos(apiKey, regionCode, categories[1]));
+      if (profile.interests.length) {
+        requests.push(searchYouTubeCached(profile.interests.slice(0, 3).join(' '), apiKey));
+      } else if (profile.recentSearches.length) {
+        requests.push(searchYouTubeCached(profile.recentSearches[profile.recentSearches.length - 1], apiKey));
+      }
+      const pools = await Promise.all(requests);
+      candidates = pools.flat();
+    }
+
+    const unique = [...new Map(candidates.map(video => [video.videoId, video])).values()]
+      .filter(video => !profile.hiddenVideoIds.includes(video.videoId));
+    const ordered = mode === 'trending'
+      ? unique
+      : unique.sort((a, b) => scorePersonalizedVideo(b, profile) - scorePersonalizedVideo(a, profile));
+    return res.json({
+      success: true,
+      mode,
+      personalized: mode === 'for-you',
+      hasPersonalization: profile.interests.length > 0 || Object.keys(profile.categoryWeights).length > 0 || profile.followedChannels.length > 0 || profile.likedVideoIds.length > 0,
+      videos: ordered.slice(0, 36),
+    });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Feed load failed:', error?.message || error);
+    return res.status(error?.statusCode || 500).json({ success: false, error: error?.message || 'Could not load YouTube recommendations.' });
+  }
+});
+
+app.get('/api/youtube-mode/search', async (req: Request, res: Response) => {
+  try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
+    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+    if (!apiKey) return res.status(503).json({ success: false, error: 'YouTube search is not configured yet. Add YOUTUBE_API_KEY to the real YouSound Render service.' });
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 180) : '';
+    if (!query) return res.status(400).json({ success: false, error: 'Enter a search term.' });
+    const order = youtubeOrder(req.query.order);
+    const videos = await searchYouTubeCached(query, apiKey, order);
+    const profile = await getYouTubeProfile(member.uid);
+    profile.recentSearches = [...profile.recentSearches.filter(item => item.toLowerCase() !== query.toLowerCase()), query].slice(-20);
+    await saveYouTubeProfile(member.uid, profile);
+    const visible = videos.filter(video => !profile.hiddenVideoIds.includes(video.videoId));
+    return res.json({ success: true, videos: visible });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Search failed:', error?.message || error);
+    return res.status(error?.statusCode || 500).json({ success: false, error: error?.message || 'YouTube search could not be completed.' });
+  }
+});
+
 
 app.use('/api/games/crossy-road', (_req: Request, res: Response) => {
   return res.status(410).json({ success: false, error: 'Crossy Road has been retired from the YouSound Arcade.' });
