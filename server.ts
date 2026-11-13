@@ -799,9 +799,11 @@ async function getYouTubeShortsVideos(
     order: 'relevance',
     videoDuration: 'short',
   }, apiKey);
-  const ids = [...new Set((Array.isArray(result.items) ? result.items : [])
-    .map((item: any) => String(item?.id?.videoId || ''))
-    .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id)))].slice(0, 50);
+  const ids: string[] = Array.from(new Set<string>(
+    (Array.isArray(result.items) ? result.items : [])
+      .map((item: any) => String(item?.id?.videoId || ''))
+      .filter((id: string): id is string => /^[A-Za-z0-9_-]{11}$/.test(id))
+  )).slice(0, 50);
   const videos = (await hydrateYouTubeVideos(ids, apiKey))
     .filter(video => {
       const seconds = youtubeDurationSeconds(video.duration);
