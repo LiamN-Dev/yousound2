@@ -7442,7 +7442,8 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
     const expectedHash = typeof challenge?.tokenHash === 'string' ? Buffer.from(challenge.tokenHash, 'hex') : Buffer.alloc(0);
     const suppliedHash = createHash('sha256').update(suppliedToken).digest();
     const validHash = expectedHash.length === suppliedHash.length && timingSafeEqual(expectedHash, suppliedHash);
-    if (!validHash || !challenge?.expiresAt || Date.parse(challenge.expiresAt) <= Date.now()) {
+    const expiresAtMs = challenge?.expiresAt ? Date.parse(challenge.expiresAt) : Number.NaN;
+    if (!validHash || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
       await setPersistentSettingDb(challengeKey, null);
       return res.status(401).json({ success: false, error: 'The shutdown confirmation expired. Send /shutdown to the bot again.' });
     }
@@ -7451,6 +7452,12 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
     const deployedServiceId = String(process.env.RENDER_SERVICE_ID || '').trim();
     if (process.env.RENDER === 'true' && (!deployedCommit || !deployedServiceId)) {
       return res.status(503).json({ success: false, error: 'Render deployment identity is unavailable. Shutdown was not activated.' });
+    }
+
+    // Atomically consume the challenge before changing the site state to prevent concurrent replay.
+    const challengeConsumed = await compareAndSetPersistentSettingDb(challengeKey, challenge, null);
+    if (!challengeConsumed) {
+      return res.status(401).json({ success: false, error: 'This shutdown confirmation has already been used or expired. Send /shutdown to the bot again.' });
     }
 
     const recoveryFileHash = getEmergencyRecoveryFileHash();
@@ -7465,8 +7472,26 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
       activationSource: 'announcement-bot',
     };
     await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, record);
-    await setPersistentSettingDb(challengeKey, null);
     emergencyShutdownCache = { checkedAt: Date.now(), record };
+    try {
+      const botThread: any = await createOrForceChatThreadDb(
+        account.uid,
+        String(account.username || 'Trusted Operator'),
+        ANNOUNCEMENT_BOT_ID,
+        ANNOUNCEMENT_BOT_NAME,
+        false
+      );
+      await createChatMessageDb({
+        id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+        threadId: String(botThread.id),
+        senderId: ANNOUNCEMENT_BOT_ID,
+        senderUsername: ANNOUNCEMENT_BOT_NAME,
+        receiverId: account.uid,
+        content: 'EMERGENCY SHUTDOWN ACTIVATED. The entire YouSound site has been taken offline. Your data remains stored. An administrator must change EMERGENCY_RECOVERY.txt in GitHub and deploy a new commit to restore access.',
+      });
+    } catch (messageError: any) {
+      console.warn('[Announcement Bot] Could not save shutdown confirmation message:', messageError?.message || messageError);
+    }
     console.error('[Emergency Shutdown] Activated by trusted operator ' + record.activatedBy + ' on commit ' + record.activatedCommit + '.');
     return res.json({
       success: true,
