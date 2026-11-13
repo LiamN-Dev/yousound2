@@ -7381,11 +7381,17 @@ app.post('/api/chat/announcement-bot/command', async (req: Request, res: Respons
     }
     if (!allowChatMessage(account.uid)) return res.status(429).json({ success: false, error: 'Please wait a moment before sending another bot command.' });
 
-    const expectedThreadId = 'thread-' + [account.uid, ANNOUNCEMENT_BOT_ID].sort().join('-');
-    const thread: any = await getChatThreadByIdDb(expectedThreadId);
-    if (!thread || (thread.user1Id !== account.uid && thread.user2Id !== account.uid)
+    const thread: any = await createOrForceChatThreadDb(
+      account.uid,
+      String(account.username || 'User'),
+      ANNOUNCEMENT_BOT_ID,
+      ANNOUNCEMENT_BOT_NAME,
+      false
+    );
+    const expectedThreadId = String(thread?.id || '');
+    if (!expectedThreadId || (thread.user1Id !== account.uid && thread.user2Id !== account.uid)
       || (thread.user1Id !== ANNOUNCEMENT_BOT_ID && thread.user2Id !== ANNOUNCEMENT_BOT_ID)) {
-      return res.status(404).json({ success: false, error: 'Announcement Bot conversation was not found. Refresh Chat and try again.' });
+      return res.status(500).json({ success: false, error: 'Announcement Bot conversation could not be opened.' });
     }
 
     const userMessage = await createChatMessageDb({
