@@ -37,7 +37,7 @@ import { AIAnswerNotifier } from './components/AIAnswerNotifier';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
 import { Song, MaintenanceTab } from './types';
-import { Music, ListPlus, KeyRound } from 'lucide-react';
+import { Music, ListPlus, KeyRound, Atom } from 'lucide-react';
 import { SpotlightShowcase } from './components/SpotlightShowcase';
 import { SectionMaintenanceNotice } from './components/SectionMaintenanceNotice';
 import { ChristmasEffects } from './components/ChristmasEffects';
@@ -517,9 +517,26 @@ const AppRouteContent: React.FC = () => {
     setRoute('music');
   };
 
+  const returnToPeriodicTable = () => {
+    if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+    setRoute('learn');
+  };
+
   return route === 'learn'
     ? <PeriodicTableGate onEnterYouSound={enterYouSound} />
-    : <MainAppContent />;
+    : <>
+        <MainAppContent />
+        <button
+          type="button"
+          onClick={returnToPeriodicTable}
+          title="Return to the periodic table"
+          aria-label="Return to the periodic table"
+          className="fixed bottom-24 right-4 z-[160] inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/95 px-4 py-3 text-xs font-semibold text-cyan-100 shadow-[0_12px_40px_rgba(0,0,0,.45)] backdrop-blur-xl transition hover:border-cyan-200/60 hover:bg-cyan-950 focus:outline-none focus:ring-2 focus:ring-cyan-300 sm:bottom-6 sm:right-6"
+        >
+          <Atom size={16} />
+          <span>Periodic Table</span>
+        </button>
+      </>;
 };
 
 export default function App() {
