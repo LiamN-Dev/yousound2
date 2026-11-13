@@ -195,7 +195,10 @@ export const AIStudio: React.FC = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Shutdown was not activated.');
       setShutdownChallengeToken('');
-      setShutdownConfirmFeedback('Emergency shutdown activated. YouSound is offline. Recovery requires an administrator to change EMERGENCY_RECOVERY.txt and deploy a new commit.');
+      const completed = [...messages, { role: 'model' as const, text: data.message || 'Emergency shutdown activated. YouSound is now offline.' }];
+      setMessages(completed);
+      await saveConversation(conversationId, completed);
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
     } catch (error: any) {
       setShutdownConfirmFeedback(error?.message || 'Shutdown was not activated.');
     } finally {
