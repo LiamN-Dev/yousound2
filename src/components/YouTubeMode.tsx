@@ -76,12 +76,12 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
       const found=Array.isArray(data.videos)?data.videos as Video[]:[];
       setVideos(found);
       if(!found.length) setNotice(mode === 'for-you' ? 'Your feed is just getting started. Add a few interests or like videos to personalize it.' : 'No videos were returned for this section.');
-      if(selected && !found.some(video=>video.videoId===selected.videoId)) setSelected(null);
+      setSelected(current => current && !found.some(video=>video.videoId===current.videoId) ? null : current);
     } catch(err:any) {
       setVideos([]);
       setError(err?.message||'YouTube discovery could not be completed.');
     } finally { setLoading(false); }
-  },[selected]);
+  },[]);
 
   useEffect(() => {
     let active=true;
