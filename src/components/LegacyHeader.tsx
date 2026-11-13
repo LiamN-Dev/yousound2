@@ -35,6 +35,7 @@ interface HeaderProps {
   onOpenAuth: () => void;
   onOpenAccount: () => void;
   onOpenSongRequest: () => void;
+  onSearchSubmit: () => void;
 }
 
 const getBannerThemeClasses = (themeId?: string) => {
@@ -360,6 +361,7 @@ export const LegacyHeader: React.FC<HeaderProps> = ({
                   placeholder="Search tracks, artists..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSearchSubmit(); } }}
                   className="w-24 sm:w-36 lg:w-44 pl-8 pr-2.5 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:w-36 sm:focus:w-52 transition-all"
                 />
               </div>

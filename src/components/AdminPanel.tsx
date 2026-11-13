@@ -102,7 +102,7 @@ export const AdminPanel: React.FC = () => {
   const { allSongs, adminAllSongs, deleteSong, updateSong, playSong, clearAllSongs, autoTagRules } = useAudio();
 
   const [adminTab, setAdminTab] = useState<
-    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'betas' | 'aiknowledge' | 'adminai' | 'maintenance' | 'popups' | 'database'
+    'songs' | 'mediaids' | 'autotags' | 'requests' | 'feedback' | 'banner' | 'approvals' | 'users' | 'betas' | 'aiknowledge' | 'adminai' | 'maintenance' | 'popups' | 'database' | 'youtube'
   >('songs');
 
   // Edit Song Modal State
@@ -686,6 +686,13 @@ export const AdminPanel: React.FC = () => {
             Broadcast Pop-ups
           </button>
           <span className="basis-full mt-2 border-t border-white/5 px-2 pt-3 text-[9px] font-black uppercase tracking-[.2em] text-slate-400">System</span>
+          <button
+            onClick={() => setAdminTab('youtube')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${adminTab === 'youtube' ? 'bg-red-600 text-white shadow-md shadow-red-500/20' : 'text-red-300 hover:text-white hover:bg-red-500/10'}`}
+          >
+            <span className="text-sm">▶</span>
+            YouTube Access
+          </button>
           <button
             onClick={() => setAdminTab('database')}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl whitespace-nowrap transition-all ${
@@ -1942,6 +1949,8 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
+      {adminTab === 'youtube' && <YouTubeAccessSettings />}
+
       {/* Denial Feedback Modal for Song Requests */}
       {decliningSongReq && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
@@ -2193,4 +2202,80 @@ export const AdminPanel: React.FC = () => {
       )}
     </div>
   );
+};
+
+
+const YouTubeAccessSettings: React.FC = () => {
+  const [code, setCode] = useState('');
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [feedback, setFeedback] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/youtube-mode/status', { credentials: 'same-origin' })
+      .then(response => response.json())
+      .then(data => { if (!cancelled) setConfigured(!!data.configured); })
+      .catch(() => { if (!cancelled) setFeedback('Could not load YouTube activation settings.'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!code.trim()) { setFeedback('Enter a code first.'); return; }
+    setSaving(true); setFeedback('');
+    try {
+      const response = await fetch('/api/admin/youtube-mode/code', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save the code.');
+      setConfigured(true); setCode(''); setFeedback('YouTube activation code updated.');
+    } catch (error: any) {
+      setFeedback(error?.message || 'Could not save the code.');
+    } finally { setSaving(false); }
+  };
+
+  const clear = async () => {
+    if (!window.confirm('Remove the YouTube activation code?')) return;
+    setSaving(true); setFeedback('');
+    try {
+      const response = await fetch('/api/admin/youtube-mode/code', { method: 'DELETE', credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not remove the code.');
+      setConfigured(false); setCode(''); setFeedback('YouTube activation code removed.');
+    } catch (error: any) { setFeedback(error?.message || 'Could not remove the code.'); }
+    finally { setSaving(false); }
+  };
+
+  return <section className="mx-auto max-w-3xl space-y-5 animate-in fade-in">
+    <div className="rounded-3xl border border-red-400/20 bg-gradient-to-br from-[#26131a] via-[#171b2c] to-[#111a2a] p-6 text-white shadow-xl sm:p-8">
+      <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-300/20 bg-red-500/15 text-red-200">▶</div><div><div className="text-[10px] font-bold uppercase tracking-[.2em] text-red-200/70">Admin configuration</div><h2 className="text-xl font-semibold">YouTube Access</h2></div></div>
+      <p className="mt-4 text-sm leading-6 text-slate-300">Set the code that activates YouTube Mode from the normal music search field. The code itself is never returned to the browser; only a salted password hash is stored.</p>
+      <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-xs text-slate-300">
+        Current status: <span className={configured ? 'font-semibold text-emerald-300' : 'font-semibold text-amber-200'}>{configured === null ? 'Checking…' : configured ? 'Activation code configured' : 'No activation code set'}</span>
+      </div>
+      <form onSubmit={save} className="mt-5 space-y-3">
+        <label className="block text-xs font-semibold text-slate-200" htmlFor="youtube-mode-code">New activation code</label>
+        <input id="youtube-mode-code" type="password" autoComplete="new-password" value={code} onChange={event => setCode(event.target.value)} placeholder="Enter a new code" className="w-full rounded-xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-red-300/60"/>
+        <div className="flex flex-wrap gap-3">
+          <button type="submit" disabled={saving || !code.trim()} className="rounded-xl bg-red-600 px-5 py-3 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-50">{saving ? 'Saving…' : 'Save activation code'}</button>
+          <button type="button" disabled={saving || !configured} onClick={clear} className="rounded-xl border border-white/10 bg-white/[.06] px-5 py-3 text-xs font-semibold text-slate-300 transition hover:bg-white/10 disabled:opacity-40">Remove code</button>
+        </div>
+      </form>
+      {feedback && <p role="status" className="mt-4 text-xs text-emerald-200">{feedback}</p>}
+    </div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 text-slate-700 dark:border-white/10 dark:bg-white/[.035] dark:text-slate-300">
+      <h3 className="text-sm font-semibold">How activation works</h3>
+      <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs leading-5 text-slate-500 dark:text-slate-400">
+        <li>Listeners type the code into the existing Search Tracks, Artists, Genres field.</li>
+        <li>They press Enter. The server checks the code without applying an activation-code rate limit.</li>
+        <li>A confirmation popup appears. Choosing Activate opens the in-app YouTube search and embedded player.</li>
+        <li>Changing the code here immediately invalidates the previous one.</li>
+      </ol>
+    </div>
+  </section>;
 };

@@ -3,6 +3,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AudioProvider, useAudio } from './context/AudioContext';
 import { Header } from './components/Header';
+import { PeriodicTableGate } from './components/PeriodicTableGate';
+import { YouTubeMode } from './components/YouTubeMode';
 import { LegacyHeader } from './components/LegacyHeader';
 import { PersonalizedBar } from './components/PersonalizedBar';
 import { SongCard } from './components/SongCard';
@@ -58,9 +60,43 @@ const MainAppContent: React.FC = () => {
     && (!spotlightConfig.startsAt || new Date(spotlightConfig.startsAt).getTime() <= spotlightClock)
     && (!spotlightConfig.endsAt || new Date(spotlightConfig.endsAt).getTime() > spotlightClock);
 
+  const [appRoute, setAppRoute] = useState<'learn' | 'music'>(() => window.location.pathname === '/music' ? 'music' : 'learn');
+  const [isYouTubePromptOpen, setIsYouTubePromptOpen] = useState(false);
+  const [isYouTubeModeOpen, setIsYouTubeModeOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
+
+  useEffect(() => {
+    const syncRoute = () => setAppRoute(window.location.pathname === '/music' ? 'music' : 'learn');
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, []);
+
+  const enterYouSound = () => {
+    if (window.location.pathname !== '/music') window.history.pushState({}, '', '/music');
+    setAppRoute('music');
+  };
+
+  const handleSearchSubmit = async () => {
+    const code = searchQuery.trim();
+    if (!code) return;
+    try {
+      const response = await fetch('/api/youtube-mode/activate', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data.success) {
+        setSearchQuery('');
+        setIsYouTubePromptOpen(true);
+      }
+    } catch (error) {
+      console.error('YouTube mode activation check failed:', error);
+    }
+  };
 
   // Modals
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -203,6 +239,10 @@ const MainAppContent: React.FC = () => {
 
   const Navigation = isDesignBeta ? Header : LegacyHeader;
 
+  if (appRoute === 'learn') {
+    return <PeriodicTableGate onEnterYouSound={enterYouSound} />;
+  }
+
   return (
     <div className={isDesignBeta ? 'ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors' : 'min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors'}>
       {isDesignBeta && <><CosmicBackdrop /><CosmicCursorAura /></>}
@@ -225,6 +265,7 @@ const MainAppContent: React.FC = () => {
           onOpenAuth={() => setIsAuthOpen(true)}
           onOpenAccount={() => setIsAccountOpen(true)}
           onOpenSongRequest={() => setIsSongRequestOpen(true)}
+          onSearchSubmit={handleSearchSubmit}
         />
       </div>
 
@@ -457,6 +498,23 @@ const MainAppContent: React.FC = () => {
 
       {/* Broadcast Popups Display */}
       <PopupDisplay />
+
+      {isYouTubePromptOpen && (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="youtube-activate-title" className="w-full max-w-md rounded-3xl border border-white/10 bg-[#111a2a] p-6 text-white shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-300">
+              <Music className="h-6 w-6" />
+            </div>
+            <h2 id="youtube-activate-title" className="mt-4 text-center text-lg font-semibold">Activate YouTube Mode?</h2>
+            <p className="mt-2 text-center text-sm leading-6 text-slate-400">YouTube search and the embedded video player will open inside YouSound.</p>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => setIsYouTubePromptOpen(false)} className="flex-1 rounded-xl border border-white/10 bg-white/[.06] px-4 py-3 text-sm font-semibold text-slate-300 transition hover:bg-white/10">Cancel</button>
+              <button type="button" onClick={() => { setIsYouTubePromptOpen(false); setIsYouTubeModeOpen(true); }} className="flex-1 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500">Activate</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {isYouTubeModeOpen && <YouTubeMode onClose={() => setIsYouTubeModeOpen(false)} />}
     </div>
   );
 };

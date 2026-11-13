@@ -19,6 +19,7 @@ interface HeaderProps {
   onOpenAuth: () => void;
   onOpenAccount: () => void;
   onOpenSongRequest: () => void;
+  onSearchSubmit: () => void;
 }
 
 const bannerTheme = (themeId?: string) => {
@@ -169,6 +170,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="search"
               value={searchQuery}
               onChange={event => { setSearchQuery(event.target.value); if (activeTab !== 'library') setActiveTab('library'); }}
+              onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); onSearchSubmit(); } }}
               placeholder="Search tracks, artists, genres..."
               aria-label="Search the music library"
             />
