@@ -557,6 +557,7 @@ type YouTubeVideoRecord = {
   tags: string[];
   defaultLanguage?: string;
   defaultAudioLanguage?: string;
+  ageRestricted?: boolean;
 };
 
 type YouTubeUserProfile = {
@@ -684,6 +685,7 @@ function normalizeYouTubeVideo(item: any): YouTubeVideoRecord | null {
     tags: Array.isArray(snippet.tags) ? snippet.tags.slice(0, 20).map((tag: any) => String(tag).slice(0, 60)) : [],
     defaultLanguage: String(snippet.defaultLanguage || '').slice(0, 20),
     defaultAudioLanguage: String(snippet.defaultAudioLanguage || '').slice(0, 20),
+    ageRestricted: String(item?.contentDetails?.contentRating?.ytRating || '').toLowerCase() === 'ytagerestricted',
   };
 }
 
@@ -748,6 +750,7 @@ function youtubeCategoryLabel(categoryId: string): string {
 }
 
 function isSafeShortsCandidate(video: YouTubeVideoRecord): boolean {
+  if (video.ageRestricted) return false;
   const searchable = [video.title, video.description, ...video.tags].join(' ');
   if (YOUTUBE_SHORTS_UNSAFE_TERMS.test(searchable)) return false;
   const language = (video.defaultAudioLanguage || video.defaultLanguage || '').toLowerCase();
