@@ -60,23 +60,11 @@ const MainAppContent: React.FC = () => {
     && (!spotlightConfig.startsAt || new Date(spotlightConfig.startsAt).getTime() <= spotlightClock)
     && (!spotlightConfig.endsAt || new Date(spotlightConfig.endsAt).getTime() > spotlightClock);
 
-  const [appRoute, setAppRoute] = useState<'learn' | 'music'>(() => window.location.pathname === '/music' ? 'music' : 'learn');
   const [isYouTubePromptOpen, setIsYouTubePromptOpen] = useState(false);
   const [isYouTubeModeOpen, setIsYouTubeModeOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin'>('library');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
-
-  useEffect(() => {
-    const syncRoute = () => setAppRoute(window.location.pathname === '/music' ? 'music' : 'learn');
-    window.addEventListener('popstate', syncRoute);
-    return () => window.removeEventListener('popstate', syncRoute);
-  }, []);
-
-  const enterYouSound = () => {
-    if (window.location.pathname !== '/music') window.history.pushState({}, '', '/music');
-    setAppRoute('music');
-  };
 
   const handleSearchSubmit = async () => {
     const code = searchQuery.trim();
@@ -238,10 +226,6 @@ const MainAppContent: React.FC = () => {
         : 'Music Library';
 
   const Navigation = isDesignBeta ? Header : LegacyHeader;
-
-  if (appRoute === 'learn') {
-    return <PeriodicTableGate onEnterYouSound={enterYouSound} />;
-  }
 
   return (
     <div className={isDesignBeta ? 'ys-app-shell min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors' : 'min-h-screen relative text-slate-900 dark:text-slate-100 selection:bg-blue-600/30 selection:text-blue-900 dark:selection:text-blue-200 transition-colors'}>
@@ -519,13 +503,32 @@ const MainAppContent: React.FC = () => {
   );
 };
 
+const AppRouteContent: React.FC = () => {
+  const [route, setRoute] = useState<'learn' | 'music'>(() => window.location.pathname === '/music' ? 'music' : 'learn');
+
+  useEffect(() => {
+    const syncRoute = () => setRoute(window.location.pathname === '/music' ? 'music' : 'learn');
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, []);
+
+  const enterYouSound = () => {
+    if (window.location.pathname !== '/music') window.history.pushState({}, '', '/music');
+    setRoute('music');
+  };
+
+  return route === 'learn'
+    ? <PeriodicTableGate onEnterYouSound={enterYouSound} />
+    : <MainAppContent />;
+};
+
 export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <AudioProvider>
           <BetterStackAnnouncement />
-          <MainAppContent />
+          <AppRouteContent />
         </AudioProvider>
       </AuthProvider>
     </ThemeProvider>

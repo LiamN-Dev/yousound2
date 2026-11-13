@@ -55,11 +55,9 @@ export const PeriodicTableGate: React.FC<{ onEnterYouSound: () => void }> = ({ o
   const close = () => { setSelected(null); setHTaps(0); };
   const open = (e:Element) => { setSelected(e); setHTaps(0); };
   const tapH = () => {
-    setHTaps(current => {
-      const next = current + 1;
-      if (next >= 5) onEnterYouSound();
-      return next;
-    });
+    const next = hTaps + 1;
+    setHTaps(next);
+    if (next >= 5) onEnterYouSound();
   };
 
   return <div className="min-h-screen overflow-x-hidden bg-[#07111f] text-slate-100">
