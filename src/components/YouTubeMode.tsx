@@ -265,6 +265,9 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
                     <button type="button" onClick={()=>toggleFollow(video)} className={'flex min-w-12 flex-col items-center gap-1 rounded-2xl bg-black/65 px-3 py-2 text-[10px] font-semibold backdrop-blur '+(followed?'text-cyan-200':'text-white')} aria-label={followed?'Unfollow channel':'Follow channel'}>
                       <Users size={21}/><span>{followed?'Following':'Follow'}</span>
                     </button>
+                    <button type="button" onClick={()=>void saveInteraction('hide',video)} className="flex min-w-12 flex-col items-center gap-1 rounded-2xl bg-black/65 px-3 py-2 text-[10px] font-semibold text-white backdrop-blur" aria-label="Not interested in this Short">
+                      <ThumbsDown size={19}/><span>Not for me</span>
+                    </button>
                   </div>
                 </article>;
               })}
