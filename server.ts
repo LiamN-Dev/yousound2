@@ -281,6 +281,113 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
 app.use('/api/youcraft', youCraftRouter);
+
+// ----------------- YOUTUBE MODE -----------------
+const YOUTUBE_MODE_CODE_SETTING = 'youtube_mode_activation_hash_v1';
+
+app.post('/api/youtube-mode/activate', async (req: Request, res: Response) => {
+  try {
+    const supplied = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+    if (!supplied || supplied.length > 256) return res.json({ success: false });
+    const stored = await getPersistentSettingDb<string>(YOUTUBE_MODE_CODE_SETTING);
+    if (!stored) return res.json({ success: false });
+    const check = await verifyPassword(supplied, stored);
+    return res.json({ success: check.ok });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Activation check failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Activation check unavailable.' });
+  }
+});
+
+app.get('/api/admin/youtube-mode/status', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    const stored = await getPersistentSettingDb<string>(YOUTUBE_MODE_CODE_SETTING);
+    return res.json({ success: true, configured: Boolean(stored) });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Could not read settings:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not read YouTube settings.' });
+  }
+});
+
+app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+    if (code.length < 1 || code.length > 256) return res.status(400).json({ success: false, error: 'Code must contain between 1 and 256 characters.' });
+    const hash = await hashPasswordSecure(code);
+    await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, hash);
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Could not save activation code:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not save YouTube activation code.' });
+  }
+});
+
+app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, null);
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Could not remove activation code:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not remove YouTube activation code.' });
+  }
+});
+
+app.get('/api/youtube-mode/search', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const account = await getUserByUid(session.uid);
+    if (!account || !account.isApproved || account.isSuspended || account.isLocked) {
+      return res.status(403).json({ success: false, error: 'This account is not allowed to use YouTube Mode.' });
+    }
+
+    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+    if (!apiKey) return res.status(503).json({ success: false, error: 'YouTube search is not configured yet. An administrator must add YOUTUBE_API_KEY to the YouSound Render service.' });
+
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 180) : '';
+    if (!query) return res.status(400).json({ success: false, error: 'Enter a search term.' });
+
+    const params = new URLSearchParams({
+      part: 'snippet',
+      type: 'video',
+      maxResults: '20',
+      q: query,
+      safeSearch: 'moderate',
+      key: apiKey,
+    });
+    const response = await fetch('https://www.googleapis.com/youtube/v3/search?' + params.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(12000),
+    });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const providerMessage = String(payload?.error?.message || 'YouTube API request failed').slice(0, 220);
+      console.warn('[YouTube Mode] Search API error:', response.status, providerMessage);
+      return res.status(response.status === 403 ? 503 : 502).json({ success: false, error: response.status === 403 ? 'YouTube API access is not enabled or its quota is unavailable.' : 'YouTube search provider is temporarily unavailable.' });
+    }
+
+    const videos = (Array.isArray(payload.items) ? payload.items : []).flatMap((item: any) => {
+      const videoId = String(item?.id?.videoId || '');
+      const snippet = item?.snippet || {};
+      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return [];
+      return [{
+        videoId,
+        title: String(snippet.title || 'Untitled video').slice(0, 300),
+        channelTitle: String(snippet.channelTitle || '').slice(0, 160),
+        description: String(snippet.description || '').slice(0, 1000),
+        thumbnailUrl: String(snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || ''),
+      }];
+    });
+    return res.json({ success: true, videos });
+  } catch (error: any) {
+    console.error('[YouTube Mode] Search failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: error?.name === 'TimeoutError' ? 'YouTube search timed out. Try again.' : 'YouTube search could not be completed.' });
+  }
+});
+
 app.use('/api/games/crossy-road', (_req: Request, res: Response) => {
   return res.status(410).json({ success: false, error: 'Crossy Road has been retired from the YouSound Arcade.' });
 });
