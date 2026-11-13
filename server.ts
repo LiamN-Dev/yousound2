@@ -785,38 +785,23 @@ async function getYouTubeShortsVideos(
     .map(value => String(value).trim().slice(0, 55))
     .filter(Boolean);
   const query = [...new Set(terms)].slice(0, 3).join(' ') || 'popular short videos';
-  const searchRequests: Promise<any>[] = [callYouTubeApi('search', {
+  // Use one relevance search per personalized cache window to keep search.list quota usage low.
+  // The Following section separately retrieves uploads from every followed channel; this feed
+  // ranks the broader candidate pool using the same channel/category weights.
+  const result = await callYouTubeApi('search', {
     part: 'snippet',
     type: 'video',
-    maxResults: '25',
+    maxResults: '50',
     q: query + ' shorts',
     safeSearch: 'strict',
     regionCode: safeRegion,
     relevanceLanguage: 'en',
     order: 'relevance',
     videoDuration: 'short',
-  }, apiKey)];
-
-  const followedChannels = [...profile.followedChannels].slice(-1);
-  for (const channelId of followedChannels) {
-    if (!/^UC[A-Za-z0-9_-]{20,}$/.test(channelId)) continue;
-    searchRequests.push(callYouTubeApi('search', {
-      part: 'snippet',
-      type: 'video',
-      channelId,
-      maxResults: '15',
-      safeSearch: 'strict',
-      regionCode: safeRegion,
-      relevanceLanguage: 'en',
-      order: 'date',
-      videoDuration: 'short',
-    }, apiKey));
-  }
-
-  const pools = await Promise.all(searchRequests);
-  const ids = [...new Set(pools.flatMap(result => (Array.isArray(result.items) ? result.items : [])
+  }, apiKey);
+  const ids = [...new Set((Array.isArray(result.items) ? result.items : [])
     .map((item: any) => String(item?.id?.videoId || ''))
-    .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id))))].slice(0, 50);
+    .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id)))].slice(0, 50);
   const videos = (await hydrateYouTubeVideos(ids, apiKey))
     .filter(video => {
       const seconds = youtubeDurationSeconds(video.duration);
