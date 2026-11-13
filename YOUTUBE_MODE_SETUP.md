@@ -23,3 +23,8 @@ The Following section reads recent public uploads from channels the account foll
 An administrator configures or replaces the activation code in Control Room → YouTube Access. The server stores a salted scrypt hash, not the code itself. Users enter the code in the ordinary global search bar. Wrong codes simply remain ordinary search terms. No rate limit is applied to this code check.
 
 The YouTube Access panel also shows successful activations by YouSound account: username, account ID, first successful activation, most recent successful activation, and activation count. It does not store the code or failed guesses. Only administrators can read this access log.
+
+
+### Shorts feed
+
+The Shorts tab requests public videos tagged with #shorts, then filters hydrated video metadata to videos no longer than three minutes. The Data API does not provide a dedicated Shorts feed or a reliable vertical-orientation flag, so this is a Shorts-style discovery feed rather than a complete copy of YouTube's proprietary Shorts recommendation feed. Videos are played with YouTube's official embedded player in a vertical, scroll-snapping feed. Likes are stored in each listener's independent YouSound profile.

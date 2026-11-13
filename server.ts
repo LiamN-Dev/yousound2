@@ -592,6 +592,39 @@ async function searchYouTubeCached(query: string, apiKey: string, order = 'relev
   return videos;
 }
 
+function youtubeDurationSeconds(duration: string): number {
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration || '');
+  if (!match) return 0;
+  return Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0);
+}
+
+async function getYouTubeShortsVideos(apiKey: string): Promise<YouTubeVideoRecord[]> {
+  const cacheKey = 'shorts:hashtag-feed';
+  const cached = getYoutubeCache(cacheKey);
+  if (cached) return cached;
+  const result = await callYouTubeApi('search', {
+    part: 'snippet',
+    type: 'video',
+    maxResults: '25',
+    q: '#shorts',
+    safeSearch: 'moderate',
+    order: 'date',
+    videoDuration: 'short',
+  }, apiKey);
+  const ids = (Array.isArray(result.items) ? result.items : [])
+    .map((item: any) => String(item?.id?.videoId || ''))
+    .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id));
+  // The Data API has no dedicated Shorts feed or reliable vertical-orientation field.
+  // Use the Shorts hashtag as discovery input, then keep videos up to the current 3-minute Shorts limit.
+  const videos = (await hydrateYouTubeVideos(ids, apiKey))
+    .filter(video => {
+      const seconds = youtubeDurationSeconds(video.duration);
+      return seconds > 0 && seconds <= 180;
+    });
+  setYoutubeCache(cacheKey, videos, 5 * 60 * 1000);
+  return videos;
+}
+
 async function getTrendingYouTubeVideos(apiKey: string, regionCode = 'US', categoryId?: string): Promise<YouTubeVideoRecord[]> {
   const safeRegion = /^[A-Z]{2}$/.test(regionCode) ? regionCode : 'US';
   const safeCategory = categoryId && /^\d{1,4}$/.test(categoryId) ? categoryId : '';
@@ -771,13 +804,15 @@ app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
     if (!apiKey) return res.status(503).json({ success: false, error: 'YouTube discovery is not configured. Add YOUTUBE_API_KEY to the real YouSound Render service.' });
 
     const requestedMode = String(req.query.mode || 'for-you');
-    const mode = ['trending', 'following', 'liked'].includes(requestedMode) ? requestedMode : 'for-you';
+    const mode = ['trending', 'shorts', 'following', 'liked'].includes(requestedMode) ? requestedMode : 'for-you';
     const regionCode = typeof req.query.regionCode === 'string' ? req.query.regionCode.toUpperCase().slice(0, 2) : 'US';
     const profile = await getYouTubeProfile(member.uid);
     let candidates: YouTubeVideoRecord[] = [];
 
     if (mode === 'trending') {
       candidates = await getTrendingYouTubeVideos(apiKey, regionCode);
+    } else if (mode === 'shorts') {
+      candidates = await getYouTubeShortsVideos(apiKey);
     } else if (mode === 'liked') {
       candidates = await hydrateYouTubeVideos([...profile.likedVideoIds].reverse().slice(0, 50), apiKey);
     } else if (mode === 'following') {
