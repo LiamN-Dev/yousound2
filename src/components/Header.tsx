@@ -44,7 +44,7 @@ const navItems = [
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab, setActiveTab, searchQuery, setSearchQuery,
-  onOpenAuth, onOpenAccount, onOpenSongRequest,
+  onOpenAuth, onOpenAccount, onOpenSongRequest, onSearchSubmit,
 }) => {
   const feedbackUnread = useSyncExternalStore(subscribeFeedback, getFeedbackState).unreadCount;
   const { currentUser, isAdmin, maintenanceState, bannerConfig, logout, unreadChatCount, markChatsRead } = useAuth();
