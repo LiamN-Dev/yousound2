@@ -19,6 +19,7 @@ import {
   Trash2,
   AlertCircle,
   Sparkles,
+  Power,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
@@ -226,7 +227,7 @@ export const ChatHub: React.FC = () => {
     }
 
     const commandText = messageInput.trim();
-    if (/^(?:\\/shutdown|shutdown|\\/help|help)$/i.test(commandText)) {
+    if (['/shutdown', 'shutdown', '/help', 'help'].includes(commandText.toLowerCase())) {
       setIsSending(true);
       setSendError(null);
       try {
