@@ -531,7 +531,7 @@ const AppRouteContent: React.FC = () => {
           onClick={returnToPeriodicTable}
           title="Return to the periodic table"
           aria-label="Return to the periodic table"
-          className="fixed bottom-24 right-4 z-[160] inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/95 px-4 py-3 text-xs font-semibold text-cyan-100 shadow-[0_12px_40px_rgba(0,0,0,.45)] backdrop-blur-xl transition hover:border-cyan-200/60 hover:bg-cyan-950 focus:outline-none focus:ring-2 focus:ring-cyan-300 sm:bottom-6 sm:right-6"
+          className="fixed bottom-24 right-4 z-[160] inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-slate-950/95 px-4 py-3 text-xs font-semibold text-cyan-100 shadow-[0_12px_40px_rgba(0,0,0,.45)] backdrop-blur-xl transition hover:border-cyan-200/60 hover:bg-cyan-950 focus:outline-none focus:ring-2 focus:ring-cyan-300"
         >
           <Atom size={16} />
           <span>Periodic Table</span>
