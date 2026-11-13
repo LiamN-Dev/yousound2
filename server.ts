@@ -769,6 +769,8 @@ async function getYouTubeShortsVideos(
     categories: profile.categoryWeights,
     channels: profile.channelWeights,
     followed: profile.followedChannels,
+    liked: profile.likedVideoIds,
+    recentlyWatched: profile.recentVideoIds,
     recentSearches: profile.recentSearches,
   })).digest('hex').slice(0, 16);
   const cacheKey = 'shorts:personalized:' + safeRegion + ':' + profileFingerprint;
