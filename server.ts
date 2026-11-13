@@ -695,11 +695,13 @@ app.put('/api/youtube-mode/profile', async (req: Request, res: Response) => {
   try {
     const member = await requireYouTubeMember(req, res);
     if (!member) return;
-    const raw = Array.isArray(req.body?.interests) ? req.body.interests : [];
-    const interests = [...new Set(raw
-      .filter((value: any) => typeof value === 'string')
-      .map((value: string) => value.trim().slice(0, 40))
-      .filter((value: string) => value.length > 0))].slice(0, 12);
+    const raw: unknown[] = Array.isArray(req.body?.interests) ? req.body.interests : [];
+    const interests = Array.from(new Set<string>(
+      raw
+        .filter((value): value is string => typeof value === 'string')
+        .map(value => value.trim().slice(0, 40))
+        .filter(value => value.length > 0)
+    )).slice(0, 12);
     const profile = await getYouTubeProfile(member.uid);
     profile.interests = interests;
     await saveYouTubeProfile(member.uid, profile);
