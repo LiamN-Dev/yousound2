@@ -48,6 +48,11 @@ export const ChatHub: React.FC = () => {
   const [messageInput, setMessageInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [shutdownChallengeToken, setShutdownChallengeToken] = useState('');
+  const [shutdownConfirmText, setShutdownConfirmText] = useState('');
+  const [shutdownDataAcknowledged, setShutdownDataAcknowledged] = useState(false);
+  const [shutdownConfirmBusy, setShutdownConfirmBusy] = useState(false);
+  const [shutdownConfirmFeedback, setShutdownConfirmFeedback] = useState('');
 
   // New Request Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -220,6 +225,45 @@ export const ChatHub: React.FC = () => {
       return;
     }
 
+    const commandText = messageInput.trim();
+    if (/^(?:\\/shutdown|shutdown|\\/help|help)$/i.test(commandText)) {
+      setIsSending(true);
+      setSendError(null);
+      try {
+        const response = await fetch('/api/chat/announcement-bot/command', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: commandText }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Announcement Bot could not process that command.');
+        const botThreadId = 'thread-' + [currentUser.id, 'announcement-bot'].sort().join('-');
+        setActiveThreadId(botThreadId);
+        setMessages(previous => [...previous, ...(Array.isArray(data.messages) ? data.messages : [])]);
+        setThreads(previous => previous.map(thread => thread.id === botThreadId
+          ? { ...thread, lastMessage: data.messages?.[data.messages.length - 1]?.content || commandText, lastMessageSender: 'Announcement Bot', lastMessageAt: new Date().toISOString() }
+          : thread));
+        setMessageInput('');
+        if (typeof data.shutdownChallengeToken === 'string' && data.shutdownChallengeToken) {
+          setShutdownChallengeToken(data.shutdownChallengeToken);
+          setShutdownConfirmText('');
+          setShutdownDataAcknowledged(false);
+          setShutdownConfirmFeedback('');
+        }
+      } catch (error: any) {
+        setSendError(error?.message || 'Announcement Bot command failed.');
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    if (currentThread.user1Id === 'announcement-bot' || currentThread.user2Id === 'announcement-bot') {
+      setSendError('Announcement Bot only accepts /help and /shutdown. Other messages are not sent.');
+      return;
+    }
+
     const otherUserId = currentThread.user1Id === currentUser.id ? currentThread.user2Id : currentThread.user1Id;
 
     setIsSending(true);
@@ -248,6 +292,32 @@ export const ChatHub: React.FC = () => {
       );
     } else {
       setSendError(res.error || 'Failed to send message');
+    }
+  };
+
+  const confirmTrustedShutdown = async () => {
+    if (!shutdownChallengeToken || shutdownConfirmText.trim() !== 'SHUT DOWN YOU SONG' || !shutdownDataAcknowledged || shutdownConfirmBusy) return;
+    setShutdownConfirmBusy(true);
+    setShutdownConfirmFeedback('');
+    try {
+      const response = await fetch('/api/emergency-shutdown/trusted-confirm', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeToken: shutdownChallengeToken,
+          confirmationText: shutdownConfirmText.trim(),
+          confirmDataRetained: shutdownDataAcknowledged,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Shutdown was not activated.');
+      setShutdownChallengeToken('');
+      setShutdownConfirmFeedback('Emergency shutdown activated. YouSound is now offline. Recovery requires an administrator to change EMERGENCY_RECOVERY.txt and deploy a new commit.');
+    } catch (error: any) {
+      setShutdownConfirmFeedback(error?.message || 'Shutdown was not activated.');
+    } finally {
+      setShutdownConfirmBusy(false);
     }
   };
 
@@ -1568,7 +1638,9 @@ export const ChatHub: React.FC = () => {
                           )
                         }
                         placeholder={
-                          activeThread.isTerminated
+                          activeThread.user1Id === 'announcement-bot' || activeThread.user2Id === 'announcement-bot'
+                            ? 'Type /help or /shutdown…'
+                            : activeThread.isTerminated
                             ? 'Messaging disabled by Administrator'
                             : activeThread.isAppealThread &&
                               !allUsers.find((u) => u.id === (activeThread.user1Id === currentUser?.id ? activeThread.user2Id : activeThread.user1Id))?.isSuspended
@@ -1932,6 +2004,31 @@ export const ChatHub: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {shutdownChallengeToken && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="trusted-shutdown-title" className="w-full max-w-lg space-y-4 rounded-3xl border border-rose-400/30 bg-[#15111a] p-6 text-white shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-rose-400/25 bg-rose-500/15 text-rose-200"><Power className="h-5 w-5"/></div>
+              <div><h2 id="trusted-shutdown-title" className="text-lg font-bold">Emergency shutdown confirmation</h2><p className="text-[10px] font-bold uppercase tracking-wider text-rose-200/70">Trusted Operator · expires in 2 minutes</p></div>
+            </div>
+            <p className="text-xs leading-5 text-slate-300">This takes the entire YouSound site offline for everyone. Your music, accounts, and database data remain stored, but the site will remain offline until an administrator changes EMERGENCY_RECOVERY.txt in GitHub and deploys a new commit.</p>
+            <label className="block space-y-2">
+              <span className="text-xs font-semibold text-slate-200">Type the exact confirmation phrase</span>
+              <input value={shutdownConfirmText} onChange={event => setShutdownConfirmText(event.target.value)} placeholder="SHUT DOWN YOU SONG" className="w-full rounded-xl border border-white/15 bg-black/30 px-3 py-3 text-sm text-white outline-none focus:border-rose-300/60"/>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 text-xs leading-5 text-slate-300">
+              <input type="checkbox" checked={shutdownDataAcknowledged} onChange={event => setShutdownDataAcknowledged(event.target.checked)} className="mt-1 accent-rose-500"/>
+              <span>I understand that the whole site will go offline, the data remains stored, and recovery requires an administrator deployment.</span>
+            </label>
+            {shutdownConfirmFeedback && <p role="status" className="rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs text-rose-100">{shutdownConfirmFeedback}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={shutdownConfirmBusy} onClick={() => { setShutdownChallengeToken(''); setShutdownConfirmFeedback(''); }} className="rounded-xl border border-white/10 px-4 py-2.5 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-40">Cancel</button>
+              <button type="button" disabled={shutdownConfirmBusy || shutdownConfirmText.trim() !== 'SHUT DOWN YOU SONG' || !shutdownDataAcknowledged} onClick={() => void confirmTrustedShutdown()} className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-40">{shutdownConfirmBusy ? 'Confirming…' : 'Shut Down YouSound'}</button>
+            </div>
+          </section>
         </div>
       )}
     </div>
