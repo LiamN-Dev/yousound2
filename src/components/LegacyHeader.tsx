@@ -26,7 +26,7 @@ import {
 
 interface HeaderProps {
   activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin';
-  setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin') => void;
+  setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin') => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   selectedGenre: string;
