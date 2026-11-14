@@ -61,7 +61,9 @@ function loadTexture(
   blobUrls: string[],
   bytes: Uint8Array,
 ): Promise<THREE.Texture> {
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+  const imageBytes = new Uint8Array(bytes.byteLength);
+  imageBytes.set(bytes);
+  const url = URL.createObjectURL(new Blob([imageBytes.buffer], { type: 'image/png' }));
   blobUrls.push(url);
   return new Promise((resolve, reject) => {
     loader.load(url, (texture) => {
