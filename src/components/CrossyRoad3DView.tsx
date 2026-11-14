@@ -271,6 +271,8 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor('#cfe9f6');
     renderer.domElement.className = 'pointer-events-none absolute inset-0 z-10 h-full w-full';
+    renderer.domElement.style.opacity = '0';
+    renderer.domElement.style.transition = 'opacity 180ms ease';
     renderer.domElement.setAttribute('aria-label', 'Three-dimensional Crossy Road game board');
     mount.appendChild(renderer.domElement);
 
@@ -325,6 +327,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     void loadModels(blobUrls).then((models) => {
       if (!alive) return;
       modelsRef.current = models;
+      renderer!.domElement.style.opacity = '1';
       setLoadError('');
       setModelsReady(true);
       setLoading(false);
