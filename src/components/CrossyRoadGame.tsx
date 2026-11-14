@@ -67,10 +67,13 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const [error, setError] = useState('');
   const runIdRef = useRef<string | null>(null);
   const startPendingRef = useRef(false);
-  const pendingFinishScoreRef = useRef<number | null>(null);
+  const pendingFinishScoreRef = useRef<{ score: number; session: number } | null>(null);
   const finishBusyRef = useRef(false);
   const finishedRunRef = useRef(false);
   const lastMoveAtRef = useRef(0);
+  const gameSessionRef = useRef(0);
+  const startPendingSessionRef = useRef<number | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
 
   const updateGame = useCallback((next: GameState) => {
     gameRef.current = next;
@@ -82,51 +85,64 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     setLeaderboard(data.leaderboard || []);
   }, []);
 
-  const finishRun = useCallback(async (score: number) => {
+  const finishRun = useCallback(async (score: number, session = gameSessionRef.current) => {
+    if (session !== gameSessionRef.current) return;
     if (!runIdRef.current) {
-      pendingFinishScoreRef.current = score;
+      pendingFinishScoreRef.current = { score, session };
       return;
     }
     if (finishedRunRef.current || finishBusyRef.current) return;
+
+    const runId = runIdRef.current;
     finishedRunRef.current = true;
     finishBusyRef.current = true;
     setMessage('Saving your run…');
     try {
       const result = await api<Stats & { coinsAwarded: number }>('/finish', {
         method: 'POST',
-        body: JSON.stringify({ runId: runIdRef.current, score }),
+        body: JSON.stringify({ runId, score }),
       });
+      if (session !== gameSessionRef.current) return;
       runIdRef.current = null;
       setStats({ coins: result.coins, highScore: result.highScore, totalGames: result.totalGames });
       setMessage('Score saved · +' + result.coinsAwarded + ' coins');
       setError('');
-      await refreshLeaderboard();
+      try {
+        await refreshLeaderboard();
+      } catch {
+        setError('Your score was saved, but the leaderboard could not refresh.');
+      }
     } catch (saveError: any) {
-      setMessage('');
-      setError(saveError?.message || 'Your score could not be saved.');
+      if (session === gameSessionRef.current) {
+        setMessage('');
+        setError(saveError?.message || 'Your score could not be saved.');
+      }
     } finally {
-      finishBusyRef.current = false;
+      if (session === gameSessionRef.current) finishBusyRef.current = false;
     }
   }, [refreshLeaderboard]);
 
-  const startRun = useCallback(async () => {
-    if (runIdRef.current || startPendingRef.current) return;
-    startPendingRef.current = true;
+  const startRun = useCallback(async (session = gameSessionRef.current) => {
+    if (session !== gameSessionRef.current || runIdRef.current || startPendingSessionRef.current === session) return;
+    startPendingSessionRef.current = session;
     finishedRunRef.current = false;
     try {
       const started = await api<{ runId: string }>('/start', { method: 'POST', body: '{}' });
+      if (session !== gameSessionRef.current) return;
       runIdRef.current = started.runId;
       setError('');
-      const pendingScore = pendingFinishScoreRef.current;
-      if (pendingScore !== null) {
+      const pending = pendingFinishScoreRef.current;
+      if (pending?.session === session) {
         pendingFinishScoreRef.current = null;
-        void finishRun(pendingScore);
+        void finishRun(pending.score, session);
       }
     } catch (startError: any) {
-      pendingFinishScoreRef.current = null;
-      setError(startError?.message || 'Could not create a saved game session.');
+      if (session === gameSessionRef.current) {
+        pendingFinishScoreRef.current = null;
+        setError(startError?.message || 'Could not create a saved game session. Your game is still playable; try a new run to retry saving.');
+      }
     } finally {
-      startPendingRef.current = false;
+      if (startPendingSessionRef.current === session) startPendingSessionRef.current = null;
     }
   }, [finishRun]);
 
@@ -150,13 +166,8 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     const current = gameRef.current;
     if (current.gameOver) return;
     const now = Date.now();
-    if (now - lastMoveAtRef.current < 120) return;
+    if (now - lastMoveAtRef.current < 110) return;
     lastMoveAtRef.current = now;
-
-    if (!current.running) {
-      void startRun();
-      setMessage('');
-    }
 
     const next = { ...current, x: current.x, row: current.row };
     if (direction === 'up') next.row += 1;
@@ -174,6 +185,12 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     if (destinationLane?.kind === 'grass' && destinationLane.trees?.includes(next.x)) {
       return;
     }
+
+    const session = gameSessionRef.current;
+    if (!runIdRef.current && startPendingSessionRef.current !== session) {
+      void startRun(session);
+    }
+    if (!current.running) setMessage('');
     next.score = Math.max(current.score, next.row);
     next.running = true;
     updateGame(next);
@@ -188,8 +205,11 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     };
     const onKeyDown = (event: KeyboardEvent) => {
       const direction = keys[event.code];
-      if (!direction) return;
-      if (event.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) return;
+      if (!direction || event.repeat) return;
+      if (event.target instanceof HTMLElement && (
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName) ||
+        event.target.isContentEditable
+      )) return;
       event.preventDefault();
       move(direction);
     };
@@ -244,8 +264,8 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   }, [finishRun, updateGame]);
 
   const restart = () => {
+    gameSessionRef.current += 1;
     runIdRef.current = null;
-    startPendingRef.current = false;
     pendingFinishScoreRef.current = null;
     finishBusyRef.current = false;
     finishedRunRef.current = false;
@@ -253,6 +273,30 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     setMessage('');
     setError('');
     updateGame(initialGame());
+  };
+
+  const handleBoardPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    swipeStartRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is optional; swipe handling still works without it.
+    }
+  };
+
+  const handleBoardPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 28) return;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      move(dx > 0 ? 'right' : 'left');
+    } else {
+      move(dy > 0 ? 'down' : 'up');
+    }
   };
 
 
@@ -308,7 +352,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
           <div className="hidden border-t border-black/[.07] pt-4 lg:block">
             <div className="text-[9px] font-black uppercase tracking-[.18em] text-black/40">Controls</div>
-            <p className="mt-2 text-[11px] leading-5 text-black/55">Use arrow keys or WASD on your keyboard. On touch screens, use the directional pad over the game.</p>
+            <p className="mt-2 text-[11px] leading-5 text-black/55">Use arrow keys or WASD, swipe on the board, or use the directional pad.</p>
             <div className="mt-4 flex items-center gap-2 text-[10px] font-semibold text-[#526b4c]"><Crown className="h-4 w-4" /> Scores save to your YouSound account</div>
           </div>
         </aside>
@@ -328,7 +372,13 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <div className="absolute inset-0">
             <div className="absolute inset-0 opacity-50" style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,.35) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.35) 50%, rgba(255,255,255,.35) 75%, transparent 75%, transparent)', backgroundSize: '42px 42px' }} />
             <div className="absolute inset-x-0 bottom-0 top-0 flex items-center justify-center px-2 pb-2 pt-14">
-              <div className="h-[94%] max-h-[640px] max-w-full overflow-hidden rounded-[18px] border-4 border-white/65 bg-[#245438] shadow-[0_12px_35px_rgba(12,35,27,.25)]" style={{ aspectRatio: '9 / 11' }}>
+              <div
+                className="relative h-[94%] max-h-[640px] max-w-full touch-none overflow-hidden rounded-[18px] border-4 border-white/65 bg-[#245438] shadow-[0_12px_35px_rgba(12,35,27,.25)]"
+                style={{ aspectRatio: '9 / 11' }}
+                onPointerDown={handleBoardPointerDown}
+                onPointerUp={handleBoardPointerUp}
+                onPointerCancel={() => { swipeStartRef.current = null; }}
+              >
                 <CrossyRoad3DView game={game} />
               </div>
             </div>
