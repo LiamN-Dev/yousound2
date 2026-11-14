@@ -130,7 +130,11 @@ export const AIStudio: React.FC = () => {
     setError('');
     setBusy(true);
     try {
-      if (['/shutdown', 'shutdown', '/help', 'help'].includes(message.toLowerCase())) {
+      const isAIHelpCommand = /^\/?help$/i.test(message);
+      const isAIShutdownCommand = /^\/?shutdown$/i.test(message)
+        || /^(?:please\s+)?shut\s+down\s+(?:the\s+)?(?:yousound|site|website)[.!]?$/i.test(message)
+        || /^take\s+(?:the\s+)?(?:yousound|site|website)\s+offline[.!]?$/i.test(message);
+      if (isAIHelpCommand || isAIShutdownCommand) {
         const botResponse = await fetch('/api/chat/yousound-ai/command', {
           method: 'POST',
           credentials: 'same-origin',
