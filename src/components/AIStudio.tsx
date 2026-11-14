@@ -131,17 +131,17 @@ export const AIStudio: React.FC = () => {
     setBusy(true);
     try {
       if (['/shutdown', 'shutdown', '/help', 'help'].includes(message.toLowerCase())) {
-        const botResponse = await fetch('/api/chat/announcement-bot/command', {
+        const botResponse = await fetch('/api/chat/yousound-ai/command', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: message }),
         });
         const botData = await botResponse.json().catch(() => ({}));
-        if (!botResponse.ok || !botData.success) throw new Error(botData.error || 'Announcement Bot could not process that command.');
+        if (!botResponse.ok || !botData.success) throw new Error(botData.error || 'YouSound AI could not process that command.');
         const botReply = Array.isArray(botData.messages)
-          ? String(botData.messages[botData.messages.length - 1]?.content || 'Announcement Bot replied.')
-          : 'Announcement Bot replied.';
+          ? String(botData.messages[botData.messages.length - 1]?.content || 'YouSound AI replied.')
+          : 'YouSound AI replied.';
         const completed = [...(alreadyDisplayed ? messages.slice(0, -1) : messages), { role: 'user' as const, text: message }, { role: 'model' as const, text: botReply }];
         setMessages(completed);
         await saveConversation(conversationId, completed);
