@@ -66,7 +66,6 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const runIdRef = useRef<string | null>(null);
-  const startPendingRef = useRef(false);
   const pendingFinishScoreRef = useRef<{ score: number; session: number } | null>(null);
   const finishBusyRef = useRef(false);
   const finishedRunRef = useRef(false);
