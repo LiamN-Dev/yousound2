@@ -30,7 +30,7 @@ function loadYouTubeIframeApi(): Promise<YouTubeApi> {
   if (window.YT?.Player) return Promise.resolve(window.YT);
   if (youtubeApiPromise) return youtubeApiPromise;
 
-  youtubeApiPromise = new Promise((resolve, reject) => {
+  const pending = new Promise<YouTubeApi>((resolve, reject) => {
     const previousCallback = window.onYouTubeIframeAPIReady;
     let settled = false;
     const finish = () => {
@@ -47,8 +47,11 @@ function loadYouTubeIframeApi(): Promise<YouTubeApi> {
     }, 10000);
 
     window.onYouTubeIframeAPIReady = () => {
-      if (typeof previousCallback === 'function') previousCallback();
-      finish();
+      try {
+        if (typeof previousCallback === 'function') previousCallback();
+      } finally {
+        finish();
+      }
     };
 
     let script = document.querySelector<HTMLScriptElement>('script[data-youtube-iframe-api="true"]');
@@ -65,12 +68,14 @@ function loadYouTubeIframeApi(): Promise<YouTubeApi> {
       };
       document.head.appendChild(script);
     }
-  }).catch(error => {
+  });
+
+  const tracked = pending.catch(error => {
     youtubeApiPromise = null;
     throw error;
   });
-
-  return youtubeApiPromise;
+  youtubeApiPromise = tracked;
+  return tracked;
 }
 
 export const YouTubeTrackedPlayer: React.FC<{
