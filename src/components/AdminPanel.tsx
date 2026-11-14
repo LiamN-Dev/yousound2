@@ -2442,7 +2442,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
         </div>
       )}
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => void saveSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40">{securitySettingsSaving ? 'Saving…' : 'Save Bot Permissions'}</button>
+        <button type="button" onClick={() => void saveSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40">{securitySettingsSaving ? 'Saving…' : 'Save AI Permissions'}</button>
         {securitySettingsFeedback && <p role="status" className="text-xs text-cyan-100">{securitySettingsFeedback}</p>}
       </div>
     </div>
