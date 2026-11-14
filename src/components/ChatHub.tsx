@@ -335,19 +335,13 @@ export const ChatHub: React.FC = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Shutdown was not activated.');
       setShutdownChallengeToken('');
-      const successMessage = {
-        id: 'trusted-shutdown-success-' + Date.now(),
-        threadId: activeThreadId,
-        senderId: 'announcement-bot',
-        senderUsername: 'YouSound AI',
-        receiverId: currentUser?.id || '',
-        content: data.message || 'Emergency shutdown activated. YouSound is now offline.',
-        createdAt: new Date().toISOString(),
-      } as ChatMessage;
-      setMessages(previous => [...previous, successMessage]);
-      setThreads(previous => previous.map(thread => thread.id === activeThreadId
-        ? { ...thread, lastMessage: successMessage.content, lastMessageSender: 'YouSound AI', lastMessageAt: successMessage.createdAt }
-        : thread));
+      const savedMessage = data.chatMessage;
+      if (savedMessage) {
+        setMessages(previous => [...previous, savedMessage]);
+        setThreads(previous => previous.map(thread => thread.id === savedMessage.threadId
+          ? { ...thread, lastMessage: savedMessage.content, lastMessageSender: 'YouSound AI', lastMessageAt: savedMessage.createdAt }
+          : thread));
+      }
     } catch (error: any) {
       setShutdownConfirmFeedback(error?.message || 'Shutdown was not activated.');
     } finally {
