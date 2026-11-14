@@ -274,7 +274,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           </div>
         ))}
         {lane.row === game.row && (
-          <div className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_3px_3px_rgba(0,0,0,.65)]" style={{ left: ((game.x + 0.5) / COLS * 100) }}>
+          <div className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_3px_3px_rgba(0,0,0,.65)]" style={{ left: ((game.x + 0.5) / COLS * 100) + '%' }}>
             <span className="text-[27px] leading-none" role="img" aria-label="Player">🐔</span>
           </div>
         )}
