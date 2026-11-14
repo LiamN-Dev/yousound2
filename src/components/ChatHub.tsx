@@ -233,71 +233,50 @@ export const ChatHub: React.FC = () => {
       setIsSending(true);
       setSendError(null);
       try {
-        const isHelpCommand = /^\/?help$/i.test(commandText);
-        const isShutdownCommand = /^\/?shutdown$/i.test(commandText)
-          || /^(?:please\s+)?shut\s+down\s+(?:the\s+)?(?:yousound|site|website)[.!]?$/i.test(commandText)
-          || /^take\s+(?:the\s+)?(?:yousound|site|website)\s+offline[.!]?$/i.test(commandText);
+        const history = messages
+          .filter(message => !(message.senderId === 'announcement-bot' && String(message.content || '').startsWith('[YOUTUBE ACCESS CODE]')))
+          .slice(-8)
+          .map(message => ({
+            role: message.senderId === currentUser.id ? 'user' : 'model',
+            text: message.content,
+          }));
+        const response = await fetch('/api/ai/assistant', {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: commandText, history }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success || typeof data.reply !== 'string') {
+          const diagnostic = data.requestId ? ' (Diagnostic code: ' + data.requestId + ')' : '';
+          throw new Error((data.error || 'YouSound AI could not answer right now.') + diagnostic);
+        }
 
-        if (isHelpCommand || isShutdownCommand) {
-          const response = await fetch('/api/chat/yousound-ai/command', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: commandText }),
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || !data.success) throw new Error(data.error || 'YouSound AI could not process that command.');
-          const returnedMessages = Array.isArray(data.messages) ? data.messages : [];
-          setMessages(previous => [...previous, ...returnedMessages]);
-          const lastMessage = returnedMessages[returnedMessages.length - 1];
-          setThreads(previous => previous.map(thread => thread.id === currentThread.id
-            ? { ...thread, lastMessage: lastMessage?.content || commandText, lastMessageSender: 'YouSound AI', lastMessageAt: lastMessage?.createdAt || new Date().toISOString() }
-            : thread));
-          setMessageInput('');
-          if (typeof data.shutdownChallengeToken === 'string' && data.shutdownChallengeToken) {
-            setShutdownChallengeToken(data.shutdownChallengeToken);
-            setShutdownConfirmText('');
-            setShutdownDataAcknowledged(false);
-            setShutdownConfirmFeedback('');
-          }
-        } else {
-          const history = messages
-            .filter(message => !(message.senderId === 'announcement-bot' && String(message.content || '').startsWith('[YOUTUBE ACCESS CODE]')))
-            .slice(-8)
-            .map(message => ({
-              role: message.senderId === currentUser.id ? 'user' : 'model',
-              text: message.content,
-            }));
-          const response = await fetch('/api/ai/assistant', {
-            method: 'POST',
-            credentials: 'same-origin',
-            cache: 'no-store',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: commandText, history }),
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok || !data.success || typeof data.reply !== 'string') {
-            const diagnostic = data.requestId ? ' (Diagnostic code: ' + data.requestId + ')' : '';
-            throw new Error((data.error || 'YouSound AI could not answer right now.') + diagnostic);
-          }
+        const saveResponse = await fetch('/api/chat/yousound-ai/transcript', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: commandText, reply: data.reply }),
+        });
+        const saved = await saveResponse.json().catch(() => ({}));
+        if (!saveResponse.ok || !saved.success) {
+          throw new Error(saved.error || 'YouSound AI replied, but the conversation could not be saved.');
+        }
 
-          const saveResponse = await fetch('/api/chat/yousound-ai/transcript', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: commandText, reply: data.reply }),
-          });
-          const saved = await saveResponse.json().catch(() => ({}));
-          if (!saveResponse.ok || !saved.success) {
-            throw new Error(saved.error || 'YouSound AI replied, but the conversation could not be saved.');
-          }
-          const returnedMessages = Array.isArray(saved.messages) ? saved.messages : [];
-          setMessages(previous => [...previous, ...returnedMessages]);
-          const lastMessage = returnedMessages[returnedMessages.length - 1];
-          setThreads(previous => previous.map(thread => thread.id === currentThread.id
-            ? { ...thread, lastMessage: lastMessage?.content || data.reply, lastMessageSender: 'YouSound AI', lastMessageAt: lastMessage?.createdAt || new Date().toISOString() }
-            : thread));
-          setMessageInput('');
+        const returnedMessages = Array.isArray(saved.messages) ? saved.messages : [];
+        setMessages(previous => [...previous, ...returnedMessages]);
+        const lastMessage = returnedMessages[returnedMessages.length - 1];
+        setThreads(previous => previous.map(thread => thread.id === currentThread.id
+          ? { ...thread, lastMessage: lastMessage?.content || data.reply, lastMessageSender: 'YouSound AI', lastMessageAt: lastMessage?.createdAt || new Date().toISOString() }
+          : thread));
+        setMessageInput('');
+
+        if (typeof data.shutdownChallengeToken === 'string' && data.shutdownChallengeToken) {
+          setShutdownChallengeToken(data.shutdownChallengeToken);
+          setShutdownConfirmText('');
+          setShutdownDataAcknowledged(false);
+          setShutdownConfirmFeedback('');
         }
       } catch (error: any) {
         setSendError(error?.message || 'YouSound AI could not complete that request.');
