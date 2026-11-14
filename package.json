@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "npm run build:crossy-road && vite build",
     "preview": "vite preview",
     "start": "tsx server.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "build:crossy-road": "node scripts/build-crossy-road.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -32,7 +33,8 @@
     "pg": "^8.23.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
