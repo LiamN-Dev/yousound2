@@ -3143,6 +3143,34 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     previous.push(now);
     aiAssistantRateLimit.set(account.uid, previous);
 
+    const isHelpCommand = /^\\/?help$/i.test(message);
+    const isShutdownCommand = /^\\/?shutdown$/i.test(message)
+      || /^(?:please\\s+)?shut\\s+down\\s+(?:the\\s+)?(?:yousound|site|website)[.!]?$/i.test(message)
+      || /^take\\s+(?:the\\s+)?(?:yousound|site|website)\\s+offline[.!]?$/i.test(message);
+
+    // All assistant actions enter through the regular YouSound AI endpoint.
+    // Only this explicitly supported action is executable; admin-selected permissions
+    // and a separately confirmed, one-time token still gate emergency shutdown.
+    if (isHelpCommand || isShutdownCommand) {
+      let reply = 'I am YouSound AI. Ask questions normally in this conversation. I can only perform administrator-authorized actions, and every sensitive action requires confirmation.';
+      let shutdownChallengeToken: string | undefined;
+      if (isShutdownCommand) {
+        if (!(await isEmergencyShutdownTrusted(account.uid))) {
+          reply = 'This account is not authorized to initiate an emergency shutdown. Only accounts selected by an administrator as Trusted Operators can use that action.';
+        } else {
+          shutdownChallengeToken = randomBytes(32).toString('hex');
+          const challenge: EmergencyShutdownChallengeRecord = {
+            tokenHash: createHash('sha256').update(shutdownChallengeToken).digest('hex'),
+            expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+          };
+          await setPersistentSettingDb(EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX + account.uid, challenge);
+          reply = 'Trusted Operator verified. This action will take the entire YouSound site offline for everyone. Your music, accounts, and database data remain stored, but the site will stay offline until an administrator changes EMERGENCY_RECOVERY.txt in GitHub and deploys a new commit. Confirm in the separate dialog within 2 minutes to continue.';
+        }
+      }
+      res.setHeader('Cache-Control', 'no-store, private');
+      return res.json({ success: true, reply, shutdownChallengeToken });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) return res.status(503).json({ success: false, error: 'The AI service is not configured yet. Add GEMINI_API_KEY to the Render environment.' });
 
@@ -7563,81 +7591,6 @@ app.get('/api/chat/threads', async (req: Request, res: Response) => {
     return res.status(500).json({ error: error.message });
   }
 });
-// YouSound AI commands are processed in the user's existing AI chat conversation.
-app.post('/api/chat/yousound-ai/command', async (req: Request, res: Response) => {
-  try {
-    const session = getAuthUser(req);
-    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
-    const account = await getUserByUid(session.uid);
-    if (!isActiveChatAccount(account)) return res.status(403).json({ success: false, error: 'This account is not currently allowed to use Chat.' });
-
-    const rawCommand = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
-    const command = rawCommand.toLowerCase();
-    const isHelpCommand = ['/help', 'help'].includes(command);
-    const isShutdownCommand = ['/shutdown', 'shutdown'].includes(command)
-      || /^(?:please\s+)?shut\s+down\s+(?:the\s+)?(?:yousound|site|website)[.!]?$/i.test(rawCommand)
-      || /^take\s+(?:the\s+)?(?:yousound|site|website)\s+offline[.!]?$/i.test(rawCommand);
-    if (!isHelpCommand && !isShutdownCommand) {
-      return res.status(400).json({ success: false, error: 'That is not a supported YouSound AI command.' });
-    }
-    if (!allowChatMessage(account.uid)) return res.status(429).json({ success: false, error: 'Please wait a moment before sending another command.' });
-
-    const thread: any = await createOrForceChatThreadDb(
-      account.uid,
-      String(account.username || 'User'),
-      ANNOUNCEMENT_BOT_ID,
-      ANNOUNCEMENT_BOT_NAME,
-      false
-    );
-    const threadId = String(thread?.id || '');
-    if (!threadId || (thread.user1Id !== account.uid && thread.user2Id !== account.uid)
-      || (thread.user1Id !== ANNOUNCEMENT_BOT_ID && thread.user2Id !== ANNOUNCEMENT_BOT_ID)
-      || thread.isTerminated) {
-      return res.status(409).json({ success: false, error: 'Your YouSound AI conversation is unavailable.' });
-    }
-
-    const userMessage = await createChatMessageDb({
-      id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
-      threadId,
-      senderId: account.uid,
-      senderUsername: String(account.username || 'User'),
-      receiverId: ANNOUNCEMENT_BOT_ID,
-      content: rawCommand,
-    });
-
-    let reply = 'I can answer YouSound and music questions in this chat. The available control command is /shutdown. Emergency shutdown is only available to administrator-selected Trusted Operators and always requires separate confirmation.';
-    let shutdownChallengeToken: string | undefined;
-    if (isShutdownCommand) {
-      if (!(await isEmergencyShutdownTrusted(account.uid))) {
-        reply = 'This account is not authorized to initiate an emergency shutdown. Only accounts selected by an administrator as Trusted Operators can use that command.';
-      } else {
-        shutdownChallengeToken = randomBytes(32).toString('hex');
-        const challenge: EmergencyShutdownChallengeRecord = {
-          tokenHash: createHash('sha256').update(shutdownChallengeToken).digest('hex'),
-          expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
-        };
-        await setPersistentSettingDb(EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX + account.uid, challenge);
-        reply = 'Trusted Operator verified. This action will take the entire YouSound site offline for everyone. Your music, accounts, and database data remain stored, but the site will stay offline until an administrator changes EMERGENCY_RECOVERY.txt in GitHub and deploys a new commit. Confirm in the separate dialog within 2 minutes to continue.';
-      }
-    } else if (isHelpCommand) {
-      reply = 'I am YouSound AI. Ask questions normally in this conversation. For site controls, type /shutdown or ask me to shut down the YouSound site. Only administrator-selected Trusted Operators can start that action, and it always requires a separate confirmation.';
-    }
-
-    const aiMessage = await createChatMessageDb({
-      id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
-      threadId,
-      senderId: ANNOUNCEMENT_BOT_ID,
-      senderUsername: ANNOUNCEMENT_BOT_NAME,
-      receiverId: account.uid,
-      content: reply,
-    });
-    return res.json({ success: true, messages: [userMessage, aiMessage], shutdownChallengeToken });
-  } catch (error: any) {
-    console.error('[YouSound AI] Command failed:', error?.message || error);
-    return res.status(500).json({ success: false, error: 'YouSound AI could not process that command.' });
-  }
-});
-
 // Save ordinary AI answers into the same YouSound AI chat thread.
 app.post('/api/chat/yousound-ai/transcript', async (req: Request, res: Response) => {
   try {
