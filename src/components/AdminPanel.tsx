@@ -2325,7 +2325,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save the code.');
       setConfigured(true);
       setCode('');
-      setFeedback('YouTube activation code updated. Announcement Bot delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts.');
+      setFeedback('YouTube activation code updated. YouSound AI delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts.');
     } catch (error: any) {
       setFeedback(error?.message || 'Could not save the code.');
     } finally { setSaving(false); }
