@@ -156,12 +156,11 @@ function cloneModel(source: THREE.Group): THREE.Group {
 
 export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const worldRef = useRef<THREE.Group | null>(null);
   const modelsRef = useRef<LoadedModels | null>(null);
+  const objectPoolRef = useRef<Map<string, THREE.Group>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [modelsReady, setModelsReady] = useState(false);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -209,10 +208,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     const world = new THREE.Group();
     scene.add(world);
 
-    sceneRef.current = scene;
-    cameraRef.current = camera;
     worldRef.current = world;
-    rendererRef.current = renderer;
 
     const resize = () => {
       if (!mount || !alive) return;
@@ -237,6 +233,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       if (!alive) return;
       modelsRef.current = models;
       setLoadError('');
+      setModelsReady(true);
       setLoading(false);
     }).catch((error: any) => {
       if (!alive) return;
@@ -252,9 +249,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       renderer.domElement.remove();
       for (const url of blobUrls) URL.revokeObjectURL(url);
       modelsRef.current = null;
-      rendererRef.current = null;
-      sceneRef.current = null;
-      cameraRef.current = null;
+      objectPoolRef.current.clear();
       worldRef.current = null;
     };
   }, []);
@@ -262,14 +257,31 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
   useEffect(() => {
     const world = worldRef.current;
     const models = modelsRef.current;
-    if (!world || !models) return;
-    world.clear();
+    if (!world || !models || !modelsReady) return;
 
-    const addSurface = (source: THREE.Group, row: number) => {
-      const surface = cloneModel(source);
-      surface.scale.set(COLS / 25, 1, 1);
-      surface.position.set(0, -0.015, row - game.row);
-      world.add(surface);
+    const activeKeys = new Set<string>();
+    const place = (
+      key: string,
+      source: THREE.Group,
+      x: number,
+      y: number,
+      z: number,
+      scaleX = 1,
+      scaleY = 1,
+      scaleZ = 1,
+      rotationY = 0,
+    ) => {
+      let object = objectPoolRef.current.get(key);
+      if (!object) {
+        object = cloneModel(source);
+        objectPoolRef.current.set(key, object);
+        world.add(object);
+      }
+      activeKeys.add(key);
+      object.visible = true;
+      object.position.set(x, y, z);
+      object.scale.set(scaleX, scaleY, scaleZ);
+      object.rotation.set(0, rotationY, 0);
     };
 
     const visible = game.lanes
@@ -279,50 +291,64 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     for (const lane of visible) {
       const rel = lane.row - game.row;
       if (lane.kind === 'grass') {
-        addSurface(lane.row % 2 === 0 ? models.grassLight : models.grassDark, lane.row);
-        for (const treeX of (lane.trees || [])) {
-          const tree = cloneModel(models.tree);
-          tree.position.set(treeX - 4, 0.36, rel);
+        place(
+          'lane:' + lane.row + ':surface',
+          lane.row % 2 === 0 ? models.grassLight : models.grassDark,
+          0, -0.015, rel,
+          COLS / 25, 1, 1,
+        );
+        (lane.trees || []).forEach((treeX, index) => {
           const size = treeX % 2 === 0 ? 1 : 0.92;
-          tree.scale.setScalar(size);
-          world.add(tree);
+          place('lane:' + lane.row + ':tree:' + index, models.tree, treeX - 4, 0.36, rel, size, size, size);
+        });
+        if (lane.row >= game.row - 4 && lane.row % 5 === 2) {
+          place('lane:' + lane.row + ':rock', models.boulder, -5.05, 0, rel, 0.55, 0.55, 0.55);
         }
       } else if (lane.kind === 'road') {
-        addSurface(lane.row % 2 === 0 ? models.roadMarked : models.roadBlank, lane.row);
+        place(
+          'lane:' + lane.row + ':surface',
+          lane.row % 2 === 0 ? models.roadMarked : models.roadBlank,
+          0, -0.015, rel,
+          COLS / 25, 1, 1,
+        );
         lane.objects.forEach((object, index) => {
-          const vehicle = cloneModel(index % 2 === 0 ? models.blueCar : models.redTruck);
-          const scale = index % 2 === 0 ? 0.9 : 0.48;
-          vehicle.scale.setScalar(scale);
-          vehicle.rotation.y = lane.direction > 0 ? Math.PI / 2 : -Math.PI / 2;
-          vehicle.position.set(object.x + object.length / 2 - 4.5, 0.26, rel);
-          world.add(vehicle);
+          const isCar = index % 2 === 0;
+          const scale = isCar ? 0.9 : 0.48;
+          place(
+            'lane:' + lane.row + ':vehicle:' + object.id,
+            isCar ? models.blueCar : models.redTruck,
+            object.x + object.length / 2 - 4.5,
+            0.26,
+            rel,
+            scale, scale, scale,
+            lane.direction > 0 ? Math.PI / 2 : -Math.PI / 2,
+          );
         });
       } else {
-        addSurface(models.river, lane.row);
+        place('lane:' + lane.row + ':surface', models.river, 0, -0.015, rel, COLS / 25, 1, 1);
         lane.objects.forEach((object) => {
-          const log = cloneModel(models.log);
-          log.scale.set(Math.max(1, object.length), 0.92, 0.92);
-          log.position.set(object.x + object.length / 2 - 4.5, 0.08, rel);
-          world.add(log);
+          place(
+            'lane:' + lane.row + ':log:' + object.id,
+            models.log,
+            object.x + object.length / 2 - 4.5,
+            0.08,
+            rel,
+            Math.max(1, object.length), 0.92, 0.92,
+          );
         });
       }
     }
 
-    const player = cloneModel(models.chicken);
-    player.position.set(game.x - 4, 0.38, 0);
-    player.rotation.y = Math.PI;
-    world.add(player);
+    place('player:chicken', models.chicken, game.x - 4, 0.38, 0, 1, 1, 1, Math.PI);
 
-    // Decorative rocks at the outer edges give the lanes a little more depth.
-    for (const lane of visible) {
-      if (lane.kind !== 'grass' || lane.row < game.row - 4) continue;
-      if (lane.row % 5 !== 2) continue;
-      const rock = cloneModel(models.boulder);
-      rock.scale.setScalar(0.55);
-      rock.position.set(-5.05, 0, lane.row - game.row);
-      world.add(rock);
+    // Reuse models while visible. Remove only objects that have left the camera window
+    // or were removed by the gameplay simulation; no per-frame geometry/material churn.
+    for (const [key, object] of objectPoolRef.current) {
+      if (activeKeys.has(key)) continue;
+      world.remove(object);
+      objectPoolRef.current.delete(key);
     }
-  }, [game]);
+  }, [game, modelsReady]);
 
   return (
     <div ref={mountRef} className="absolute inset-0 overflow-hidden bg-[#cfe9f6]">
