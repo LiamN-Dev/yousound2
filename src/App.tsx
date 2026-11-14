@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AudioProvider, useAudio } from './context/AudioContext';
@@ -62,6 +62,7 @@ const MainAppContent: React.FC = () => {
   const [isYouTubeModeOpen, setIsYouTubeModeOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin'>('library');
   const [openChatAssistantRequest, setOpenChatAssistantRequest] = useState(0);
+  const handleChatAIRequestHandled = useCallback(() => setOpenChatAssistantRequest(0), []);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
 
@@ -398,7 +399,7 @@ const MainAppContent: React.FC = () => {
         )}
 
         {/* Tab 4: Chat & School Messaging */}
-        {activeTab === 'chat' && <ChatCenter openAIRequestId={openChatAssistantRequest} onAIRequestHandled={() => setOpenChatAssistantRequest(0)} />}
+        {activeTab === 'chat' && <ChatCenter openAIRequestId={openChatAssistantRequest} onAIRequestHandled={handleChatAIRequestHandled} />}
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
