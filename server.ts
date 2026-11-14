@@ -3133,7 +3133,6 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
     const account = await getUserByUid(session.uid);
     if (!account || !account.isApproved || account.isSuspended || account.isLocked) return res.status(403).json({ success: false, error: 'This account is not allowed to use YouSound AI.' });
-    if (account.role !== 'admin' && account.aiBetaEnabled !== true) return res.status(403).json({ success: false, error: 'YouSound AI is currently available to selected beta accounts only.' });
 
     const chatContext = req.body?.chatContext === true;
     if (account.role !== 'admin' && account.aiBetaEnabled !== true && !chatContext) {
@@ -7655,7 +7654,7 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
     const session = getAuthUser(req);
     if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
     const account = await getUserByUid(session.uid);
-    if (!isActiveChatAccount(account) || !(await isEmergencyShutdownTrusted(account.uid))) {
+    if (!isActiveChatAccount(account) || (account.role !== 'admin' && !(await isEmergencyShutdownTrusted(account.uid)))) {
       return res.status(403).json({ success: false, error: 'This account is no longer authorized as a Trusted Operator.' });
     }
 
