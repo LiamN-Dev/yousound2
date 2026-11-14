@@ -22,11 +22,10 @@ import {
   Activity,
   Headphones,
   Gamepad2,
-  BrainCircuit,
 } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin';
+  activeTab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin';
   setActiveTab: (tab: 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin') => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -305,18 +304,8 @@ export const LegacyHeader: React.FC<HeaderProps> = ({
                   <span>Status</span>
                 </button>
 
-                {(isAdmin || currentUser?.aiBetaEnabled) && (
-                  <button type="button" onClick={() => setActiveTab('ai')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-xl font-semibold shrink-0 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-600/15">
-                    <BrainCircuit className="w-3.5 h-3.5" /><span>YouSound AI</span><span className="rounded bg-cyan-200 px-1 py-0.5 text-[7px] font-black text-slate-950">BETA</span>
-                  </button>
-                )}
 
-                {(isAdmin || currentUser?.aiBetaEnabled) && (
-              <button onClick={() => setActiveTab('ai')} className="px-3 py-1.5 text-xs rounded-xl whitespace-nowrap font-semibold shrink-0 flex items-center gap-1.5 text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/50">
-                <BrainCircuit className="w-3.5 h-3.5" /> YouSound AI <span className="rounded bg-cyan-200 px-1 py-0.5 text-[7px] font-black text-slate-950">BETA</span>
-              </button>
-            )}
-            {(isAdmin || currentUser?.gamesEnabled) && (
+                {(isAdmin || currentUser?.gamesEnabled) && (
                   <button
                     type="button"
                     onClick={() => setActiveTab('games')}
