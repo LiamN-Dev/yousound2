@@ -7155,6 +7155,7 @@ app.post('/api/admin/emergency-shutdown', async (req: Request, res: Response) =>
     return res.json({
       success: true,
       message: 'Emergency shutdown activated. The site is offline. To restore it, change EMERGENCY_RECOVERY.txt in GitHub and deploy that new commit.',
+      chatMessage,
     });
   } catch (error: any) {
     console.error('[Emergency Shutdown] Activation failed:', error);
@@ -7693,17 +7694,18 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
     };
     await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, record);
     emergencyShutdownCache = { checkedAt: Date.now(), record };
+    let chatMessage: any = null;
     try {
-      const botThread: any = await createOrForceChatThreadDb(
+      const aiThread: any = await createOrForceChatThreadDb(
         account.uid,
         String(account.username || 'Trusted Operator'),
         ANNOUNCEMENT_BOT_ID,
         ANNOUNCEMENT_BOT_NAME,
         false
       );
-      await createChatMessageDb({
+      chatMessage = await createChatMessageDb({
         id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
-        threadId: String(botThread.id),
+        threadId: String(aiThread.id),
         senderId: ANNOUNCEMENT_BOT_ID,
         senderUsername: ANNOUNCEMENT_BOT_NAME,
         receiverId: account.uid,
