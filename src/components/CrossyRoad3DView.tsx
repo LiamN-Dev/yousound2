@@ -1,0 +1,332 @@
+import React, { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { gunzipSync } from 'fflate';
+
+export type CrossyRoad3DGame = {
+  x: number;
+  row: number;
+  lanes: Array<{
+    row: number;
+    kind: 'grass' | 'road' | 'river';
+    direction: 1 | -1;
+    objects: Array<{ id: string; x: number; length: number }>;
+    trees?: number[];
+  }>;
+  score: number;
+  running: boolean;
+  gameOver: boolean;
+};
+
+type LoadedModels = {
+  chicken: THREE.Group;
+  blueCar: THREE.Group;
+  redTruck: THREE.Group;
+  log: THREE.Group;
+  tree: THREE.Group;
+  boulder: THREE.Group;
+  grassLight: THREE.Group;
+  grassDark: THREE.Group;
+  roadMarked: THREE.Group;
+  roadBlank: THREE.Group;
+  river: THREE.Group;
+};
+
+const COLS = 9;
+const decoder = new TextDecoder();
+
+function untarGzip(bytes: Uint8Array): Map<string, Uint8Array> {
+  const tar = gunzipSync(bytes);
+  const files = new Map<string, Uint8Array>();
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((value) => value === 0)) break;
+    const name = decoder.decode(header.subarray(0, 100)).split('\0')[0];
+    const prefix = decoder.decode(header.subarray(345, 500)).split('\0')[0];
+    const fullName = prefix ? prefix + '/' + name : name;
+    const sizeText = decoder.decode(header.subarray(124, 136)).replace(/\0/g, '').trim();
+    const size = Number.parseInt(sizeText || '0', 8);
+    if (!Number.isFinite(size) || size < 0 || offset + 512 + size > tar.length) {
+      throw new Error('The Crossy Road model archive is damaged.');
+    }
+    if (name) files.set(fullName, tar.slice(offset + 512, offset + 512 + size));
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  return files;
+}
+
+function loadTexture(
+  loader: THREE.TextureLoader,
+  blobUrls: string[],
+  bytes: Uint8Array,
+): Promise<THREE.Texture> {
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+  blobUrls.push(url);
+  return new Promise((resolve, reject) => {
+    loader.load(url, (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.generateMipmaps = true;
+      resolve(texture);
+    }, undefined, reject);
+  });
+}
+
+async function loadModel(
+  files: Map<string, Uint8Array>,
+  objPath: string,
+  pngPath: string,
+  objLoader: OBJLoader,
+  textureLoader: THREE.TextureLoader,
+  blobUrls: string[],
+): Promise<THREE.Group> {
+  const objBytes = files.get(objPath);
+  const textureBytes = files.get(pngPath);
+  if (!objBytes || !textureBytes) throw new Error('A Crossy Road model is missing: ' + objPath);
+  const [model, texture] = await Promise.all([
+    Promise.resolve().then(() => objLoader.parse(decoder.decode(objBytes))),
+    loadTexture(textureLoader, blobUrls, textureBytes),
+  ]);
+  const material = new THREE.MeshLambertMaterial({ map: texture });
+  model.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.material = material;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  return model;
+}
+
+async function loadModels(blobUrls: string[]): Promise<LoadedModels> {
+  const response = await fetch('/crossy3d-core.tar.gz', { cache: 'force-cache' });
+  if (!response.ok) throw new Error('Could not load the Crossy Road 3D models (' + response.status + ').');
+  const files = untarGzip(new Uint8Array(await response.arrayBuffer()));
+  const obj = new OBJLoader();
+  const texture = new THREE.TextureLoader();
+  const models = await Promise.all([
+    loadModel(files, 'models/characters/chicken/0.obj', 'models/characters/chicken/0.png', obj, texture, blobUrls),
+    loadModel(files, 'models/vehicles/blue_car/0.obj', 'models/vehicles/blue_car/0.png', obj, texture, blobUrls),
+    loadModel(files, 'models/vehicles/red_truck/0.obj', 'models/vehicles/red_truck/0.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/log/0/0.obj', 'models/environment/log/0/0.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/tree/0/0.obj', 'models/environment/tree/0/0.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/boulder/0/0.obj', 'models/environment/boulder/0/0.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/grass/model.obj', 'models/environment/grass/light-grass.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/grass/model.obj', 'models/environment/grass/dark-grass.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/road/model.obj', 'models/environment/road/stripes-texture.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/road/model.obj', 'models/environment/road/blank-texture.png', obj, texture, blobUrls),
+    loadModel(files, 'models/environment/river/0.obj', 'models/environment/river/0.png', obj, texture, blobUrls),
+  ]);
+  return {
+    chicken: models[0],
+    blueCar: models[1],
+    redTruck: models[2],
+    log: models[3],
+    tree: models[4],
+    boulder: models[5],
+    grassLight: models[6],
+    grassDark: models[7],
+    roadMarked: models[8],
+    roadBlank: models[9],
+    river: models[10],
+  };
+}
+
+function cloneModel(source: THREE.Group): THREE.Group {
+  const clone = source.clone(true);
+  clone.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  return clone;
+}
+
+export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game }) => {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const worldRef = useRef<THREE.Group | null>(null);
+  const modelsRef = useRef<LoadedModels | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+    let alive = true;
+    let frame = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    const blobUrls: string[] = [];
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    } catch {
+      setLoading(false);
+      setLoadError('3D graphics are unavailable in this browser. Enable hardware acceleration and reload YouSound.');
+      return;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor('#cfe9f6');
+    renderer.domElement.className = 'absolute inset-0 h-full w-full';
+    renderer.domElement.setAttribute('aria-label', 'Three-dimensional Crossy Road game board');
+    mount.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#cfe9f6');
+    scene.fog = new THREE.Fog('#cfe9f6', 15, 28);
+    const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 80);
+    camera.position.set(8.5, 11.5, -10.5);
+    camera.lookAt(0, 0.45, 1.25);
+    const ambient = new THREE.HemisphereLight('#ffffff', '#47634b', 2.05);
+    scene.add(ambient);
+    const sunlight = new THREE.DirectionalLight('#fff3d5', 3.1);
+    sunlight.position.set(-5, 13, -2);
+    sunlight.castShadow = true;
+    sunlight.shadow.mapSize.set(1024, 1024);
+    sunlight.shadow.camera.left = -10;
+    sunlight.shadow.camera.right = 10;
+    sunlight.shadow.camera.top = 12;
+    sunlight.shadow.camera.bottom = -12;
+    sunlight.shadow.bias = -0.0002;
+    scene.add(sunlight);
+    const world = new THREE.Group();
+    scene.add(world);
+
+    sceneRef.current = scene;
+    cameraRef.current = camera;
+    worldRef.current = world;
+    rendererRef.current = renderer;
+
+    const resize = () => {
+      if (!mount || !alive) return;
+      const width = Math.max(1, mount.clientWidth);
+      const height = Math.max(1, mount.clientHeight);
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(mount);
+    resize();
+
+    const draw = () => {
+      if (!alive) return;
+      renderer.render(scene, camera);
+      frame = window.requestAnimationFrame(draw);
+    };
+    frame = window.requestAnimationFrame(draw);
+
+    void loadModels(blobUrls).then((models) => {
+      if (!alive) return;
+      modelsRef.current = models;
+      setLoadError('');
+      setLoading(false);
+    }).catch((error: any) => {
+      if (!alive) return;
+      setLoadError(error?.message || 'Could not load the Crossy Road 3D models.');
+      setLoading(false);
+    });
+
+    return () => {
+      alive = false;
+      window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      renderer.dispose();
+      renderer.domElement.remove();
+      for (const url of blobUrls) URL.revokeObjectURL(url);
+      modelsRef.current = null;
+      rendererRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      worldRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const world = worldRef.current;
+    const models = modelsRef.current;
+    if (!world || !models) return;
+    world.clear();
+
+    const addSurface = (source: THREE.Group, row: number) => {
+      const surface = cloneModel(source);
+      surface.scale.set(COLS / 25, 1, 1);
+      surface.position.set(0, -0.015, row - game.row);
+      world.add(surface);
+    };
+
+    const visible = game.lanes
+      .filter((lane) => lane.row >= game.row - 6 && lane.row <= game.row + 6)
+      .sort((a, b) => a.row - b.row);
+
+    for (const lane of visible) {
+      const rel = lane.row - game.row;
+      if (lane.kind === 'grass') {
+        addSurface(lane.row % 2 === 0 ? models.grassLight : models.grassDark, lane.row);
+        for (const treeX of (lane.trees || [])) {
+          const tree = cloneModel(models.tree);
+          tree.position.set(treeX - 4, 0.36, rel);
+          const size = treeX % 2 === 0 ? 1 : 0.92;
+          tree.scale.setScalar(size);
+          world.add(tree);
+        }
+      } else if (lane.kind === 'road') {
+        addSurface(lane.row % 2 === 0 ? models.roadMarked : models.roadBlank, lane.row);
+        lane.objects.forEach((object, index) => {
+          const vehicle = cloneModel(index % 2 === 0 ? models.blueCar : models.redTruck);
+          const scale = index % 2 === 0 ? 0.9 : 0.48;
+          vehicle.scale.setScalar(scale);
+          vehicle.rotation.y = lane.direction > 0 ? Math.PI / 2 : -Math.PI / 2;
+          vehicle.position.set(object.x + object.length / 2 - 4.5, 0.26, rel);
+          world.add(vehicle);
+        });
+      } else {
+        addSurface(models.river, lane.row);
+        lane.objects.forEach((object) => {
+          const log = cloneModel(models.log);
+          log.scale.set(Math.max(1, object.length), 0.92, 0.92);
+          log.position.set(object.x + object.length / 2 - 4.5, 0.08, rel);
+          world.add(log);
+        });
+      }
+    }
+
+    const player = cloneModel(models.chicken);
+    player.position.set(game.x - 4, 0.38, 0);
+    player.rotation.y = Math.PI;
+    world.add(player);
+
+    // Decorative rocks at the outer edges give the lanes a little more depth.
+    for (const lane of visible) {
+      if (lane.kind !== 'grass' || lane.row < game.row - 4) continue;
+      if (lane.row % 5 !== 2) continue;
+      const rock = cloneModel(models.boulder);
+      rock.scale.setScalar(0.55);
+      rock.position.set(-5.05, 0, lane.row - game.row);
+      world.add(rock);
+    }
+  }, [game]);
+
+  return (
+    <div ref={mountRef} className="absolute inset-0 overflow-hidden bg-[#cfe9f6]">
+      {loading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#cfe9f6]/75 text-xs font-bold text-[#263b2b]">
+          Loading 3D models…
+        </div>
+      )}
+      {loadError && (
+        <div role="alert" className="absolute inset-x-4 bottom-4 z-20 rounded-xl border border-rose-300/60 bg-[#fffdf5]/95 p-3 text-center text-[10px] font-semibold leading-5 text-rose-800 shadow-lg">
+          {loadError}
+        </div>
+      )}
+    </div>
+  );
+};
