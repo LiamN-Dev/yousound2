@@ -1,6 +1,6 @@
 import React, { useState, useSyncExternalStore } from 'react';
 import {
-  Activity, BrainCircuit, Gamepad2, Heart, Headphones, ListMusic, LogIn, LogOut,
+  Activity, Gamepad2, Heart, Headphones, ListMusic, LogIn, LogOut,
   MessageSquare, Moon, Music2, Plus, Search, Shield, Sun, X
 } from 'lucide-react';
 import { getFeedbackState, subscribeFeedback } from '../services/feedbackNotifications';
@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAudio } from '../context/AudioContext';
 import { useTheme } from '../context/ThemeContext';
 
-type TabId = 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin';
+type TabId = 'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin';
 interface HeaderProps {
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
@@ -38,7 +38,7 @@ const navItems = [
   { id: 'radio' as const, label: 'Live Radio', icon: Headphones, note: 'LIVE SIGNAL' },
   { id: 'playlists' as const, label: 'Playlists', icon: ListMusic, note: 'YOUR MIXES' },
   { id: 'favorites' as const, label: 'Favorites', icon: Heart, note: 'SAVED TRACKS' },
-  { id: 'chat' as const, label: 'Community', icon: MessageSquare, note: 'COMMUNITY' },
+  { id: 'chat' as const, label: 'Chat', icon: MessageSquare, note: 'CHAT' },
   { id: 'status' as const, label: 'System Status', icon: Activity, note: 'NETWORK' },
 ];
 
@@ -66,9 +66,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   const visibleItems = [
     ...navItems,
-    ...((isAdmin || currentUser?.aiBetaEnabled)
-      ? [{ id: 'ai' as const, label: 'YouSound AI', icon: BrainCircuit, note: 'AI STUDIO' }]
-      : []),
     ...((isAdmin || currentUser?.gamesEnabled)
       ? [{ id: 'games' as const, label: 'Arcade', icon: Gamepad2, note: 'GAME ZONE' }]
       : []),
