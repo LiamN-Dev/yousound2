@@ -11,7 +11,7 @@ type ChatPanel = 'messages' | 'assistant' | 'safety';
 const tabClass = (active: boolean) => 'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition ' +
   (active ? 'bg-cyan-200 text-slate-950 shadow-lg shadow-cyan-950/20' : 'border border-white/10 bg-white/[.04] text-slate-300 hover:bg-white/[.08] hover:text-white');
 
-export const ChatCenter: React.FC = () => {
+export const ChatCenter: React.FC<{ openAIRequestId?: number; onAIRequestHandled?: () => void }> = ({ openAIRequestId = 0, onAIRequestHandled }) => {
   const { currentUser, isAdmin } = useAuth();
   const [panel, setPanel] = useState<ChatPanel>('messages');
   const aiEnabled = isAdmin || currentUser?.aiBetaEnabled === true;
@@ -21,6 +21,13 @@ export const ChatCenter: React.FC = () => {
     if (panel === 'assistant' && !aiEnabled) setPanel('messages');
     if (panel === 'safety' && !isAdmin) setPanel('messages');
   }, [panel, aiEnabled, isAdmin]);
+
+  useEffect(() => {
+    if (openAIRequestId > 0) {
+      if (aiEnabled) setPanel('assistant');
+      onAIRequestHandled?.();
+    }
+  }, [openAIRequestId, aiEnabled, onAIRequestHandled]);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 pb-28">
