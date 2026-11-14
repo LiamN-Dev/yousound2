@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { YouTubeTrackedPlayer } from './YouTubeTrackedPlayer';
 import { AlertCircle, Check, Clapperboard, Compass, Heart, Loader2, Play, Search, Settings2, ThumbsDown, TrendingUp, UserRound, Users, Youtube, X } from 'lucide-react';
 
 type Video = {
