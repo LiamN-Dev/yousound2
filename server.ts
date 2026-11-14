@@ -292,8 +292,8 @@ const YOUTUBE_MODE_ACCESS_LOG_SETTING = 'youtube_mode_successful_access_log_v1';
 const YOUTUBE_MODE_CODE_RECIPIENTS_SETTING = 'youtube_mode_code_recipients_v1';
 const EMERGENCY_SHUTDOWN_TRUSTED_SETTING = 'emergency_shutdown_trusted_uids_v1';
 const EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX = 'emergency_shutdown_challenge_v1:';
-const ANNOUNCEMENT_BOT_ID = 'announcement-bot';
-const ANNOUNCEMENT_BOT_NAME = 'Announcement Bot';
+const YOUSOUND_AI_ID = 'yousound-ai';
+const YOUSOUND_AI_NAME = 'YouSound AI';
 
 type EmergencyShutdownChallengeRecord = {
   tokenHash: string;
@@ -310,7 +310,7 @@ function isActiveChatAccount(user: any): boolean {
   return Boolean(user && user.isApproved && !user.isSuspended && !user.isLocked && !user.chatBlocked);
 }
 
-async function sendAnnouncementBotMessage(
+async function sendYouSoundAiMessage(
   uid: string,
   content: string,
   options: { replacePreviousCode?: boolean } = {}
@@ -321,8 +321,8 @@ async function sendAnnouncementBotMessage(
   const thread: any = await createOrForceChatThreadDb(
     recipient.uid,
     String(recipient.username || 'User'),
-    ANNOUNCEMENT_BOT_ID,
-    ANNOUNCEMENT_BOT_NAME,
+    YOUSOUND_AI_ID,
+    YOUSOUND_AI_NAME,
     false
   );
   const threadId = String(thread?.id || '');
@@ -331,7 +331,7 @@ async function sendAnnouncementBotMessage(
   if (options.replacePreviousCode) {
     const previousMessages = await getChatMessagesDb(threadId);
     for (const message of previousMessages as any[]) {
-      if (message.senderId === ANNOUNCEMENT_BOT_ID && String(message.content || '').startsWith('[YOUTUBE ACCESS CODE]')) {
+      if (message.senderId === YOUSOUND_AI_ID && String(message.content || '').startsWith('[YOUTUBE ACCESS CODE]')) {
         await deleteChatMessageDb(message.id);
       }
     }
@@ -340,8 +340,8 @@ async function sendAnnouncementBotMessage(
   await createChatMessageDb({
     id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
     threadId,
-    senderId: ANNOUNCEMENT_BOT_ID,
-    senderUsername: ANNOUNCEMENT_BOT_NAME,
+    senderId: YOUSOUND_AI_ID,
+    senderUsername: YOUSOUND_AI_NAME,
     receiverId: recipient.uid,
     content: content.slice(0, 1900),
   });
@@ -426,7 +426,7 @@ app.get('/api/admin/youtube-mode/status', async (req: Request, res: Response) =>
   }
 });
 
-app.get('/api/admin/security-bot/settings', async (req: Request, res: Response) => {
+app.get('/api/admin/yousound-ai/settings', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
     const [youtubeCodeRecipientUids, shutdownTrustedUserIds] = await Promise.all([
@@ -435,12 +435,12 @@ app.get('/api/admin/security-bot/settings', async (req: Request, res: Response) 
     ]);
     return res.json({ success: true, youtubeCodeRecipientUids, shutdownTrustedUserIds });
   } catch (error: any) {
-    console.error('[Announcement Bot] Settings load failed:', error?.message || error);
+    console.error('[YouSound AI] Settings load failed:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not load security bot settings.' });
   }
 });
 
-app.put('/api/admin/security-bot/settings', async (req: Request, res: Response) => {
+app.put('/api/admin/yousound-ai/settings', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
     const requestedRecipients: unknown[] = Array.isArray(req.body?.youtubeCodeRecipientUids) ? req.body.youtubeCodeRecipientUids : [];
@@ -471,7 +471,7 @@ app.put('/api/admin/security-bot/settings', async (req: Request, res: Response) 
     ]);
     return res.json({ success: true, youtubeCodeRecipientUids: recipients, shutdownTrustedUserIds: trusted });
   } catch (error: any) {
-    console.error('[Announcement Bot] Settings save failed:', error?.message || error);
+    console.error('[YouSound AI] Settings save failed:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not save security bot settings.' });
   }
 });
@@ -484,12 +484,12 @@ app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
     const hash = await hashPasswordSecure(code);
     await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, hash);
     const recipients = await getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING);
-    const deliveries = await Promise.all(recipients.map(uid => sendAnnouncementBotMessage(
+    const deliveries = await Promise.all(recipients.map(uid => sendYouSoundAiMessage(
       uid,
       '[YOUTUBE ACCESS CODE]\n\nYour YouSound YouTube Mode access code has changed:\n\n' + code + '\n\nEnter this code in the normal YouSound song search field and press Enter. This is a YouSound access code, not your Google password. Keep it private.',
       { replacePreviousCode: true }
     ).catch(error => {
-      console.warn('[Announcement Bot] YouTube code delivery failed for a selected account:', error?.message || error);
+      console.warn('[YouSound AI] YouTube code delivery failed for a selected account:', error?.message || error);
       return false;
     })));
     return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length, selectedRecipients: recipients.length });
@@ -504,7 +504,7 @@ app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) =
   try {
     await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, null);
     const recipients = await getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING);
-    const deliveries = await Promise.all(recipients.map(uid => sendAnnouncementBotMessage(
+    const deliveries = await Promise.all(recipients.map(uid => sendYouSoundAiMessage(
       uid,
       '[YOUTUBE ACCESS CODE]\n\nThe YouSound YouTube Mode access code has been removed. The previous code no longer works.',
       { replacePreviousCode: true }
@@ -3135,8 +3135,84 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     if (!account || !account.isApproved || account.isSuspended || account.isLocked) return res.status(403).json({ success: false, error: 'This account is not allowed to use YouSound AI.' });
     if (account.role !== 'admin' && account.aiBetaEnabled !== true) return res.status(403).json({ success: false, error: 'YouSound AI is currently available to selected beta accounts only.' });
 
+    const chatContext = req.body?.chatContext === true;
+    if (account.role !== 'admin' && account.aiBetaEnabled !== true && !chatContext) {
+      return res.status(403).json({ success: false, error: 'YouSound AI is currently available to selected beta accounts only.' });
+    }
+    if (chatContext && account.chatBlocked) {
+      return res.status(403).json({ success: false, error: 'Your chat privileges have been disabled by Administrator.' });
+    }
+
     const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
     if (!message || message.length > 1200) return res.status(400).json({ success: false, error: 'Enter a message up to 1,200 characters.' });
+
+    const saveChatTurn = async (reply: string, extra: Record<string, any> = {}) => {
+      if (!chatContext) {
+        return res.json({ success: true, reply, ...extra });
+      }
+      if (!isActiveChatAccount(account)) {
+        return res.status(403).json({ success: false, error: 'This account is not currently allowed to chat with YouSound AI.' });
+      }
+      const aiThread: any = await createOrForceChatThreadDb(
+        account.uid,
+        String(account.username || 'User'),
+        YOUSOUND_AI_ID,
+        YOUSOUND_AI_NAME,
+        false
+      );
+      const expectedThreadId = String(aiThread?.id || '');
+      const suppliedThreadId = typeof req.body?.threadId === 'string' ? req.body.threadId : expectedThreadId;
+      if (!expectedThreadId || suppliedThreadId !== expectedThreadId) {
+        return res.status(403).json({ success: false, error: 'This YouSound AI conversation does not belong to your account.' });
+      }
+      const userMessage = await createChatMessageDb({
+        id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+        threadId: expectedThreadId,
+        senderId: account.uid,
+        senderUsername: String(account.username || 'User'),
+        receiverId: YOUSOUND_AI_ID,
+        content: message.slice(0, 1200),
+      });
+      const aiMessage = await createChatMessageDb({
+        id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+        threadId: expectedThreadId,
+        senderId: YOUSOUND_AI_ID,
+        senderUsername: YOUSOUND_AI_NAME,
+        receiverId: account.uid,
+        content: reply.slice(0, 4000),
+      });
+      return res.json({ success: true, reply, messages: [userMessage, aiMessage], ...extra });
+    };
+
+    const normalizedCommand = message.trim().toLowerCase();
+    if (['/help', 'help'].includes(normalizedCommand)) {
+      const trusted = account.role === 'admin' || await isEmergencyShutdownTrusted(account.uid);
+      const helpReply = trusted
+        ? 'YouSound AI commands: /help shows this message. /shutdown requests the emergency site shutdown and opens a separate confirmation. You can also ask me normal questions in this chat.'
+        : 'YouSound AI can answer questions and help with YouSound. The available command is /help. Emergency shutdown is restricted to administrator-selected Trusted Operators.';
+      return saveChatTurn(helpReply, { commandProcessed: true });
+    }
+
+    if (['/shutdown', 'shutdown', '/emergency-shutdown', 'emergency shutdown'].includes(normalizedCommand)) {
+      const trusted = account.role === 'admin' || await isEmergencyShutdownTrusted(account.uid);
+      if (!trusted) {
+        return saveChatTurn(
+          'I cannot start an emergency shutdown from this account. Only administrators and accounts explicitly selected as Trusted Shutdown Operators can request it.',
+          { commandProcessed: true }
+        );
+      }
+      const challengeToken = randomBytes(32).toString('hex');
+      const challenge: EmergencyShutdownChallengeRecord = {
+        tokenHash: createHash('sha256').update(challengeToken).digest('hex'),
+        expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+      };
+      await setPersistentSettingDb(EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX + account.uid, challenge);
+      const shutdownReply = 'Trusted Operator verified. This will take the entire YouSound site offline for everyone. Your music, accounts, and database data remain stored, but recovery requires an administrator to change EMERGENCY_RECOVERY.txt in GitHub and deploy a new commit. Confirm separately within 2 minutes to continue.';
+      return saveChatTurn(shutdownReply, {
+        commandProcessed: true,
+        action: { type: 'emergency-shutdown-confirmation', challengeToken },
+      });
+    }
     const now = Date.now();
     const previous = (aiAssistantRateLimit.get(account.uid) || []).filter((time) => now - time < 60000);
     if (previous.length >= 8) return res.status(429).json({ success: false, error: 'YouSound AI is rate-limited to 8 messages per minute. Please try again shortly.' });
@@ -3192,7 +3268,7 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
     const reply = String(response.text || '').trim();
     if (!reply) return res.status(502).json({ success: false, error: 'The AI service returned an empty response. Please try again.' });
     res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, reply, liveStatusAvailable: liveStatus.available, providerModel: generated.model });
+    return saveChatTurn(reply, { liveStatusAvailable: liveStatus.available, providerModel: generated.model });
   } catch (error: any) {
     const statusCode = Number(error?.status || error?.statusCode || error?.response?.status || 0) || null;
     const providerMessage = String(error?.message || '');
@@ -7514,37 +7590,42 @@ app.delete('/api/chat/requests/:id', async (req: Request, res: Response) => {
 // 2. Chat Threads
 app.get('/api/chat/threads', async (req: Request, res: Response) => {
   try {
-    if (!getAuthUser(req)) return res.status(401).json({ error: 'Please sign in again.' });
-    if (!isAdminReq(req)) {
-      const member = getAuthUser(req)!;
-      const account = await getUserByUid(member.uid);
-      if (isActiveChatAccount(account)) {
-        const botThread: any = await createOrForceChatThreadDb(
-          member.uid,
-          String(account?.username || member.username || 'User'),
-          ANNOUNCEMENT_BOT_ID,
-          ANNOUNCEMENT_BOT_NAME,
-          false
-        );
-        if (botThread?.id && !botThread.lastMessageAt) {
-          await createChatMessageDb({
-            id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
-            threadId: String(botThread.id),
-            senderId: ANNOUNCEMENT_BOT_ID,
-            senderUsername: ANNOUNCEMENT_BOT_NAME,
-            receiverId: member.uid,
-            content: 'Hi! I am the Announcement Bot. I deliver private YouSound announcements to selected accounts. Trusted Operators can type /shutdown to start the emergency shutdown confirmation. Type /help for bot commands.',
-          });
-        }
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ error: 'Please sign in again.' });
+
+    const account = await getUserByUid(session.uid);
+    if (isActiveChatAccount(account)) {
+      const aiThread: any = await createOrForceChatThreadDb(
+        account.uid,
+        String(account.username || session.username || 'User'),
+        YOUSOUND_AI_ID,
+        YOUSOUND_AI_NAME,
+        false
+      );
+      if (aiThread?.id && !aiThread.lastMessageAt) {
+        await createChatMessageDb({
+          id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+          threadId: String(aiThread.id),
+          senderId: YOUSOUND_AI_ID,
+          senderUsername: YOUSOUND_AI_NAME,
+          receiverId: account.uid,
+          content: 'Hi! I am YouSound AI. You can ask questions, get help, and use authorized commands here. Type /help to see the commands available to your account.',
+        });
       }
-      const threads = await getChatThreadsForUserDb(member.uid);
-      // Account-wide chat blocks may keep access to a suspension appeal thread only.
-      return res.json({ threads: member.chatBlocked ? threads.filter((thread: any) => thread.isAppealThread) : threads });
+
+      // Hide the retired Announcement Bot DM for this account; its old transcript remains stored.
+      const legacyThreadId = 'thread-' + [account.uid, 'announcement-bot'].sort().join('-');
+      await hideChatThreadForUserDb(account.uid, legacyThreadId).catch(() => undefined);
     }
+
+    if (!isAdminReq(req)) {
+      const threads = await getChatThreadsForUserDb(session.uid);
+      return res.json({ threads: account?.chatBlocked ? threads.filter((thread: any) => thread.isAppealThread) : threads });
+    }
+
     const { userId, mode } = req.query;
     if (userId && typeof userId === 'string') {
       const user = await getUserByUid(userId);
-      // Admin in oversight mode gets all threads; in personal messaging mode gets their own threads
       if (user?.role === 'admin' && mode === 'oversight') {
         const allThreads = await getChatThreadsDb();
         return res.json({ threads: allThreads });
@@ -7552,80 +7633,21 @@ app.get('/api/chat/threads', async (req: Request, res: Response) => {
       const userThreads = await getChatThreadsForUserDb(userId);
       return res.json({ threads: userThreads });
     }
-    // Admin master list of all threads
+
     const allThreads = await getChatThreadsDb();
-    res.json({ threads: allThreads });
+    return res.json({ threads: allThreads });
   } catch (error: any) {
     console.error('Get chat threads error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 });
 
-// The Announcement Bot accepts only explicit commands; it is not a general chat channel.
-app.post('/api/chat/announcement-bot/command', async (req: Request, res: Response) => {
-  try {
-    const session = getAuthUser(req);
-    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
-    const account = await getUserByUid(session.uid);
-    if (!isActiveChatAccount(account)) return res.status(403).json({ success: false, error: 'This account is not currently allowed to use chat.' });
-
-    const command = typeof req.body?.content === 'string' ? req.body.content.trim().toLowerCase() : '';
-    if (!['/shutdown', 'shutdown', '/help', 'help'].includes(command)) {
-      return res.status(400).json({ success: false, error: 'The Announcement Bot only accepts /help and /shutdown. It is not a private messaging channel.' });
-    }
-    if (!allowChatMessage(account.uid)) return res.status(429).json({ success: false, error: 'Please wait a moment before sending another bot command.' });
-
-    const thread: any = await createOrForceChatThreadDb(
-      account.uid,
-      String(account.username || 'User'),
-      ANNOUNCEMENT_BOT_ID,
-      ANNOUNCEMENT_BOT_NAME,
-      false
-    );
-    const expectedThreadId = String(thread?.id || '');
-    if (!expectedThreadId || (thread.user1Id !== account.uid && thread.user2Id !== account.uid)
-      || (thread.user1Id !== ANNOUNCEMENT_BOT_ID && thread.user2Id !== ANNOUNCEMENT_BOT_ID)) {
-      return res.status(500).json({ success: false, error: 'Announcement Bot conversation could not be opened.' });
-    }
-
-    const userMessage = await createChatMessageDb({
-      id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
-      threadId: expectedThreadId,
-      senderId: account.uid,
-      senderUsername: String(account.username || 'User'),
-      receiverId: ANNOUNCEMENT_BOT_ID,
-      content: command,
-    });
-
-    let reply = 'Bot commands: /help, /shutdown. The shutdown command is available only to accounts an administrator has explicitly designated as Trusted Operators.';
-    let shutdownChallengeToken: string | undefined;
-    if (command === '/shutdown' || command === 'shutdown') {
-      if (!(await isEmergencyShutdownTrusted(account.uid))) {
-        reply = 'This account is not authorized to initiate an emergency shutdown. Only administrator-selected Trusted Operators can use this command.';
-      } else {
-        shutdownChallengeToken = randomBytes(32).toString('hex');
-        const challenge: EmergencyShutdownChallengeRecord = {
-          tokenHash: createHash('sha256').update(shutdownChallengeToken).digest('hex'),
-          expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
-        };
-        await setPersistentSettingDb(EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX + account.uid, challenge);
-        reply = 'Trusted Operator verified. This action will take the entire YouSound site offline for everyone. Your data remains stored, but the site will stay offline until an administrator changes EMERGENCY_RECOVERY.txt in GitHub and deploys a new commit. Complete the separate confirmation dialog within 2 minutes to continue.';
-      }
-    }
-
-    const botMessage = await createChatMessageDb({
-      id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
-      threadId: expectedThreadId,
-      senderId: ANNOUNCEMENT_BOT_ID,
-      senderUsername: ANNOUNCEMENT_BOT_NAME,
-      receiverId: account.uid,
-      content: reply,
-    });
-    return res.json({ success: true, messages: [userMessage, botMessage], shutdownChallengeToken });
-  } catch (error: any) {
-    console.error('[Announcement Bot] Command failed:', error?.message || error);
-    return res.status(500).json({ success: false, error: 'The Announcement Bot could not process that command.' });
-  }
+// Legacy endpoint retired: all user messages and commands are routed through YouSound AI.
+app.post('/api/chat/announcement-bot/legacy-command', (_req: Request, res: Response) => {
+  return res.status(410).json({
+    success: false,
+    error: 'The separate Announcement Bot has been retired. Send commands and messages to YouSound AI in Chat.',
+  });
 });
 
 app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Response) => {
@@ -7683,20 +7705,20 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
       const botThread: any = await createOrForceChatThreadDb(
         account.uid,
         String(account.username || 'Trusted Operator'),
-        ANNOUNCEMENT_BOT_ID,
-        ANNOUNCEMENT_BOT_NAME,
+        YOUSOUND_AI_ID,
+        YOUSOUND_AI_NAME,
         false
       );
       await createChatMessageDb({
         id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
         threadId: String(botThread.id),
-        senderId: ANNOUNCEMENT_BOT_ID,
-        senderUsername: ANNOUNCEMENT_BOT_NAME,
+        senderId: YOUSOUND_AI_ID,
+        senderUsername: YOUSOUND_AI_NAME,
         receiverId: account.uid,
         content: 'EMERGENCY SHUTDOWN ACTIVATED. The entire YouSound site has been taken offline. Your data remains stored. An administrator must change EMERGENCY_RECOVERY.txt in GitHub and deploy a new commit to restore access.',
       });
     } catch (messageError: any) {
-      console.warn('[Announcement Bot] Could not save shutdown confirmation message:', messageError?.message || messageError);
+      console.warn('[YouSound AI] Could not save shutdown confirmation message:', messageError?.message || messageError);
     }
     console.error('[Emergency Shutdown] Activated by trusted operator ' + record.activatedBy + ' on commit ' + record.activatedCommit + '.');
     return res.json({
@@ -7882,8 +7904,8 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     const cleanContent = content.trim().slice(0, 2000);
     const thread: any = await getChatThreadByIdDb(threadId);
     if (!thread) return res.status(404).json({ error: 'Conversation thread not found.' });
-    if (thread.user1Id === ANNOUNCEMENT_BOT_ID || thread.user2Id === ANNOUNCEMENT_BOT_ID) {
-      return res.status(403).json({ success: false, error: 'Use the Announcement Bot command interface instead of sending a regular chat message.' });
+    if (thread.user1Id === YOUSOUND_AI_ID || thread.user2Id === YOUSOUND_AI_ID) {
+      return res.status(403).json({ success: false, error: 'Use the YouSound AI command interface instead of sending a regular chat message.' });
     }
     if (thread.isTerminated) return res.status(409).json({ error: 'This conversation has been locked by an administrator.' });
     if (!thread.isApproved && !thread.isAppealThread) return res.status(403).json({ error: 'This conversation has not been approved.' });
