@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { YouTubeTrackedPlayer } from './YouTubeTrackedPlayer';
 import { AlertCircle, Check, Clapperboard, Compass, Heart, Loader2, Play, Search, Settings2, ThumbsDown, TrendingUp, UserRound, Users, Youtube, X } from 'lucide-react';
 
 type Video = {
@@ -186,6 +187,10 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
       <button type="button" onClick={onClose} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white"><X size={15}/>Close</button>
     </header>
 
+    <div className="border-b border-amber-300/15 bg-amber-300/[.06] px-4 py-2 text-center text-[10px] leading-4 text-amber-100/80">
+      Safety notice: playback inside YouSound records basic viewing activity and public video metadata for AI-assisted safety review. It does not monitor videos watched in the separate YouTube app or other tabs.
+    </div>
+
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-white/[.07] bg-[#0b1220] px-4 py-3 sm:px-7">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-2">
@@ -239,14 +244,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
                 const followed = profile.followedChannels.includes(video.channelId);
                 return <article key={video.videoId} className="relative mx-auto h-[calc(100dvh-210px)] min-h-[420px] max-h-[760px] w-full snap-start snap-always overflow-hidden rounded-3xl border border-white/10 bg-black shadow-2xl">
                   {selected?.videoId === video.videoId ? (
-                    <iframe
-                      title={video.title}
-                      src={'https://www.youtube-nocookie.com/embed/'+encodeURIComponent(video.videoId)+'?autoplay=1&controls=1&rel=0&playsinline=1'}
-                      className="absolute inset-0 h-full w-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      referrerPolicy="strict-origin-when-cross-origin"
-                      allowFullScreen
-                    />
+                    <YouTubeTrackedPlayer video={video} className="absolute inset-0 h-full w-full" />
                   ) : (
                     <button type="button" onClick={()=>chooseVideo(video)} className="absolute inset-0 flex h-full w-full items-center justify-center bg-black" aria-label={'Play '+video.title}>
                       <img src={video.thumbnailUrl} alt="" className="h-full w-full object-contain" loading="lazy"/>
@@ -304,7 +302,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
           <aside className="min-w-0">
             <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#101827] xl:sticky xl:top-0">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3"><div className="text-xs font-semibold text-slate-200">Now playing</div>{selected&&<span className="rounded-full bg-red-500/15 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-red-200">YouTube</span>}</div>
-              {selected?<><div className="aspect-video bg-black"><iframe key={selected.videoId} title={selected.title} src={'https://www.youtube-nocookie.com/embed/'+encodeURIComponent(selected.videoId)+'?autoplay=1&rel=0'} className="h-full w-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen/></div><div className="p-4"><h2 className="text-sm font-semibold leading-5">{selected.title}</h2><p className="mt-1 text-xs text-slate-400">{selected.channelTitle}</p><p className="mt-3 line-clamp-5 text-xs leading-5 text-slate-500">{selected.description}</p></div></>:<div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center"><div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-300"><Youtube size={26}/></div><h2 className="mt-4 text-sm font-semibold text-white">Choose a video</h2><p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">Choose a recommendation or search result to play it here.</p></div>}
+              {selected?<><div className="aspect-video bg-black"><YouTubeTrackedPlayer video={selected} className="h-full w-full" /></div><div className="p-4"><h2 className="text-sm font-semibold leading-5">{selected.title}</h2><p className="mt-1 text-xs text-slate-400">{selected.channelTitle}</p><p className="mt-3 line-clamp-5 text-xs leading-5 text-slate-500">{selected.description}</p></div></>:<div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center"><div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-300"><Youtube size={26}/></div><h2 className="mt-4 text-sm font-semibold text-white">Choose a video</h2><p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">Choose a recommendation or search result to play it here.</p></div>}
             </div>
           </aside>
         </div>

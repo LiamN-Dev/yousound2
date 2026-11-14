@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { YouCraftGame } from './YouCraftGame';
+import { CrossyRoadGame } from './CrossyRoadGame';
 import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play, RefreshCw, ShieldCheck, Star, Users } from 'lucide-react';
 
 type LaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGame = {
-  id: 'openfront' | 'youcraft';
+  id: 'openfront' | 'youcraft' | 'crossy-road';
   title: string;
   description: string;
   enabled: boolean;
@@ -27,6 +28,7 @@ type Props = { isAdmin: boolean };
 const gameArtwork: Record<string, string> = {
   openfront: 'from-emerald-950 via-teal-900 to-slate-950',
   youcraft: 'from-violet-950 via-fuchsia-950 to-slate-950',
+  'crossy-road': 'from-emerald-950 via-green-900 to-slate-950',
 };
 
 async function readJson(response: Response) {
@@ -45,6 +47,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [notice, setNotice] = useState('');
   const [embeddedGame, setEmbeddedGame] = useState<ArcadeGame | null>(null);
   const [youCraftOpen, setYouCraftOpen] = useState(false);
+  const [crossyRoadOpen, setCrossyRoadOpen] = useState(false);
   const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
 
   const loadCatalog = async () => {
@@ -69,7 +72,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   useEffect(() => { void loadCatalog(); }, [isAdmin]);
 
-  const activeGames = useMemo(() => games.filter((game) => game.enabled), [games]);
+  const activeGames = useMemo(() => [
+    ...games.filter((game) => game.enabled),
+    { id: 'crossy-road' as const, title: 'Crossy Road', description: 'Cross traffic, ride the logs, and see how far you can go. Your high score and coins are saved to your YouSound account.', enabled: true, featured: true, launchUrl: '', launchMode: 'native' as const, playerMode: 'solo' as const, providerLabel: 'YOUSOUND ORIGINAL' },
+  ], [games]);
 
   const recordLaunch = (gameId: string) => {
     void fetch('/api/games/launch', {
@@ -83,6 +89,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   const playGame = (game: ArcadeGame) => {
     if (!game.enabled || embeddedGame) return;
+    if (game.id === 'crossy-road') {
+      setCrossyRoadOpen(true);
+      return;
+    }
     recordLaunch(game.id);
     if (game.id === 'youcraft' || game.launchMode === 'native') {
       setYouCraftOpen(true);
@@ -121,6 +131,8 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
       setSaving(false);
     }
   };
+
+  if (crossyRoadOpen) return <CrossyRoadGame onBack={() => setCrossyRoadOpen(false)} />;
 
   if (youCraftOpen) return <YouCraftGame onBack={() => setYouCraftOpen(false)} />;
 
