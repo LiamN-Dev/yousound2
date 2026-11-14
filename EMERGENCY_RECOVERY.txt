@@ -3,4 +3,4 @@ YOU SONG EMERGENCY RECOVERY FILE
 This file controls emergency shutdown recovery.
 To restore the site after shutdown, replace the contents of this file with any new random text, save the change, and deploy that new commit to the existing Render service.
 
-Initial recovery token: 7f4kjlkb9d2a-INITIAL-RECOVERY-SEED
+Initial recovery token: 7f4kjlkbsdfgsd9d2a-INITIAL-RECOVERY-SEED
