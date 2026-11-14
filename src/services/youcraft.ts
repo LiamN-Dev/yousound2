@@ -113,32 +113,16 @@ const LOCAL_CRAFT_RECIPES: Record<string, LocalRecipe> = {
   "wood + fire": { name: "Charcoal", emoji: "⬛", category: "Material", description: "Wood heated by fire becomes charcoal.", abilityName: "Ember", abilityDescription: "Keeps a useful spark alive." },
 };
 
-function fallbackCraftName(first: string, second: string): string {
-  const words = [first.trim(), second.trim()].sort((a, b) => a.localeCompare(b));
-  if (words[0].toLowerCase() === words[1].toLowerCase()) return "Super " + words[0];
-  const left = words[0].replace(/[^a-z0-9]/gi, "");
-  const right = words[1].replace(/[^a-z0-9]/gi, "");
-  const blend = left.slice(0, Math.max(2, Math.ceil(left.length * 0.55))) + right.slice(Math.floor(right.length * 0.45));
-  const clean = blend.slice(0, 1).toUpperCase() + blend.slice(1).toLowerCase();
-  return clean.length >= 4 ? clean : words.join(" ");
-}
-
-export function createInstantYouCraftDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): YouCraftItem {
+export function createInstantYouCraftDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): YouCraftItem | null {
   const key = [first.name, second.name].map((name) => name.trim().toLowerCase()).sort().join(" + ");
   const known = LOCAL_CRAFT_RECIPES[key];
+  // Never invent a name locally. Unknown pairs must be planned by the dedicated game AI.
+  if (!known) return null;
   const hash = Number.parseInt(recipeKey.slice(0, 8), 16) || 0;
   const attack = 3 + (hash % 6);
   const defense = 12 - attack;
-  const recipe = known || {
-    name: fallbackCraftName(first.name, second.name),
-    emoji: "✨",
-    category: "Discovery",
-    description: first.name + " and " + second.name + " combine into a brand-new discovery.",
-    abilityName: "Fusion",
-    abilityDescription: "An unexpected combination with its own potential.",
-  };
   return normalizeYouCraftItem({
-    ...recipe,
+    ...known,
     attack,
     defense,
     energyCost: 1 + ((hash >>> 8) % 3),
