@@ -1,16 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, RotateCcw, Trophy, X } from 'lucide-react';
+import { CrossyRoad3DView } from './CrossyRoad3DView';
 
 type Direction = 'up' | 'down' | 'left' | 'right';
 type LaneKind = 'grass' | 'road' | 'river';
 type MovingObject = { id: string; x: number; length: number };
-type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number };
+type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number; trees?: number[] };
 type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean };
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
 
 const COLS = 9;
-const VISIBLE_ROWS = 11;
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch('/api/games/crossy-road' + path, {
     credentials: 'same-origin',
@@ -24,11 +24,15 @@ const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
 
 function makeLane(row: number): Lane {
   if (row <= 2 || row % 13 === 0) {
-    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0 };
+    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees: [] };
   }
   const roll = Math.random();
   const kind: LaneKind = roll < 0.58 ? 'road' : roll < 0.82 ? 'river' : 'grass';
-  if (kind === 'grass') return { row, kind, direction: 1, speed: 0, objects: [], spawnIn: 0 };
+  if (kind === 'grass') {
+    const treeCount = 1 + Math.floor(Math.random() * 2);
+    const trees = [...new Set(Array.from({ length: treeCount }, () => Math.floor(Math.random() * COLS)))];
+    return { row, kind, direction: 1, speed: 0, objects: [], spawnIn: 0, trees };
+  }
   const direction: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
   const speed = kind === 'road' ? 1.25 + Math.random() * 0.75 : 0.65 + Math.random() * 0.4;
   const length = kind === 'road' ? 1.2 + Math.random() * 0.55 : 2.1 + Math.random() * 0.75;
@@ -166,6 +170,10 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       if (!known.has(row)) lanes.push(makeLane(row));
     }
     next.lanes = lanes.filter(lane => lane.row >= next.row - 7 && lane.row <= next.row + 7);
+    const destinationLane = next.lanes.find(lane => lane.row === next.row);
+    if (destinationLane?.kind === 'grass' && destinationLane.trees?.includes(next.x)) {
+      return;
+    }
     next.score = Math.max(current.score, next.row);
     next.running = true;
     updateGame(next);
@@ -247,41 +255,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     updateGame(initialGame());
   };
 
-  const topRow = game.row + 5;
-  const bottomRow = game.row - 5;
-  const visibleLanes = game.lanes.filter(lane => lane.row >= bottomRow && lane.row <= topRow).sort((a, b) => b.row - a.row);
 
-  const renderLane = (lane: Lane) => {
-    const background = lane.kind === 'grass' ? 'bg-[#39774a]' : lane.kind === 'road' ? 'bg-[#343c49]' : 'bg-[#176d88]';
-    return (
-      <div key={lane.row} className={'relative col-span-9 h-full overflow-hidden border-y border-black/10 ' + background}>
-        {lane.kind === 'grass' && <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'radial-gradient(#c0f1a2 1px, transparent 1.5px)', backgroundSize: '21px 19px' }} />}
-        {lane.kind === 'road' && <div className="absolute inset-x-0 top-1/2 border-t-2 border-dashed border-yellow-100/50" />}
-        {lane.kind === 'river' && <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'repeating-linear-gradient(165deg, transparent 0 14px, #b4e7ff 15px 16px, transparent 17px 28px)' }} />}
-        {lane.objects.map(object => (
-          <div key={object.id} className="absolute top-1/2 -translate-y-1/2" style={{ left: (object.x / COLS * 100) + '%', width: (object.length / COLS * 100) + '%', height: lane.kind === 'road' ? '34px' : '29px' }}>
-            {lane.kind === 'road' ? (
-              <div className="relative h-full w-full rounded-xl border border-black/30 bg-gradient-to-b from-rose-400 to-rose-700 shadow-lg">
-                <div className="absolute left-[20%] right-[20%] top-1 h-3 rounded-md bg-sky-200/80" />
-                <div className="absolute -bottom-1 left-[14%] h-2 w-3 rounded bg-slate-950" />
-                <div className="absolute -bottom-1 right-[14%] h-2 w-3 rounded bg-slate-950" />
-              </div>
-            ) : (
-              <div className="flex h-full w-full items-center justify-around rounded-full border-2 border-amber-950/50 bg-gradient-to-b from-amber-500 to-amber-800 shadow-lg">
-                <span className="h-4 w-4 rounded-full border-2 border-amber-950/60 bg-amber-300/30" />
-                <span className="h-4 w-4 rounded-full border-2 border-amber-950/60 bg-amber-300/30" />
-              </div>
-            )}
-          </div>
-        ))}
-        {lane.row === game.row && (
-          <div className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 drop-shadow-[0_3px_3px_rgba(0,0,0,.65)]" style={{ left: ((game.x + 0.5) / COLS * 100) + '%' }}>
-            <span className="text-[27px] leading-none" role="img" aria-label="Player">🐔</span>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="fixed inset-0 z-[130] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f5f2e9] text-[#141a12]">
@@ -355,9 +329,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             <div className="absolute inset-0 opacity-50" style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,.35) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.35) 50%, rgba(255,255,255,.35) 75%, transparent 75%, transparent)', backgroundSize: '42px 42px' }} />
             <div className="absolute inset-x-0 bottom-0 top-0 flex items-center justify-center px-2 pb-2 pt-14">
               <div className="h-[94%] max-h-[640px] max-w-full overflow-hidden rounded-[18px] border-4 border-white/65 bg-[#245438] shadow-[0_12px_35px_rgba(12,35,27,.25)]" style={{ aspectRatio: '9 / 11' }}>
-                <div className="grid h-full w-full" style={{ gridTemplateColumns: 'repeat(9, minmax(0, 1fr))', gridTemplateRows: 'repeat(' + VISIBLE_ROWS + ', minmax(0, 1fr))' }}>
-                  {visibleLanes.map(renderLane)}
-                </div>
+                <CrossyRoad3DView game={game} />
               </div>
             </div>
           </div>

@@ -2238,13 +2238,13 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
     setSecuritySettingsLoading(true);
     setSecuritySettingsFeedback('');
     try {
-      const response = await fetch('/api/admin/security-bot/settings', { credentials: 'same-origin', cache: 'no-store' });
+      const response = await fetch('/api/admin/yousound-ai/settings', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load Announcement Bot settings.');
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load YouSound AI settings.');
       setCodeRecipientUids(Array.isArray(data.youtubeCodeRecipientUids) ? data.youtubeCodeRecipientUids : []);
       setShutdownTrustedUids(Array.isArray(data.shutdownTrustedUserIds) ? data.shutdownTrustedUserIds : []);
     } catch (error: any) {
-      setSecuritySettingsFeedback(error?.message || 'Could not load Announcement Bot settings.');
+      setSecuritySettingsFeedback(error?.message || 'Could not load YouSound AI settings.');
     } finally {
       setSecuritySettingsLoading(false);
     }
@@ -2254,7 +2254,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
     setSecuritySettingsSaving(true);
     setSecuritySettingsFeedback('');
     try {
-      const response = await fetch('/api/admin/security-bot/settings', {
+      const response = await fetch('/api/admin/yousound-ai/settings', {
         method: 'PUT',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -2264,12 +2264,12 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save Announcement Bot settings.');
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save YouSound AI settings.');
       setCodeRecipientUids(Array.isArray(data.youtubeCodeRecipientUids) ? data.youtubeCodeRecipientUids : []);
       setShutdownTrustedUids(Array.isArray(data.shutdownTrustedUserIds) ? data.shutdownTrustedUserIds : []);
-      setSecuritySettingsFeedback('Announcement Bot recipients and Trusted Operators saved.');
+      setSecuritySettingsFeedback('YouSound AI notification recipients and Trusted Operators saved.');
     } catch (error: any) {
-      setSecuritySettingsFeedback(error?.message || 'Could not save Announcement Bot settings.');
+      setSecuritySettingsFeedback(error?.message || 'Could not save YouSound AI settings.');
     } finally {
       setSecuritySettingsSaving(false);
     }
@@ -2325,7 +2325,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save the code.');
       setConfigured(true);
       setCode('');
-      setFeedback('YouTube activation code updated. Announcement Bot delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts.');
+      setFeedback('YouTube activation code updated. YouSound AI delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts.');
     } catch (error: any) {
       setFeedback(error?.message || 'Could not save the code.');
     } finally { setSaving(false); }
@@ -2405,9 +2405,9 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
     <div className="rounded-3xl border border-cyan-300/20 bg-[#0d1825] p-5 text-white shadow-lg sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[.2em] text-cyan-200/70">Private bot delivery</div>
-          <h3 className="mt-1 text-lg font-semibold">Announcement Bot recipients</h3>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">When you save or remove the YouTube access code, the Announcement Bot sends a private message only to accounts selected here. It never posts the code in a public community room.</p>
+          <div className="text-[10px] font-bold uppercase tracking-[.2em] text-cyan-200/70">Private AI delivery</div>
+          <h3 className="mt-1 text-lg font-semibold">YouSound AI notification recipients</h3>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">When you save or remove the YouTube access code, the YouSound AI sends a private message only to accounts selected here. It never posts the code in a public community room.</p>
         </div>
         <button type="button" onClick={() => void loadSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs text-slate-200 disabled:opacity-40"><RefreshCw size={13} className="mr-1 inline"/>Refresh</button>
       </div>
@@ -2428,7 +2428,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
           </div>
           <div className="rounded-2xl border border-rose-300/20 bg-rose-950/10 p-4">
             <h4 className="text-xs font-semibold text-rose-100">Trusted Shutdown Operators</h4>
-            <p className="mt-1 text-[10px] leading-4 text-slate-500">Only selected, active member accounts can ask the Announcement Bot for shutdown. Each shutdown still requires a separate timed challenge and two-step confirmation.</p>
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">Only selected, active member accounts can ask YouSound AI for shutdown. Each shutdown still requires a separate timed challenge and two-step confirmation.</p>
             <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
               {eligibleUsers.length ? eligibleUsers.map(user => (
                 <label key={user.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-slate-200 hover:bg-white/[.04]">
@@ -2442,7 +2442,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
         </div>
       )}
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => void saveSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40">{securitySettingsSaving ? 'Saving…' : 'Save Bot Permissions'}</button>
+        <button type="button" onClick={() => void saveSecuritySettings()} disabled={securitySettingsLoading || securitySettingsSaving} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-40">{securitySettingsSaving ? 'Saving…' : 'Save AI Permissions'}</button>
         {securitySettingsFeedback && <p role="status" className="text-xs text-cyan-100">{securitySettingsFeedback}</p>}
       </div>
     </div>

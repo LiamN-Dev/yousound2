@@ -90,6 +90,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const playGame = (game: ArcadeGame) => {
     if (!game.enabled || embeddedGame) return;
     if (game.id === 'crossy-road') {
+      recordLaunch('crossy-road');
       setCrossyRoadOpen(true);
       return;
     }
