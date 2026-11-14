@@ -226,42 +226,53 @@ export const ChatHub: React.FC = () => {
       return;
     }
 
-    const commandText = messageInput.trim();
-    if (['/shutdown', 'shutdown', '/help', 'help'].includes(commandText.toLowerCase())) {
+    const isYouSoundAiThread = currentThread.user1Id === 'yousound-ai' || currentThread.user2Id === 'yousound-ai';
+    if (isYouSoundAiThread) {
+      const messageText = messageInput.trim();
+      const history = messages.slice(-8).map(item => ({
+        role: item.senderId === currentUser.id ? 'user' : 'model',
+        text: item.content,
+      }));
       setIsSending(true);
       setSendError(null);
       try {
-        const response = await fetch('/api/chat/announcement-bot/command', {
+        const response = await fetch('/api/ai/assistant', {
           method: 'POST',
           credentials: 'same-origin',
+          cache: 'no-store',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: commandText }),
+          body: JSON.stringify({
+            message: messageText,
+            history,
+            chatContext: true,
+            threadId: currentThread.id,
+          }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.success) throw new Error(data.error || 'Announcement Bot could not process that command.');
-        const botThreadId = 'thread-' + [currentUser.id, 'announcement-bot'].sort().join('-');
-        setActiveThreadId(botThreadId);
-        setMessages(previous => [...previous, ...(Array.isArray(data.messages) ? data.messages : [])]);
-        setThreads(previous => previous.map(thread => thread.id === botThreadId
-          ? { ...thread, lastMessage: data.messages?.[data.messages.length - 1]?.content || commandText, lastMessageSender: 'Announcement Bot', lastMessageAt: new Date().toISOString() }
+        if (!response.ok || !data.success) throw new Error(data.error || 'YouSound AI could not answer right now.');
+        const savedMessages = Array.isArray(data.messages) ? data.messages as ChatMessage[] : [];
+        setMessages(previous => [...previous, ...savedMessages]);
+        const replyMessage = savedMessages[savedMessages.length - 1];
+        setThreads(previous => previous.map(thread => thread.id === currentThread.id
+          ? {
+              ...thread,
+              lastMessage: replyMessage?.content || data.reply || messageText,
+              lastMessageSender: 'YouSound AI',
+              lastMessageAt: replyMessage?.createdAt || new Date().toISOString(),
+            }
           : thread));
         setMessageInput('');
-        if (typeof data.shutdownChallengeToken === 'string' && data.shutdownChallengeToken) {
-          setShutdownChallengeToken(data.shutdownChallengeToken);
+        if (data.action?.type === 'emergency-shutdown-confirmation' && typeof data.action.challengeToken === 'string') {
+          setShutdownChallengeToken(data.action.challengeToken);
           setShutdownConfirmText('');
           setShutdownDataAcknowledged(false);
           setShutdownConfirmFeedback('');
         }
       } catch (error: any) {
-        setSendError(error?.message || 'Announcement Bot command failed.');
+        setSendError(error?.message || 'YouSound AI could not process that message.');
       } finally {
         setIsSending(false);
       }
-      return;
-    }
-
-    if (currentThread.user1Id === 'announcement-bot' || currentThread.user2Id === 'announcement-bot') {
-      setSendError('Announcement Bot only accepts /help and /shutdown. Other messages are not sent.');
       return;
     }
 
@@ -317,15 +328,15 @@ export const ChatHub: React.FC = () => {
       const successMessage = {
         id: 'trusted-shutdown-success-' + Date.now(),
         threadId: activeThreadId,
-        senderId: 'announcement-bot',
-        senderUsername: 'Announcement Bot',
+        senderId: 'yousound-ai',
+        senderUsername: 'YouSound AI',
         receiverId: currentUser?.id || '',
         content: data.message || 'Emergency shutdown activated. YouSound is now offline.',
         createdAt: new Date().toISOString(),
       } as ChatMessage;
       setMessages(previous => [...previous, successMessage]);
       setThreads(previous => previous.map(thread => thread.id === activeThreadId
-        ? { ...thread, lastMessage: successMessage.content, lastMessageSender: 'Announcement Bot', lastMessageAt: successMessage.createdAt }
+        ? { ...thread, lastMessage: successMessage.content, lastMessageSender: 'YouSound AI', lastMessageAt: successMessage.createdAt }
         : thread));
     } catch (error: any) {
       setShutdownConfirmFeedback(error?.message || 'Shutdown was not activated.');
@@ -1651,8 +1662,8 @@ export const ChatHub: React.FC = () => {
                           )
                         }
                         placeholder={
-                          activeThread.user1Id === 'announcement-bot' || activeThread.user2Id === 'announcement-bot'
-                            ? 'Type /help or /shutdown…'
+                          activeThread.user1Id === 'yousound-ai' || activeThread.user2Id === 'yousound-ai'
+                            ? 'Ask YouSound AI anything, or type /help…'
                             : activeThread.isTerminated
                             ? 'Messaging disabled by Administrator'
                             : activeThread.isAppealThread &&
