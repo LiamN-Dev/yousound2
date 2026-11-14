@@ -175,7 +175,7 @@ type EmergencyShutdownRecord = {
   activatedAt: string;
   activatedBy: string;
   activatedByUid?: string;
-  activationSource?: 'admin-panel' | 'announcement-bot';
+  activationSource?: 'admin-panel' | 'yousound-ai';
 };
 const EMERGENCY_SHUTDOWN_SETTING = 'emergency_shutdown';
 const EMERGENCY_RECOVERY_FILE = path.resolve(process.cwd(), 'EMERGENCY_RECOVERY.txt');
@@ -7696,7 +7696,7 @@ app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Re
       activatedAt: new Date().toISOString(),
       activatedBy: String(account.username || 'Trusted Operator').slice(0, 80),
       activatedByUid: account.uid,
-      activationSource: 'announcement-bot',
+      activationSource: 'yousound-ai',
     };
     await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, record);
     emergencyShutdownCache = { checkedAt: Date.now(), record };
