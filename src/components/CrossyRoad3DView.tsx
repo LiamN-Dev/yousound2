@@ -101,9 +101,18 @@ async function loadModel(
 }
 
 async function loadModels(blobUrls: string[]): Promise<LoadedModels> {
-  const response = await fetch('/crossy3d-core.tar.gz', { cache: 'force-cache' });
-  if (!response.ok) throw new Error('Could not load the Crossy Road 3D models (' + response.status + ').');
-  const files = untarGzip(new Uint8Array(await response.arrayBuffer()));
+  // Static hosting does not expose binary upload through the repository editor, so the
+  // source archive is kept as ordered, cacheable base64 fragments and rebuilt here.
+  const fragments = await Promise.all(Array.from({ length: 7 }, async (_, index) => {
+    const suffix = String(index).padStart(2, '0');
+    const response = await fetch('/crossy3d-assets-' + suffix + '.b64', { cache: 'force-cache' });
+    if (!response.ok) throw new Error('Could not load Crossy Road model archive part ' + suffix + '.');
+    return (await response.text()).trim();
+  }));
+  const binary = atob(fragments.join(''));
+  const compressed = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) compressed[index] = binary.charCodeAt(index);
+  const files = untarGzip(compressed);
   const obj = new OBJLoader();
   const texture = new THREE.TextureLoader();
   const models = await Promise.all([
