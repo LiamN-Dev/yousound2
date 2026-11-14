@@ -33,6 +33,7 @@ type LoadedModels = {
 };
 
 const COLS = 9;
+const VISIBLE_ROWS = 5;
 const decoder = new TextDecoder();
 
 function untarGzip(bytes: Uint8Array): Map<string, Uint8Array> {
@@ -103,14 +104,17 @@ async function loadModel(
 }
 
 async function loadModels(blobUrls: string[]): Promise<LoadedModels> {
-  // Static hosting does not expose binary upload through the repository editor, so the
-  // source archive is kept as ordered, cacheable base64 fragments and rebuilt here.
   const fragments = await Promise.all(Array.from({ length: 7 }, async (_, index) => {
     const suffix = String(index).padStart(2, '0');
     const response = await fetch('/crossy3d-assets-' + suffix + '.b64', { cache: 'force-cache' });
     if (!response.ok) throw new Error('Could not load Crossy Road model archive part ' + suffix + '.');
-    return (await response.text()).trim();
+    const fragment = (await response.text()).trim();
+    if (!fragment || !/^[A-Za-z0-9+/]+={0,2}$/.test(fragment)) {
+      throw new Error('Crossy Road model archive part ' + suffix + ' is empty or invalid.');
+    }
+    return fragment;
   }));
+
   const binary = atob(fragments.join(''));
   const compressed = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) compressed[index] = binary.charCodeAt(index);
@@ -130,6 +134,7 @@ async function loadModels(blobUrls: string[]): Promise<LoadedModels> {
     loadModel(files, 'models/environment/road/model.obj', 'models/environment/road/blank-texture.png', obj, texture, blobUrls),
     loadModel(files, 'models/environment/river/0.obj', 'models/environment/river/0.png', obj, texture, blobUrls),
   ]);
+
   return {
     chicken: models[0],
     blueCar: models[1],
@@ -156,14 +161,87 @@ function cloneModel(source: THREE.Group): THREE.Group {
   return clone;
 }
 
+function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
+  const lanes = game.lanes
+    .filter((lane) => lane.row >= game.row - VISIBLE_ROWS && lane.row <= game.row + VISIBLE_ROWS)
+    .sort((a, b) => b.row - a.row);
+
+  return (
+    <div className="absolute inset-0 z-0 flex flex-col overflow-hidden bg-[#6da74b]" aria-label="Crossy Road game board">
+      {lanes.map((lane) => {
+        const isGrass = lane.kind === 'grass';
+        const isRoad = lane.kind === 'road';
+        return (
+          <div
+            key={lane.row}
+            className={
+              'relative min-h-0 flex-1 overflow-hidden border-b border-black/10 ' +
+              (isGrass ? 'bg-[#6da74b]' : isRoad ? 'bg-[#303b3e]' : 'bg-[#438eae]')
+            }
+            style={{
+              backgroundImage: isGrass
+                ? 'repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 18px, transparent 18px 36px)'
+                : isRoad
+                  ? 'repeating-linear-gradient(90deg, transparent 0 42px, rgba(255,255,255,.04) 42px 44px)'
+                  : 'repeating-linear-gradient(90deg, rgba(255,255,255,.10) 0 24px, transparent 24px 48px)',
+            }}
+          >
+            {isRoad && (
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t-2 border-dashed border-white/35" />
+            )}
+            {!isGrass && !isRoad && (
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-white/20" />
+            )}
+            {isGrass && (lane.trees || []).map((treeX, index) => (
+              <span
+                key={lane.row + '-tree-' + index}
+                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[clamp(12px,3.3vh,28px)] drop-shadow"
+                style={{ left: ((treeX + 0.5) / COLS) * 100 + '%' }}
+              >
+                🌲
+              </span>
+            ))}
+            {!isGrass && lane.objects.map((object, index) => (
+              <div
+                key={object.id}
+                className={
+                  'absolute top-1/2 z-10 flex -translate-y-1/2 items-center justify-center overflow-hidden rounded-lg text-[clamp(11px,2.7vh,24px)] ' +
+                  (isRoad
+                    ? 'h-[72%] border border-black/25 bg-[#e8e8e4] shadow-md'
+                    : 'h-[56%] border border-[#5b3a26] bg-[#98633d] shadow-md')
+                }
+                style={{
+                  left: (object.x / COLS) * 100 + '%',
+                  width: Math.max(3, (object.length / COLS) * 100) + '%',
+                }}
+              >
+                {isRoad ? (index % 2 === 0 ? '🚙' : '🚚') : '🪵'}
+              </div>
+            ))}
+            {lane.row === game.row && (
+              <span
+                className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 text-[clamp(18px,4.2vh,34px)] drop-shadow-[0_3px_2px_rgba(0,0,0,.35)]"
+                style={{ left: ((game.x + 0.5) / COLS) * 100 + '%' }}
+                aria-label="Player"
+              >
+                🐔
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const worldRef = useRef<THREE.Group | null>(null);
   const modelsRef = useRef<LoadedModels | null>(null);
   const objectPoolRef = useRef<Map<string, THREE.Group>>(new Map());
-  const [loading, setLoading] = useState(true);
   const [modelsReady, setModelsReady] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -172,31 +250,39 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     let frame = 0;
     let resizeObserver: ResizeObserver | null = null;
     const blobUrls: string[] = [];
-    let renderer: THREE.WebGLRenderer;
+    let renderer: THREE.WebGLRenderer | null = null;
+    let scene: THREE.Scene | null = null;
+
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+        powerPreference: 'high-performance',
+      });
     } catch {
       setLoading(false);
-      setLoadError('3D graphics are unavailable in this browser. Enable hardware acceleration and reload YouSound.');
+      setLoadError('3D graphics are unavailable. The game has switched to its built-in 2D board.');
       return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor('#cfe9f6');
-    renderer.domElement.className = 'absolute inset-0 h-full w-full';
+    renderer.domElement.className = 'pointer-events-none absolute inset-0 z-10 h-full w-full';
     renderer.domElement.setAttribute('aria-label', 'Three-dimensional Crossy Road game board');
     mount.appendChild(renderer.domElement);
 
-    const scene = new THREE.Scene();
+    scene = new THREE.Scene();
     scene.background = new THREE.Color('#cfe9f6');
     scene.fog = new THREE.Fog('#cfe9f6', 15, 28);
-    const camera = new THREE.PerspectiveCamera(33, 1, 0.1, 80);
-    camera.position.set(8.5, 11.5, -10.5);
-    camera.lookAt(0, 0.45, 1.25);
-    const ambient = new THREE.HemisphereLight('#ffffff', '#47634b', 2.05);
-    scene.add(ambient);
+
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 90);
+    camera.position.set(7.2, 12.4, -13.2);
+    camera.lookAt(0, 0.45, 0.8);
+
+    scene.add(new THREE.HemisphereLight('#ffffff', '#47634b', 2.05));
     const sunlight = new THREE.DirectionalLight('#fff3d5', 3.1);
     sunlight.position.set(-5, 13, -2);
     sunlight.castShadow = true;
@@ -207,25 +293,30 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     sunlight.shadow.camera.bottom = -12;
     sunlight.shadow.bias = -0.0002;
     scene.add(sunlight);
+
     const world = new THREE.Group();
     scene.add(world);
-
     worldRef.current = world;
 
     const resize = () => {
-      if (!mount || !alive) return;
+      if (!mount || !alive || !renderer) return;
       const width = Math.max(1, mount.clientWidth);
       const height = Math.max(1, mount.clientHeight);
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     };
-    resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(mount);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(resize);
+      resizeObserver.observe(mount);
+    } else {
+      window.addEventListener('resize', resize);
+    }
     resize();
 
     const draw = () => {
-      if (!alive) return;
+      if (!alive || !renderer || !scene) return;
       renderer.render(scene, camera);
       frame = window.requestAnimationFrame(draw);
     };
@@ -237,9 +328,10 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       setLoadError('');
       setModelsReady(true);
       setLoading(false);
-    }).catch((error: any) => {
+    }).catch((error: unknown) => {
       if (!alive) return;
-      setLoadError(error?.message || 'Could not load the Crossy Road 3D models.');
+      const reason = error instanceof Error ? error.message : 'Unknown model-loading error.';
+      setLoadError(reason + ' The playable 2D board is still active.');
       setLoading(false);
     });
 
@@ -247,8 +339,26 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       alive = false;
       window.cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
-      renderer.dispose();
-      renderer.domElement.remove();
+      window.removeEventListener('resize', resize);
+      renderer?.dispose();
+      renderer?.domElement.remove();
+
+      const models = modelsRef.current;
+      if (models) {
+        Object.values(models).forEach((model) => {
+          model.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              child.geometry.dispose();
+              const materials = Array.isArray(child.material) ? child.material : [child.material];
+              materials.forEach((material) => {
+                const map = (material as THREE.MeshLambertMaterial).map;
+                map?.dispose();
+                material.dispose();
+              });
+            }
+          });
+        });
+      }
       for (const url of blobUrls) URL.revokeObjectURL(url);
       modelsRef.current = null;
       objectPoolRef.current.clear();
@@ -287,7 +397,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     };
 
     const visible = game.lanes
-      .filter((lane) => lane.row >= game.row - 6 && lane.row <= game.row + 6)
+      .filter((lane) => lane.row >= game.row - VISIBLE_ROWS && lane.row <= game.row + VISIBLE_ROWS)
       .sort((a, b) => a.row - b.row);
 
     for (const lane of visible) {
@@ -303,9 +413,6 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           const size = treeX % 2 === 0 ? 1 : 0.92;
           place('lane:' + lane.row + ':tree:' + index, models.tree, treeX - 4, 0.36, rel, size, size, size);
         });
-        if (lane.row >= game.row - 4 && lane.row % 5 === 2) {
-          place('lane:' + lane.row + ':rock', models.boulder, -5.05, 0, rel, 0.55, 0.55, 0.55);
-        }
       } else if (lane.kind === 'road') {
         place(
           'lane:' + lane.row + ':surface',
@@ -343,8 +450,6 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
 
     place('player:chicken', models.chicken, game.x - 4, 0.38, 0, 1, 1, 1, Math.PI);
 
-    // Reuse models while visible. Remove only objects that have left the camera window
-    // or were removed by the gameplay simulation; no per-frame geometry/material churn.
     for (const [key, object] of objectPoolRef.current) {
       if (activeKeys.has(key)) continue;
       world.remove(object);
@@ -353,14 +458,15 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
   }, [game, modelsReady]);
 
   return (
-    <div ref={mountRef} className="absolute inset-0 overflow-hidden bg-[#cfe9f6]">
+    <div ref={mountRef} className="relative h-full w-full overflow-hidden bg-[#cfe9f6]">
+      {!modelsReady && <CrossyRoadFallback game={game} />}
       {loading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#cfe9f6]/75 text-xs font-bold text-[#263b2b]">
-          Loading 3D models…
+        <div className="pointer-events-none absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/70 bg-white/85 px-3 py-1.5 text-[9px] font-bold text-[#263b2b] shadow">
+          Loading 3D models · game ready
         </div>
       )}
       {loadError && (
-        <div role="alert" className="absolute inset-x-4 bottom-4 z-20 rounded-xl border border-rose-300/60 bg-[#fffdf5]/95 p-3 text-center text-[10px] font-semibold leading-5 text-rose-800 shadow-lg">
+        <div role="alert" className="absolute inset-x-2 bottom-2 z-30 rounded-xl border border-rose-300/60 bg-[#fffdf5]/95 p-2 text-center text-[9px] font-semibold leading-4 text-rose-800 shadow-lg">
           {loadError}
         </div>
       )}
