@@ -27,6 +27,11 @@ export const AIStudio: React.FC = () => {
   const [knowledgeFeedback, setKnowledgeFeedback] = useState('');
   const [myQuestions, setMyQuestions] = useState<MyQuestion[]>([]);
   const [myQuestionsError, setMyQuestionsError] = useState('');
+  const [shutdownChallengeToken, setShutdownChallengeToken] = useState('');
+  const [shutdownConfirmText, setShutdownConfirmText] = useState('');
+  const [shutdownDataAcknowledged, setShutdownDataAcknowledged] = useState(false);
+  const [shutdownConfirmBusy, setShutdownConfirmBusy] = useState(false);
+  const [shutdownConfirmFeedback, setShutdownConfirmFeedback] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const refreshServiceStatus = async () => {
@@ -125,6 +130,30 @@ export const AIStudio: React.FC = () => {
     setError('');
     setBusy(true);
     try {
+      if (['/shutdown', 'shutdown', '/help', 'help'].includes(message.toLowerCase())) {
+        const botResponse = await fetch('/api/chat/announcement-bot/command', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: message }),
+        });
+        const botData = await botResponse.json().catch(() => ({}));
+        if (!botResponse.ok || !botData.success) throw new Error(botData.error || 'Announcement Bot could not process that command.');
+        const botReply = Array.isArray(botData.messages)
+          ? String(botData.messages[botData.messages.length - 1]?.content || 'Announcement Bot replied.')
+          : 'Announcement Bot replied.';
+        const completed = [...(alreadyDisplayed ? messages.slice(0, -1) : messages), { role: 'user' as const, text: message }, { role: 'model' as const, text: botReply }];
+        setMessages(completed);
+        await saveConversation(conversationId, completed);
+        if (typeof botData.shutdownChallengeToken === 'string' && botData.shutdownChallengeToken) {
+          setShutdownChallengeToken(botData.shutdownChallengeToken);
+          setShutdownConfirmText('');
+          setShutdownDataAcknowledged(false);
+          setShutdownConfirmFeedback('');
+        }
+        requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
+        return;
+      }
       const response = await fetch('/api/ai/assistant', {
         method: 'POST',
         credentials: 'same-origin',
@@ -145,6 +174,35 @@ export const AIStudio: React.FC = () => {
       setError(err?.message || 'The AI service is unavailable.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const confirmTrustedShutdown = async () => {
+    if (!shutdownChallengeToken || shutdownConfirmText.trim() !== 'SHUT DOWN YOU SONG' || !shutdownDataAcknowledged || shutdownConfirmBusy) return;
+    setShutdownConfirmBusy(true);
+    setShutdownConfirmFeedback('');
+    try {
+      const response = await fetch('/api/emergency-shutdown/trusted-confirm', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeToken: shutdownChallengeToken,
+          confirmationText: shutdownConfirmText.trim(),
+          confirmDataRetained: shutdownDataAcknowledged,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Shutdown was not activated.');
+      setShutdownChallengeToken('');
+      const completed = [...messages, { role: 'model' as const, text: data.message || 'Emergency shutdown activated. YouSound is now offline.' }];
+      setMessages(completed);
+      await saveConversation(conversationId, completed);
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
+    } catch (error: any) {
+      setShutdownConfirmFeedback(error?.message || 'Shutdown was not activated.');
+    } finally {
+      setShutdownConfirmBusy(false);
     }
   };
 
@@ -242,6 +300,31 @@ export const AIStudio: React.FC = () => {
           {item.answer && <p className="mt-2 whitespace-pre-wrap rounded-xl border border-emerald-300/15 bg-emerald-300/[.05] p-3 text-xs leading-5 text-emerald-100">{item.answer}</p>}
         </div>)}</div> : <p className="p-5 text-center text-[11px] text-slate-500">You have not sent any questions to the admin team.</p>}
       </section>
+
+      {shutdownChallengeToken && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="ai-trusted-shutdown-title" className="w-full max-w-lg space-y-4 rounded-3xl border border-rose-400/30 bg-[#15111a] p-6 text-white shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-rose-400/25 bg-rose-500/15 text-rose-200"><Bot className="h-5 w-5"/></div>
+              <div><h2 id="ai-trusted-shutdown-title" className="text-lg font-bold">Emergency shutdown confirmation</h2><p className="text-[10px] font-bold uppercase tracking-wider text-rose-200/70">Trusted Operator · expires in 2 minutes</p></div>
+            </div>
+            <p className="text-xs leading-5 text-slate-300">This takes the entire YouSound site offline for everyone. Your music, accounts, and database data remain stored, but the site will remain offline until an administrator changes EMERGENCY_RECOVERY.txt in GitHub and deploys a new commit.</p>
+            <label className="block space-y-2">
+              <span className="text-xs font-semibold text-slate-200">Type the exact confirmation phrase</span>
+              <input value={shutdownConfirmText} onChange={event => setShutdownConfirmText(event.target.value)} placeholder="SHUT DOWN YOU SONG" className="w-full rounded-xl border border-white/15 bg-black/30 px-3 py-3 text-sm text-white outline-none focus:border-rose-300/60"/>
+            </label>
+            <label className="flex cursor-pointer items-start gap-2 text-xs leading-5 text-slate-300">
+              <input type="checkbox" checked={shutdownDataAcknowledged} onChange={event => setShutdownDataAcknowledged(event.target.checked)} className="mt-1 accent-rose-500"/>
+              <span>I understand the whole site will go offline, data remains stored, and recovery requires an administrator deployment.</span>
+            </label>
+            {shutdownConfirmFeedback && <p role="status" className="rounded-xl border border-rose-300/20 bg-rose-500/10 p-3 text-xs text-rose-100">{shutdownConfirmFeedback}</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={shutdownConfirmBusy} onClick={() => { setShutdownChallengeToken(''); setShutdownConfirmFeedback(''); }} className="rounded-xl border border-white/10 px-4 py-2.5 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-40">Cancel</button>
+              <button type="button" disabled={shutdownConfirmBusy || shutdownConfirmText.trim() !== 'SHUT DOWN YOU SONG' || !shutdownDataAcknowledged} onClick={() => void confirmTrustedShutdown()} className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-40">{shutdownConfirmBusy ? 'Confirming…' : 'Shut Down YouSound'}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };

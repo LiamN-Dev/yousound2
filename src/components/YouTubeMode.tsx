@@ -265,6 +265,9 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
                     <button type="button" onClick={()=>toggleFollow(video)} className={'flex min-w-12 flex-col items-center gap-1 rounded-2xl bg-black/65 px-3 py-2 text-[10px] font-semibold backdrop-blur '+(followed?'text-cyan-200':'text-white')} aria-label={followed?'Unfollow channel':'Follow channel'}>
                       <Users size={21}/><span>{followed?'Following':'Follow'}</span>
                     </button>
+                    <button type="button" onClick={()=>void saveInteraction('hide',video)} className="flex min-w-12 flex-col items-center gap-1 rounded-2xl bg-black/65 px-3 py-2 text-[10px] font-semibold text-white backdrop-blur" aria-label="Not interested in this Short">
+                      <ThumbsDown size={19}/><span>Not for me</span>
+                    </button>
                   </div>
                 </article>;
               })}
@@ -274,7 +277,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
         <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.58fr)]">
           <section className="min-w-0">
             <div className="mb-4 flex items-end justify-between gap-3">
-              <div><div className="text-[10px] font-bold uppercase tracking-[.2em] text-red-300/75">{section==='for-you'?'Personalized for your account':section==='trending'?'Popular across YouTube':section==='shorts'?'Short videos on YouTube':section==='following'?'Channels you follow':section==='liked'?'Your saved likes':'YouTube search'}</div><h1 className="mt-1 text-2xl font-semibold tracking-tight">{section==='for-you'?'For You':section==='trending'?'Popular':section==='shorts'?'Shorts':section==='following'?'Following':section==='liked'?'Liked videos':'Search results'}</h1></div>
+              <div><div className="text-[10px] font-bold uppercase tracking-[.2em] text-red-300/75">{section==='for-you'?'Personalized for your account':section==='trending'?'Popular across YouTube':section==='following'?'Channels you follow':section==='liked'?'Your saved likes':'YouTube search'}</div><h1 className="mt-1 text-2xl font-semibold tracking-tight">{section==='for-you'?'For You':section==='trending'?'Popular':section==='following'?'Following':section==='liked'?'Liked videos':'Search results'}</h1></div>
               {section!=='search'&&<span className="text-[10px] text-slate-500">Personalized independently for each YouSound account</span>}
             </div>
 

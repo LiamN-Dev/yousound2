@@ -173,6 +173,8 @@ type EmergencyShutdownRecord = {
   recoveryFileHash?: string;
   activatedAt: string;
   activatedBy: string;
+  activatedByUid?: string;
+  activationSource?: 'admin-panel' | 'announcement-bot';
 };
 const EMERGENCY_SHUTDOWN_SETTING = 'emergency_shutdown';
 const EMERGENCY_RECOVERY_FILE = path.resolve(process.cwd(), 'EMERGENCY_RECOVERY.txt');
@@ -285,6 +287,71 @@ app.use('/api/youcraft', youCraftRouter);
 // ----------------- YOUTUBE MODE -----------------
 const YOUTUBE_MODE_CODE_SETTING = 'youtube_mode_activation_hash_v1';
 const YOUTUBE_MODE_ACCESS_LOG_SETTING = 'youtube_mode_successful_access_log_v1';
+const YOUTUBE_MODE_CODE_RECIPIENTS_SETTING = 'youtube_mode_code_recipients_v1';
+const EMERGENCY_SHUTDOWN_TRUSTED_SETTING = 'emergency_shutdown_trusted_uids_v1';
+const EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX = 'emergency_shutdown_challenge_v1:';
+const ANNOUNCEMENT_BOT_ID = 'announcement-bot';
+const ANNOUNCEMENT_BOT_NAME = 'Announcement Bot';
+
+type EmergencyShutdownChallengeRecord = {
+  tokenHash: string;
+  expiresAt: string;
+};
+
+async function getUidListSetting(key: string): Promise<string[]> {
+  const stored = await getPersistentSettingDb<unknown>(key);
+  if (!Array.isArray(stored)) return [];
+  return [...new Set(stored.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).map(value => value.trim()))].slice(0, 500);
+}
+
+function isActiveChatAccount(user: any): boolean {
+  return Boolean(user && user.isApproved && !user.isSuspended && !user.isLocked && !user.chatBlocked);
+}
+
+async function sendAnnouncementBotMessage(
+  uid: string,
+  content: string,
+  options: { replacePreviousCode?: boolean } = {}
+): Promise<boolean> {
+  const recipient = await getUserByUid(uid);
+  if (!isActiveChatAccount(recipient)) return false;
+
+  const thread: any = await createOrForceChatThreadDb(
+    recipient.uid,
+    String(recipient.username || 'User'),
+    ANNOUNCEMENT_BOT_ID,
+    ANNOUNCEMENT_BOT_NAME,
+    false
+  );
+  const threadId = String(thread?.id || '');
+  if (!threadId) return false;
+
+  if (options.replacePreviousCode) {
+    const previousMessages = await getChatMessagesDb(threadId);
+    for (const message of previousMessages as any[]) {
+      if (message.senderId === ANNOUNCEMENT_BOT_ID && String(message.content || '').startsWith('[YOUTUBE ACCESS CODE]')) {
+        await deleteChatMessageDb(message.id);
+      }
+    }
+  }
+
+  await createChatMessageDb({
+    id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+    threadId,
+    senderId: ANNOUNCEMENT_BOT_ID,
+    senderUsername: ANNOUNCEMENT_BOT_NAME,
+    receiverId: recipient.uid,
+    content: content.slice(0, 1900),
+  });
+  return true;
+}
+
+async function isEmergencyShutdownTrusted(uid: string): Promise<boolean> {
+  const trusted = await getUidListSetting(EMERGENCY_SHUTDOWN_TRUSTED_SETTING);
+  if (!trusted.includes(uid)) return false;
+  const account = await getUserByUid(uid);
+  return Boolean(account && account.role === 'user' && isActiveChatAccount(account));
+}
 
 type YouTubeModeAccessRecord = {
   uid: string;
@@ -357,6 +424,56 @@ app.get('/api/admin/youtube-mode/status', async (req: Request, res: Response) =>
   }
 });
 
+app.get('/api/admin/security-bot/settings', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    const [youtubeCodeRecipientUids, shutdownTrustedUserIds] = await Promise.all([
+      getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING),
+      getUidListSetting(EMERGENCY_SHUTDOWN_TRUSTED_SETTING),
+    ]);
+    return res.json({ success: true, youtubeCodeRecipientUids, shutdownTrustedUserIds });
+  } catch (error: any) {
+    console.error('[Announcement Bot] Settings load failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not load security bot settings.' });
+  }
+});
+
+app.put('/api/admin/security-bot/settings', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    const requestedRecipients: unknown[] = Array.isArray(req.body?.youtubeCodeRecipientUids) ? req.body.youtubeCodeRecipientUids : [];
+    const requestedTrusted: unknown[] = Array.isArray(req.body?.shutdownTrustedUserIds) ? req.body.shutdownTrustedUserIds : [];
+    const recipients = [...new Set(requestedRecipients.filter((value): value is string => typeof value === 'string').map(value => value.trim()).filter(Boolean))].slice(0, 500);
+    const trusted = [...new Set(requestedTrusted.filter((value): value is string => typeof value === 'string').map(value => value.trim()).filter(Boolean))].slice(0, 500);
+    if (requestedRecipients.length > 500 || requestedTrusted.length > 500) {
+      return res.status(400).json({ success: false, error: 'A maximum of 500 accounts can be selected in each list.' });
+    }
+
+    const allUsers = await getUsersDb();
+    const usersByUid = new Map((Array.isArray(allUsers) ? allUsers : []).map((user: any) => [String(user.uid), user]));
+    const invalidRecipients = recipients.filter(uid => !isActiveChatAccount(usersByUid.get(uid)));
+    const invalidTrusted = trusted.filter(uid => {
+      const user: any = usersByUid.get(uid);
+      return !user || user.role !== 'user' || !isActiveChatAccount(user);
+    });
+    if (invalidRecipients.length || invalidTrusted.length) {
+      return res.status(409).json({
+        success: false,
+        error: 'One or more selected accounts are no longer active, approved, unlocked, and allowed to use chat. Refresh the page and review the lists.',
+      });
+    }
+
+    await Promise.all([
+      setPersistentSettingDb(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING, recipients),
+      setPersistentSettingDb(EMERGENCY_SHUTDOWN_TRUSTED_SETTING, trusted),
+    ]);
+    return res.json({ success: true, youtubeCodeRecipientUids: recipients, shutdownTrustedUserIds: trusted });
+  } catch (error: any) {
+    console.error('[Announcement Bot] Settings save failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not save security bot settings.' });
+  }
+});
+
 app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
@@ -364,7 +481,16 @@ app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
     if (code.length < 1 || code.length > 256) return res.status(400).json({ success: false, error: 'Code must contain between 1 and 256 characters.' });
     const hash = await hashPasswordSecure(code);
     await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, hash);
-    return res.json({ success: true });
+    const recipients = await getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING);
+    const deliveries = await Promise.all(recipients.map(uid => sendAnnouncementBotMessage(
+      uid,
+      '[YOUTUBE ACCESS CODE]\n\nYour YouSound YouTube Mode access code has changed:\n\n' + code + '\n\nEnter this code in the normal YouSound song search field and press Enter. This is a YouSound access code, not your Google password. Keep it private.',
+      { replacePreviousCode: true }
+    ).catch(error => {
+      console.warn('[Announcement Bot] YouTube code delivery failed for a selected account:', error?.message || error);
+      return false;
+    })));
+    return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length, selectedRecipients: recipients.length });
   } catch (error: any) {
     console.error('[YouTube Mode] Could not save activation code:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not save YouTube activation code.' });
@@ -375,7 +501,13 @@ app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) =
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
     await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, null);
-    return res.json({ success: true });
+    const recipients = await getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING);
+    const deliveries = await Promise.all(recipients.map(uid => sendAnnouncementBotMessage(
+      uid,
+      '[YOUTUBE ACCESS CODE]\n\nThe YouSound YouTube Mode access code has been removed. The previous code no longer works.',
+      { replacePreviousCode: true }
+    ).catch(() => false)));
+    return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length });
   } catch (error: any) {
     console.error('[YouTube Mode] Could not remove activation code:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not remove YouTube activation code.' });
@@ -423,6 +555,9 @@ type YouTubeVideoRecord = {
   viewCount: number;
   likeCount: number;
   tags: string[];
+  defaultLanguage?: string;
+  defaultAudioLanguage?: string;
+  ageRestricted?: boolean;
 };
 
 type YouTubeUserProfile = {
@@ -548,6 +683,9 @@ function normalizeYouTubeVideo(item: any): YouTubeVideoRecord | null {
     viewCount: Math.max(0, Number(statistics.viewCount || 0)),
     likeCount: Math.max(0, Number(statistics.likeCount || 0)),
     tags: Array.isArray(snippet.tags) ? snippet.tags.slice(0, 20).map((tag: any) => String(tag).slice(0, 60)) : [],
+    defaultLanguage: String(snippet.defaultLanguage || '').slice(0, 20),
+    defaultAudioLanguage: String(snippet.defaultAudioLanguage || '').slice(0, 20),
+    ageRestricted: String(item?.contentDetails?.contentRating?.ytRating || '').toLowerCase() === 'ytagerestricted',
   };
 }
 
@@ -581,7 +719,9 @@ async function searchYouTubeCached(query: string, apiKey: string, order = 'relev
     type: 'video',
     maxResults: '25',
     q: query,
-    safeSearch: 'moderate',
+    safeSearch: 'strict',
+    regionCode: 'US',
+    relevanceLanguage: 'en',
     order,
   }, apiKey);
   const ids = (Array.isArray(result.items) ? result.items : [])
@@ -598,30 +738,82 @@ function youtubeDurationSeconds(duration: string): number {
   return Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0);
 }
 
-async function getYouTubeShortsVideos(apiKey: string): Promise<YouTubeVideoRecord[]> {
-  const cacheKey = 'shorts:hashtag-feed';
+const YOUTUBE_SHORTS_UNSAFE_TERMS = /\b(porn|pornography|nsfw|nude|nudity|hentai|onlyfans|sexually explicit|erotic|fetish|gore|beheading|graphic violence|self[- ]harm|suicide|rape)\b/i;
+
+function youtubeCategoryLabel(categoryId: string): string {
+  const categories: Record<string, string> = {
+    '1': 'film animation', '2': 'cars vehicles', '10': 'music', '15': 'animals pets',
+    '17': 'sports', '20': 'gaming', '22': 'creators', '23': 'comedy',
+    '24': 'entertainment', '26': 'how to style', '27': 'education', '28': 'science technology',
+  };
+  return categories[categoryId] || '';
+}
+
+function isSafeShortsCandidate(video: YouTubeVideoRecord): boolean {
+  if (video.ageRestricted) return false;
+  const searchable = [video.title, video.description, ...video.tags].join(' ');
+  if (YOUTUBE_SHORTS_UNSAFE_TERMS.test(searchable)) return false;
+  const language = (video.defaultAudioLanguage || video.defaultLanguage || '').toLowerCase();
+  if (language && !language.startsWith('en')) return false;
+  return true;
+}
+
+async function getYouTubeShortsVideos(
+  apiKey: string,
+  profile: YouTubeUserProfile,
+  regionCode = 'US'
+): Promise<YouTubeVideoRecord[]> {
+  const safeRegion = /^[A-Z]{2}$/.test(regionCode) ? regionCode : 'US';
+  const profileFingerprint = createHash('sha256').update(JSON.stringify({
+    interests: profile.interests,
+    categories: profile.categoryWeights,
+    channels: profile.channelWeights,
+    followed: profile.followedChannels,
+    liked: profile.likedVideoIds,
+    recentlyWatched: profile.recentVideoIds,
+    recentSearches: profile.recentSearches,
+  })).digest('hex').slice(0, 16);
+  const cacheKey = 'shorts:personalized:' + safeRegion + ':' + profileFingerprint;
   const cached = getYoutubeCache(cacheKey);
   if (cached) return cached;
+
+  const categoryTerms = Object.entries(profile.categoryWeights)
+    .filter(([, weight]) => Number(weight) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 2)
+    .map(([categoryId]) => youtubeCategoryLabel(categoryId))
+    .filter(Boolean);
+  const terms = [...profile.interests.slice(0, 2), ...profile.recentSearches.slice(-1), ...categoryTerms]
+    .map(value => String(value).trim().slice(0, 55))
+    .filter(Boolean);
+  const query = [...new Set(terms)].slice(0, 3).join(' ') || 'popular short videos';
+  // Use one relevance search per personalized cache window to keep search.list quota usage low.
+  // The Following section separately retrieves uploads from every followed channel; this feed
+  // ranks the broader candidate pool using the same channel/category weights.
   const result = await callYouTubeApi('search', {
     part: 'snippet',
     type: 'video',
-    maxResults: '25',
-    q: '#shorts',
-    safeSearch: 'moderate',
-    order: 'date',
+    maxResults: '50',
+    q: query + ' shorts',
+    safeSearch: 'strict',
+    regionCode: safeRegion,
+    relevanceLanguage: 'en',
+    order: 'relevance',
     videoDuration: 'short',
   }, apiKey);
-  const ids = (Array.isArray(result.items) ? result.items : [])
-    .map((item: any) => String(item?.id?.videoId || ''))
-    .filter((id: string) => /^[A-Za-z0-9_-]{11}$/.test(id));
-  // The Data API has no dedicated Shorts feed or reliable vertical-orientation field.
-  // Use the Shorts hashtag as discovery input, then keep videos up to the current 3-minute Shorts limit.
+  const ids: string[] = Array.from(new Set<string>(
+    (Array.isArray(result.items) ? result.items : [])
+      .map((item: any) => String(item?.id?.videoId || ''))
+      .filter((id: string): id is string => /^[A-Za-z0-9_-]{11}$/.test(id))
+  )).slice(0, 50);
   const videos = (await hydrateYouTubeVideos(ids, apiKey))
     .filter(video => {
       const seconds = youtubeDurationSeconds(video.duration);
-      return seconds > 0 && seconds <= 180;
-    });
-  setYoutubeCache(cacheKey, videos, 5 * 60 * 1000);
+      return seconds > 0 && seconds <= 180 && isSafeShortsCandidate(video);
+    })
+    .sort((a, b) => scorePersonalizedVideo(b, profile) - scorePersonalizedVideo(a, profile));
+
+  setYoutubeCache(cacheKey, videos, 3 * 60 * 1000);
   return videos;
 }
 
@@ -812,7 +1004,7 @@ app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
     if (mode === 'trending') {
       candidates = await getTrendingYouTubeVideos(apiKey, regionCode);
     } else if (mode === 'shorts') {
-      candidates = await getYouTubeShortsVideos(apiKey);
+      candidates = await getYouTubeShortsVideos(apiKey, profile, regionCode);
     } else if (mode === 'liked') {
       candidates = await hydrateYouTubeVideos([...profile.likedVideoIds].reverse().slice(0, 50), apiKey);
     } else if (mode === 'following') {
@@ -842,11 +1034,17 @@ app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
     const ordered = mode === 'trending'
       ? unique
       : unique.sort((a, b) => scorePersonalizedVideo(b, profile) - scorePersonalizedVideo(a, profile));
+    const hasPersonalization = profile.interests.length > 0
+      || Object.keys(profile.categoryWeights).length > 0
+      || Object.keys(profile.channelWeights).length > 0
+      || profile.followedChannels.length > 0
+      || profile.likedVideoIds.length > 0
+      || profile.recentVideoIds.length > 0;
     return res.json({
       success: true,
       mode,
-      personalized: mode === 'for-you',
-      hasPersonalization: profile.interests.length > 0 || Object.keys(profile.categoryWeights).length > 0 || profile.followedChannels.length > 0 || profile.likedVideoIds.length > 0,
+      personalized: mode === 'for-you' || (mode === 'shorts' && hasPersonalization),
+      hasPersonalization,
       videos: ordered.slice(0, 36),
     });
   } catch (error: any) {
@@ -6717,6 +6915,8 @@ app.post('/api/admin/emergency-shutdown', async (req: Request, res: Response) =>
       recoveryFileHash,
       activatedAt: new Date().toISOString(),
       activatedBy: String(getAuthUser(req)?.username || 'admin').slice(0, 80),
+      activatedByUid: String(getAuthUser(req)?.uid || ''),
+      activationSource: 'admin-panel',
     };
     await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, record);
     emergencyShutdownCache = { checkedAt: Date.now(), record };
@@ -7115,6 +7315,26 @@ app.get('/api/chat/threads', async (req: Request, res: Response) => {
     if (!getAuthUser(req)) return res.status(401).json({ error: 'Please sign in again.' });
     if (!isAdminReq(req)) {
       const member = getAuthUser(req)!;
+      const account = await getUserByUid(member.uid);
+      if (isActiveChatAccount(account)) {
+        const botThread: any = await createOrForceChatThreadDb(
+          member.uid,
+          String(account?.username || member.username || 'User'),
+          ANNOUNCEMENT_BOT_ID,
+          ANNOUNCEMENT_BOT_NAME,
+          false
+        );
+        if (botThread?.id && !botThread.lastMessageAt) {
+          await createChatMessageDb({
+            id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+            threadId: String(botThread.id),
+            senderId: ANNOUNCEMENT_BOT_ID,
+            senderUsername: ANNOUNCEMENT_BOT_NAME,
+            receiverId: member.uid,
+            content: 'Hi! I am the Announcement Bot. I deliver private YouSound announcements to selected accounts. Trusted Operators can type /shutdown to start the emergency shutdown confirmation. Type /help for bot commands.',
+          });
+        }
+      }
       const threads = await getChatThreadsForUserDb(member.uid);
       // Account-wide chat blocks may keep access to a suspension appeal thread only.
       return res.json({ threads: member.chatBlocked ? threads.filter((thread: any) => thread.isAppealThread) : threads });
@@ -7136,6 +7356,154 @@ app.get('/api/chat/threads', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get chat threads error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// The Announcement Bot accepts only explicit commands; it is not a general chat channel.
+app.post('/api/chat/announcement-bot/command', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const account = await getUserByUid(session.uid);
+    if (!isActiveChatAccount(account)) return res.status(403).json({ success: false, error: 'This account is not currently allowed to use chat.' });
+
+    const command = typeof req.body?.content === 'string' ? req.body.content.trim().toLowerCase() : '';
+    if (!['/shutdown', 'shutdown', '/help', 'help'].includes(command)) {
+      return res.status(400).json({ success: false, error: 'The Announcement Bot only accepts /help and /shutdown. It is not a private messaging channel.' });
+    }
+    if (!allowChatMessage(account.uid)) return res.status(429).json({ success: false, error: 'Please wait a moment before sending another bot command.' });
+
+    const thread: any = await createOrForceChatThreadDb(
+      account.uid,
+      String(account.username || 'User'),
+      ANNOUNCEMENT_BOT_ID,
+      ANNOUNCEMENT_BOT_NAME,
+      false
+    );
+    const expectedThreadId = String(thread?.id || '');
+    if (!expectedThreadId || (thread.user1Id !== account.uid && thread.user2Id !== account.uid)
+      || (thread.user1Id !== ANNOUNCEMENT_BOT_ID && thread.user2Id !== ANNOUNCEMENT_BOT_ID)) {
+      return res.status(500).json({ success: false, error: 'Announcement Bot conversation could not be opened.' });
+    }
+
+    const userMessage = await createChatMessageDb({
+      id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+      threadId: expectedThreadId,
+      senderId: account.uid,
+      senderUsername: String(account.username || 'User'),
+      receiverId: ANNOUNCEMENT_BOT_ID,
+      content: command,
+    });
+
+    let reply = 'Bot commands: /help, /shutdown. The shutdown command is available only to accounts an administrator has explicitly designated as Trusted Operators.';
+    let shutdownChallengeToken: string | undefined;
+    if (command === '/shutdown' || command === 'shutdown') {
+      if (!(await isEmergencyShutdownTrusted(account.uid))) {
+        reply = 'This account is not authorized to initiate an emergency shutdown. Only administrator-selected Trusted Operators can use this command.';
+      } else {
+        shutdownChallengeToken = randomBytes(32).toString('hex');
+        const challenge: EmergencyShutdownChallengeRecord = {
+          tokenHash: createHash('sha256').update(shutdownChallengeToken).digest('hex'),
+          expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+        };
+        await setPersistentSettingDb(EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX + account.uid, challenge);
+        reply = 'Trusted Operator verified. This action will take the entire YouSound site offline for everyone. Your data remains stored, but the site will stay offline until an administrator changes EMERGENCY_RECOVERY.txt in GitHub and deploys a new commit. Complete the separate confirmation dialog within 2 minutes to continue.';
+      }
+    }
+
+    const botMessage = await createChatMessageDb({
+      id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+      threadId: expectedThreadId,
+      senderId: ANNOUNCEMENT_BOT_ID,
+      senderUsername: ANNOUNCEMENT_BOT_NAME,
+      receiverId: account.uid,
+      content: reply,
+    });
+    return res.json({ success: true, messages: [userMessage, botMessage], shutdownChallengeToken });
+  } catch (error: any) {
+    console.error('[Announcement Bot] Command failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'The Announcement Bot could not process that command.' });
+  }
+});
+
+app.post('/api/emergency-shutdown/trusted-confirm', async (req: Request, res: Response) => {
+  try {
+    const session = getAuthUser(req);
+    if (!session) return res.status(401).json({ success: false, error: 'Please sign in again.' });
+    const account = await getUserByUid(session.uid);
+    if (!isActiveChatAccount(account) || !(await isEmergencyShutdownTrusted(account.uid))) {
+      return res.status(403).json({ success: false, error: 'This account is no longer authorized as a Trusted Operator.' });
+    }
+
+    if (String(req.body?.confirmationText || '').trim() !== 'SHUT DOWN YOU SONG' || req.body?.confirmDataRetained !== true) {
+      return res.status(400).json({ success: false, error: 'Both shutdown confirmation steps are required.' });
+    }
+    const suppliedToken = typeof req.body?.challengeToken === 'string' ? req.body.challengeToken : '';
+    if (!/^[a-f0-9]{64}$/i.test(suppliedToken)) return res.status(401).json({ success: false, error: 'The shutdown confirmation expired. Send /shutdown to the bot again.' });
+
+    const challengeKey = EMERGENCY_SHUTDOWN_CHALLENGE_PREFIX + account.uid;
+    const challenge = await getPersistentSettingDb<EmergencyShutdownChallengeRecord>(challengeKey);
+    const expectedHash = typeof challenge?.tokenHash === 'string' ? Buffer.from(challenge.tokenHash, 'hex') : Buffer.alloc(0);
+    const suppliedHash = createHash('sha256').update(suppliedToken).digest();
+    const validHash = expectedHash.length === suppliedHash.length && timingSafeEqual(expectedHash, suppliedHash);
+    const expiresAtMs = challenge?.expiresAt ? Date.parse(challenge.expiresAt) : Number.NaN;
+    if (!validHash || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      await setPersistentSettingDb(challengeKey, null);
+      return res.status(401).json({ success: false, error: 'The shutdown confirmation expired. Send /shutdown to the bot again.' });
+    }
+
+    const deployedCommit = String(process.env.RENDER_GIT_COMMIT || '').trim();
+    const deployedServiceId = String(process.env.RENDER_SERVICE_ID || '').trim();
+    if (process.env.RENDER === 'true' && (!deployedCommit || !deployedServiceId)) {
+      return res.status(503).json({ success: false, error: 'Render deployment identity is unavailable. Shutdown was not activated.' });
+    }
+
+    // Atomically consume the challenge before changing the site state to prevent concurrent replay.
+    const challengeConsumed = await compareAndSetPersistentSettingDb(challengeKey, challenge, null);
+    if (!challengeConsumed) {
+      return res.status(401).json({ success: false, error: 'This shutdown confirmation has already been used or expired. Send /shutdown to the bot again.' });
+    }
+
+    const recoveryFileHash = getEmergencyRecoveryFileHash();
+    const record: EmergencyShutdownRecord = {
+      enabled: true,
+      activatedServiceId: deployedServiceId || 'local-development',
+      activatedCommit: deployedCommit || 'local-development',
+      recoveryFileHash,
+      activatedAt: new Date().toISOString(),
+      activatedBy: String(account.username || 'Trusted Operator').slice(0, 80),
+      activatedByUid: account.uid,
+      activationSource: 'announcement-bot',
+    };
+    await setPersistentSettingDb(EMERGENCY_SHUTDOWN_SETTING, record);
+    emergencyShutdownCache = { checkedAt: Date.now(), record };
+    try {
+      const botThread: any = await createOrForceChatThreadDb(
+        account.uid,
+        String(account.username || 'Trusted Operator'),
+        ANNOUNCEMENT_BOT_ID,
+        ANNOUNCEMENT_BOT_NAME,
+        false
+      );
+      await createChatMessageDb({
+        id: 'msg_' + Date.now() + '_' + randomBytes(4).toString('hex'),
+        threadId: String(botThread.id),
+        senderId: ANNOUNCEMENT_BOT_ID,
+        senderUsername: ANNOUNCEMENT_BOT_NAME,
+        receiverId: account.uid,
+        content: 'EMERGENCY SHUTDOWN ACTIVATED. The entire YouSound site has been taken offline. Your data remains stored. An administrator must change EMERGENCY_RECOVERY.txt in GitHub and deploy a new commit to restore access.',
+      });
+    } catch (messageError: any) {
+      console.warn('[Announcement Bot] Could not save shutdown confirmation message:', messageError?.message || messageError);
+    }
+    console.error('[Emergency Shutdown] Activated by trusted operator ' + record.activatedBy + ' on commit ' + record.activatedCommit + '.');
+    return res.json({
+      success: true,
+      message: 'Emergency shutdown activated. The site is offline. To restore it, change EMERGENCY_RECOVERY.txt in GitHub and deploy that new commit.',
+    });
+  } catch (error: any) {
+    console.error('[Emergency Shutdown] Trusted activation failed:', error?.message || error);
+    return res.status(503).json({ success: false, error: error?.message || 'Could not activate emergency shutdown.' });
   }
 });
 
@@ -7312,6 +7680,9 @@ app.post('/api/chat/messages', async (req: Request, res: Response) => {
     const cleanContent = content.trim().slice(0, 2000);
     const thread: any = await getChatThreadByIdDb(threadId);
     if (!thread) return res.status(404).json({ error: 'Conversation thread not found.' });
+    if (thread.user1Id === ANNOUNCEMENT_BOT_ID || thread.user2Id === ANNOUNCEMENT_BOT_ID) {
+      return res.status(403).json({ success: false, error: 'Use the Announcement Bot command interface instead of sending a regular chat message.' });
+    }
     if (thread.isTerminated) return res.status(409).json({ error: 'This conversation has been locked by an administrator.' });
     if (!thread.isApproved && !thread.isAppealThread) return res.status(403).json({ error: 'This conversation has not been approved.' });
     if (thread.user1Id !== me.uid && thread.user2Id !== me.uid) return res.status(403).json({ error: 'You are not a participant in this conversation.' });
