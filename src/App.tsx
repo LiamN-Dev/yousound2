@@ -27,12 +27,10 @@ import { LoginGate } from './components/LoginGate';
 import { PendingApprovalScreen } from './components/PendingApprovalScreen';
 import { SuspendedScreen } from './components/SuspendedScreen';
 import { AccountLockScreen } from './components/AccountLockScreen';
-import { ChatHub } from './components/ChatHub';
-import { LegacyChatHub } from './components/LegacyChatHub';
+import { ChatCenter } from './components/ChatCenter';
 import { ChatSideNotification } from './components/ChatSideNotification';
 import { RadioView } from './components/RadioView';
 import { GamesHub } from './components/GamesHub';
-import { AIStudio } from './components/AIStudio';
 import { AIAnswerNotifier } from './components/AIAnswerNotifier';
 import { LoginActivityDigest } from './components/LoginActivityDigest';
 import { TemporaryPasswordModal } from './components/TemporaryPasswordModal';
@@ -62,7 +60,8 @@ const MainAppContent: React.FC = () => {
 
   const [isYouTubePromptOpen, setIsYouTubePromptOpen] = useState(false);
   const [isYouTubeModeOpen, setIsYouTubeModeOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'ai' | 'admin'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'radio' | 'playlists' | 'favorites' | 'chat' | 'status' | 'games' | 'admin'>('library');
+  const [openChatAssistantRequest, setOpenChatAssistantRequest] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('All');
 
@@ -197,10 +196,6 @@ const MainAppContent: React.FC = () => {
       setActiveTab('library');
     }
   }, [isAdmin, currentUser?.isApproved, currentUser?.isSuspended, currentUser?.isLocked, activeTab]);
-
-  useEffect(() => {
-    if (!isAdmin && !currentUser?.aiBetaEnabled && activeTab === 'ai') setActiveTab('library');
-  }, [isAdmin, currentUser?.aiBetaEnabled, activeTab]);
 
   const handleOpenPlaylistModal = (song: Song | null) => {
     if (spotlightActive && !isAdmin) return;
@@ -403,14 +398,13 @@ const MainAppContent: React.FC = () => {
         )}
 
         {/* Tab 4: Chat & School Messaging */}
-        {activeTab === 'chat' && (isDesignBeta ? <ChatHub /> : <LegacyChatHub />)}
+        {activeTab === 'chat' && <ChatCenter openAIRequestId={openChatAssistantRequest} onAIRequestHandled={() => setOpenChatAssistantRequest(0)} />}
 
         {/* Tab 5: Admin Panel */}
         {activeTab === 'status' && <StatusView />}
         {activeTab === 'games' && (isAdmin || (currentUser.isApproved && !currentUser.isSuspended && !currentUser.isLocked)) && (
           <GamesHub isAdmin={isAdmin} />
         )}
-        {activeTab === 'ai' && (isAdmin || currentUser?.aiBetaEnabled === true) && <AIStudio />}
 
         {activeTab === 'admin' && isAdmin && <AdminPanel />}
           </>
@@ -463,7 +457,7 @@ const MainAppContent: React.FC = () => {
 
       {/* One bundled catch-up alert for song, chat, feature and bug updates after login */}
       <LoginActivityDigest />
-      <AIAnswerNotifier enabled={!!currentUser && (isAdmin || currentUser.aiBetaEnabled === true)} onOpenAI={() => setActiveTab('ai')} />
+      <AIAnswerNotifier enabled={!!currentUser && (isAdmin || currentUser.aiBetaEnabled === true)} onOpenAI={() => { setOpenChatAssistantRequest(value => value + 1); setActiveTab('chat'); }} />
 
       {/* Edit Song Modal from Uploader */}
       {uploaderEditSong && (
