@@ -514,9 +514,11 @@ export const ChatHub: React.FC = () => {
 
   const activeThread = (threads || []).find((t) => t.id === activeThreadId);
   const otherUserName = activeThread
-    ? (activeThread.user1Id === currentUser?.id
-      ? activeThread.user2Username
-      : activeThread.user1Username) || 'User'
+    ? (activeThread.user1Id === 'yousound-ai' || activeThread.user2Id === 'yousound-ai'
+      ? 'YouSound AI'
+      : activeThread.user1Id === currentUser?.id
+        ? activeThread.user2Username
+        : activeThread.user1Username) || 'User'
     : 'User';
 
   const pendingRequestsCount = requests.filter((r) => r.status === 'pending').length;
