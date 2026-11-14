@@ -284,7 +284,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   };
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f5f2e9] text-[#141a12]">
+    <div className="fixed inset-0 z-[130] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f5f2e9] text-[#141a12]">
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-black/10 bg-white/75 px-3 py-2 text-xs font-semibold text-[#253126] shadow-sm transition hover:bg-white">
