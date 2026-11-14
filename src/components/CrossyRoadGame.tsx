@@ -253,7 +253,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const renderLane = (lane: Lane) => {
     const background = lane.kind === 'grass' ? 'bg-[#39774a]' : lane.kind === 'road' ? 'bg-[#343c49]' : 'bg-[#176d88]';
     return (
-      <div key={lane.row} className={'relative h-[48px] overflow-hidden border-y border-black/10 ' + background}>
+      <div key={lane.row} className={'relative col-span-9 h-[48px] overflow-hidden border-y border-black/10 ' + background}>
         {lane.kind === 'grass' && <div className="absolute inset-0 opacity-25" style={{ backgroundImage: 'radial-gradient(#c0f1a2 1px, transparent 1.5px)', backgroundSize: '21px 19px' }} />}
         {lane.kind === 'road' && <div className="absolute inset-x-0 top-1/2 border-t-2 border-dashed border-yellow-100/50" />}
         {lane.kind === 'river' && <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'repeating-linear-gradient(165deg, transparent 0 14px, #b4e7ff 15px 16px, transparent 17px 28px)' }} />}
