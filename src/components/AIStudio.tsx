@@ -130,34 +130,6 @@ export const AIStudio: React.FC = () => {
     setError('');
     setBusy(true);
     try {
-      const isAIHelpCommand = /^\/?help$/i.test(message);
-      const isAIShutdownCommand = /^\/?shutdown$/i.test(message)
-        || /^(?:please\s+)?shut\s+down\s+(?:the\s+)?(?:yousound|site|website)[.!]?$/i.test(message)
-        || /^take\s+(?:the\s+)?(?:yousound|site|website)\s+offline[.!]?$/i.test(message);
-      if (isAIHelpCommand || isAIShutdownCommand) {
-        const botResponse = await fetch('/api/chat/yousound-ai/command', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: message }),
-        });
-        const botData = await botResponse.json().catch(() => ({}));
-        if (!botResponse.ok || !botData.success) throw new Error(botData.error || 'YouSound AI could not process that command.');
-        const botReply = Array.isArray(botData.messages)
-          ? String(botData.messages[botData.messages.length - 1]?.content || 'YouSound AI replied.')
-          : 'YouSound AI replied.';
-        const completed = [...(alreadyDisplayed ? messages.slice(0, -1) : messages), { role: 'user' as const, text: message }, { role: 'model' as const, text: botReply }];
-        setMessages(completed);
-        await saveConversation(conversationId, completed);
-        if (typeof botData.shutdownChallengeToken === 'string' && botData.shutdownChallengeToken) {
-          setShutdownChallengeToken(botData.shutdownChallengeToken);
-          setShutdownConfirmText('');
-          setShutdownDataAcknowledged(false);
-          setShutdownConfirmFeedback('');
-        }
-        requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }));
-        return;
-      }
       const response = await fetch('/api/ai/assistant', {
         method: 'POST',
         credentials: 'same-origin',
@@ -169,6 +141,12 @@ export const AIStudio: React.FC = () => {
       if (!response.ok || !data.success || typeof data.reply !== 'string') {
         const diagnostic = data.requestId ? ' (Diagnostic code: ' + data.requestId + ')' : '';
         throw new Error((data.error || 'YouSound AI could not answer right now.') + diagnostic);
+      }
+      if (typeof data.shutdownChallengeToken === 'string' && data.shutdownChallengeToken) {
+        setShutdownChallengeToken(data.shutdownChallengeToken);
+        setShutdownConfirmText('');
+        setShutdownDataAcknowledged(false);
+        setShutdownConfirmFeedback('');
       }
       const completed = [...(alreadyDisplayed ? messages.slice(0, -1) : messages), { role: 'user' as const, text: message }, { role: 'model' as const, text: data.reply }];
       setMessages(completed);
