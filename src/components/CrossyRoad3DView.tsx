@@ -154,6 +154,12 @@ function makeRailroadTrack(): THREE.Group {
   const group = new THREE.Group();
   const railMaterial = new THREE.MeshStandardMaterial({ color: '#858d91', metalness: 0.72, roughness: 0.34 });
   const sleeperMaterial = new THREE.MeshStandardMaterial({ color: '#765238', roughness: 0.95 });
+  const ballast = new THREE.Mesh(
+    new THREE.BoxGeometry(9.6, 0.14, 1.18),
+    new THREE.MeshStandardMaterial({ color: '#5c5146', roughness: 0.96 }),
+  );
+  ballast.position.y = -0.015;
+  group.add(ballast);
   for (const z of [-0.36, 0.36]) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.12, 0.09), railMaterial);
     rail.position.set(0, 0.12, z);
