@@ -204,14 +204,16 @@ function CrossyRoadFallback({ game, mapId = 'classic' }: { game: CrossyRoad3DGam
         const isGrass = lane.kind === 'grass';
         const isRoad = lane.kind === 'road';
         const isRailRoad = lane.kind === 'railRoad';
+        const laneColor = isGrass ? theme.grassColor : isRoad ? theme.roadColor : isRailRoad ? theme.railColor : theme.waterColor;
         return (
           <div
             key={lane.row}
             className={
               'relative min-h-0 flex-1 overflow-hidden border-b border-black/10 ' +
-              (isGrass ? 'bg-[#6da74b]' : isRoad ? 'bg-[#303b3e]' : isRailRoad ? 'bg-[#66564a]' : 'bg-[#438eae]')
+              ''
             }
             style={{
+              backgroundColor: laneColor,
               backgroundImage: isGrass
                 ? 'repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 18px, transparent 18px 36px)'
                 : isRoad
@@ -590,7 +592,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame; birdSkinId?: s
           signal.visible = state === 'inactive';
         });
 
-        lane.objects.forEach((object) => {
+        laneObjects.forEach((object) => {
           const key = 'lane:' + lane.row + ':train:' + object.id;
           let train = objectPoolRef.current.get(key);
           if (!train) {
@@ -644,7 +646,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame; birdSkinId?: s
       disposeGeneratedGroup(object);
       objectPoolRef.current.delete(key);
     }
-  }, [game, modelsReady]);
+  }, [game, modelsReady, birdSkinId, mapId]);
 
   useEffect(() => {
     const theme = CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0];
