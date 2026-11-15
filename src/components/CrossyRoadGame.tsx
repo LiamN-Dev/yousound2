@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, RotateCcw, Trophy, X } from 'lucide-react';
 import { CrossyRoad3DView } from './CrossyRoad3DView';
 
@@ -300,7 +301,10 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
 
 
-  return (
+  // GamesHub is rendered inside a Framer Motion tab transition. Its transform creates
+  // a containing block for position:fixed children, so mount the game on document.body
+  // to make the board truly full-screen and prevent it being clipped by the tab panel.
+  return createPortal(
     <div className="fixed inset-0 z-[130] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f5f2e9] text-[#141a12]">
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
@@ -456,6 +460,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <span className={error ? 'text-rose-700' : 'text-[#4d7041]'}>{error || message}</span>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 };
