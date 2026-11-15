@@ -231,6 +231,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       if (session !== gameSessionRef.current) return;
       runIdRef.current = null;
       setStats({ coins: result.coins, highScore: result.highScore, totalGames: result.totalGames });
+      setGarage(current => ({ ...current, coins: result.coins }));
       setMessage('Score saved · +' + result.coinsAwarded + ' coins');
       if (result.coinsAwarded > 0) playSound('coin.mp3', 0.62);
       setError('');
@@ -280,7 +281,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       api<Stats>('/stats'),
       api<{ leaderboard: LeaderboardEntry[] }>('/leaderboard'),
       api<GarageState>('/garage'),
-    ]).then(([account, board]) => {
+    ]).then(([account, board, garageData]) => {
       if (!active) return;
       setStats(account);
       setLeaderboard(board.leaderboard || []);
