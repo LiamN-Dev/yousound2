@@ -278,6 +278,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     playSound(MOVE_SOUNDS[moveSoundIndexRef.current], 0.32);
     moveSoundIndexRef.current = (moveSoundIndexRef.current + 1) % MOVE_SOUNDS.length;
     if (next.row > current.row && next.row > current.score) playSound('points.mp3', 0.28);
+    if (next.row !== current.row && destinationLane?.kind === 'railRoad') playSound('train-alarm.wav', 0.34);
 
     const session = gameSessionRef.current;
     if (!runIdRef.current && startPendingSessionRef.current !== session) {
