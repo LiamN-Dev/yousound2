@@ -9,7 +9,7 @@ type LaneKind = 'grass' | 'road' | 'river' | 'railRoad';
 type MovingObjectKind = 'vehicle' | 'log' | 'lilyPad' | 'train';
 type MovingObject = { id: string; x: number; length: number; kind?: MovingObjectKind };
 type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number; trees?: number[]; boulders?: number[] };
-type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean };
+type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean; facing: Direction };
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
 type GarageState = {
@@ -113,6 +113,7 @@ function initialGame(): GameState {
     score: 0,
     running: false,
     gameOver: false,
+    facing: 'up',
   };
 }
 
@@ -299,7 +300,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     lastMoveAtRef.current = now;
 
     const destination = getCrossyDestination(current.x, current.row, direction, COLS);
-    const next = { ...current, x: destination.x, row: destination.row };
+    const next = { ...current, x: destination.x, row: destination.row, facing: direction };
 
     const known = new Set(current.lanes.map(lane => lane.row));
     const lanes = current.lanes.slice();
