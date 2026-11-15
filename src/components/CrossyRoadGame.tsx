@@ -4,8 +4,9 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, RotateCcw, Trophy, X 
 import { CrossyRoad3DView } from './CrossyRoad3DView';
 
 type Direction = 'up' | 'down' | 'left' | 'right';
-type LaneKind = 'grass' | 'road' | 'river';
-type MovingObject = { id: string; x: number; length: number };
+type LaneKind = 'grass' | 'road' | 'river' | 'railRoad';
+type MovingObjectKind = 'vehicle' | 'log' | 'lilyPad' | 'train';
+type MovingObject = { id: string; x: number; length: number; kind?: MovingObjectKind };
 type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number; trees?: number[] };
 type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean };
 type Stats = { coins: number; highScore: number; totalGames: number };
@@ -24,29 +25,64 @@ const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
 };
 
 function makeLane(row: number): Lane {
-  if (row <= 2 || row % 13 === 0) {
+  // The Expo source starts with ten safe grass rows before introducing hazards.
+  if (row < 10 || row % 13 === 0) {
     return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees: [] };
   }
+
   const roll = Math.random();
-  const kind: LaneKind = roll < 0.58 ? 'road' : roll < 0.82 ? 'river' : 'grass';
-  if (kind === 'grass') {
-    const treeCount = 1 + Math.floor(Math.random() * 2);
+  if (roll < 1 / 3) {
+    const treeCount = Math.random() < 0.55 ? 1 : 2;
     const trees = [...new Set(Array.from({ length: treeCount }, () => Math.floor(Math.random() * COLS)))];
-    return { row, kind, direction: 1, speed: 0, objects: [], spawnIn: 0, trees };
+    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees };
   }
+
   const direction: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
-  const speed = kind === 'road' ? 1.25 + Math.random() * 0.75 : 0.65 + Math.random() * 0.4;
-  const length = kind === 'road' ? 1.2 + Math.random() * 0.55 : 2.1 + Math.random() * 0.75;
+  if (roll < 2 / 3) {
+    // A quarter of the road-type rows are railroad crossings, as in CrossyGameMap.
+    if (Math.random() < 0.25) {
+      const length = 7.4;
+      return {
+        row,
+        kind: 'railRoad',
+        direction,
+        speed: 5.2 + Math.random() * 0.8,
+        objects: [{ id: row + '-train', x: direction === 1 ? -length - 1 : COLS + 1, length, kind: 'train' }],
+        spawnIn: 0,
+      };
+    }
+
+    const speed = 1.25 + Math.random() * 0.75;
+    const length = 1.2 + Math.random() * 0.55;
+    return {
+      row,
+      kind: 'road',
+      direction,
+      speed,
+      objects: [
+        { id: row + '-car-a', x: direction === 1 ? 0.1 : 5.7, length, kind: 'vehicle' },
+        { id: row + '-car-b', x: direction === 1 ? 5.2 : 0.1, length: length + 0.25, kind: 'vehicle' },
+      ],
+      spawnIn: 1.3 + Math.random() * 1.2,
+    };
+  }
+
+  // Water lanes carry the player on moving logs and occasional lily pads.
+  const speed = 0.65 + Math.random() * 0.4;
+  const logLength = 2.1 + Math.random() * 0.75;
   return {
-    row, kind, direction, speed,
+    row,
+    kind: 'river',
+    direction,
+    speed,
     objects: [
-      { id: row + '-a', x: direction === 1 ? 0.1 : 5.7, length },
-      { id: row + '-b', x: direction === 1 ? 5.2 : 0.1, length: kind === 'road' ? length : length + 0.25 },
+      { id: row + '-log-a', x: direction === 1 ? 0.1 : 5.7, length: logLength, kind: 'log' },
+      { id: row + '-lily', x: direction === 1 ? 4.3 : 1.3, length: 0.85, kind: 'lilyPad' },
+      { id: row + '-log-b', x: direction === 1 ? 5.2 : 0.1, length: logLength + 0.25, kind: 'log' },
     ],
     spawnIn: 1.3 + Math.random() * 1.2,
   };
 }
-
 function initialGame(): GameState {
   return {
     x: 4,
@@ -225,16 +261,33 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       const lanes = current.lanes.map(lane => {
         if (lane.kind === 'grass') return lane;
         let spawnIn = lane.spawnIn - dt;
-        let objects = lane.objects
-          .map(object => ({ ...object, x: object.x + lane.direction * lane.speed * dt }))
-          .filter(object => object.x > -object.length - 0.5 && object.x < COLS + 0.5);
+        let objects = lane.objects.map(object => ({
+          ...object,
+          x: object.x + lane.direction * lane.speed * dt,
+        }));
+
+        if (lane.kind === 'railRoad') {
+          objects = objects.map(object => {
+            if (lane.direction === 1 && object.x > COLS + 0.5) return { ...object, x: -object.length - 0.5 };
+            if (lane.direction === -1 && object.x + object.length < -0.5) return { ...object, x: COLS + 0.5 };
+            return object;
+          });
+          return { ...lane, objects, spawnIn: 0 };
+        }
+
+        objects = objects.filter(object => object.x > -object.length - 0.5 && object.x < COLS + 0.5);
         if (spawnIn <= 0) {
           const blocked = lane.direction === 1
             ? objects.some(object => object.x < 2.8)
             : objects.some(object => object.x + object.length > COLS - 2.8);
           if (!blocked) {
-            const length = lane.kind === 'road' ? 1.2 + Math.random() * 0.55 : 2.1 + Math.random() * 0.7;
-            objects.push({ id: lane.row + '-' + Date.now(), x: lane.direction === 1 ? -length : COLS, length });
+            if (lane.kind === 'road') {
+              const length = 1.2 + Math.random() * 0.55;
+              objects.push({ id: lane.row + '-car-' + Date.now(), x: lane.direction === 1 ? -length : COLS, length, kind: 'vehicle' });
+            } else {
+              const length = 2.1 + Math.random() * 0.7;
+              objects.push({ id: lane.row + '-log-' + Date.now(), x: lane.direction === 1 ? -length : COLS, length, kind: 'log' });
+            }
           }
           spawnIn = 1.3 + Math.random() * 1.2;
         }
@@ -244,13 +297,14 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       const player = { x: current.x, row: current.row };
       const lane = lanes.find(item => item.row === player.row);
       let dead = !lane || player.x < 0 || player.x > COLS - 1;
-      if (lane?.kind === 'road' && lane.objects.some(object => player.x + 0.34 > object.x && player.x - 0.34 < object.x + object.length)) {
+      if ((lane?.kind === 'road' || lane?.kind === 'railRoad') && lane.objects.some(object => player.x + 0.34 > object.x && player.x - 0.34 < object.x + object.length)) {
         dead = true;
       }
       if (lane?.kind === 'river') {
-        const log = lane.objects.find(object => player.x + 0.34 > object.x && player.x - 0.34 < object.x + object.length);
-        if (!log) dead = true;
+        const platform = lane.objects.find(object => player.x + 0.34 > object.x && player.x - 0.34 < object.x + object.length);
+        if (!platform) dead = true;
         else {
+          // Logs and lily pads both carry the player with the current, like the source engine.
           player.x += lane.direction * lane.speed * dt;
           if (player.x < 0 || player.x > COLS - 1) dead = true;
         }
