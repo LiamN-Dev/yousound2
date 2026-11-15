@@ -47,6 +47,6 @@ test('Crossy Road host fails closed for missing, non-HTTPS, or blocked domains',
 });
 
 test('Crossy Road finish SQL uses one consistent type for the score parameter', () => {
-  assert.equal((CROSSY_ROAD_FINISH_RUN_SQL.match(/\\$3::integer/g) || []).length, 2);
-  assert.doesNotMatch(CROSSY_ROAD_FINISH_RUN_SQL, /\\$3::numeric/);
+  assert.equal((CROSSY_ROAD_FINISH_RUN_SQL.match(/\$3::integer/g) || []).length, 2);
+  assert.doesNotMatch(CROSSY_ROAD_FINISH_RUN_SQL, /\$3::numeric/);
 });
