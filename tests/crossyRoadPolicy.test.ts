@@ -50,3 +50,44 @@ test('Crossy Road finish SQL uses one consistent type for the score parameter', 
   assert.equal((CROSSY_ROAD_FINISH_RUN_SQL.match(/\$3::integer/g) || []).length, 2);
   assert.doesNotMatch(CROSSY_ROAD_FINISH_RUN_SQL, /\$3::numeric/);
 });
+
+
+import { getCrossyDestination, sanitizeCrossyLaneObjects } from '../src/services/crossyRoadGameLogic.ts';
+import { CROSSY_BIRD_SKINS, CROSSY_MAPS, getCrossyCosmetic } from '../src/services/crossyRoadCatalog.ts';
+
+test('Crossy Road movement directions match the on-screen controls', () => {
+  assert.deepEqual(getCrossyDestination(4, 0, 'up'), { x: 4, row: 1 });
+  assert.deepEqual(getCrossyDestination(4, 1, 'down'), { x: 4, row: 0 });
+  assert.deepEqual(getCrossyDestination(4, 1, 'left'), { x: 3, row: 1 });
+  assert.deepEqual(getCrossyDestination(4, 1, 'right'), { x: 5, row: 1 });
+});
+
+test('road lanes never retain water logs or lily pads', () => {
+  const objects = [
+    { id: 'car', x: 1, length: 1.5, kind: 'vehicle' },
+    { id: 'log', x: 2, length: 2, kind: 'log' },
+    { id: 'lily', x: 4, length: 1, kind: 'lilyPad' },
+  ];
+  assert.deepEqual(sanitizeCrossyLaneObjects('road', objects).map((item) => item.id), ['car']);
+});
+
+test('river lanes retain only logs and lily pads; railroad lanes retain only trains', () => {
+  const objects = [
+    { id: 'car', x: 1, length: 1.5, kind: 'vehicle' },
+    { id: 'log', x: 2, length: 2, kind: 'log' },
+    { id: 'lily', x: 4, length: 1, kind: 'lilyPad' },
+    { id: 'train', x: 5, length: 7.4, kind: 'train' },
+  ];
+  assert.deepEqual(sanitizeCrossyLaneObjects('river', objects).map((item) => item.id), ['log', 'lily']);
+  assert.deepEqual(sanitizeCrossyLaneObjects('railRoad', objects).map((item) => item.id), ['train']);
+  assert.deepEqual(sanitizeCrossyLaneObjects('grass', objects), []);
+});
+
+test('garage catalog items are server-addressable and include a free default', () => {
+  assert.equal(getCrossyCosmetic('bird', 'classic')?.price, 0);
+  assert.equal(getCrossyCosmetic('map', 'classic')?.price, 0);
+  assert.equal(getCrossyCosmetic('bird', 'not-a-skin'), null);
+  assert.equal(getCrossyCosmetic('map', 'not-a-map'), null);
+  assert.ok(CROSSY_BIRD_SKINS.some((item) => item.id === 'golden'));
+  assert.ok(CROSSY_MAPS.some((item) => item.id === 'winter'));
+});
