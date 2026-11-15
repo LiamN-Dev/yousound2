@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { checkSqlAvailability, createPool } from '../db/index.ts';
 import { canAccessCrossyRoad, isPlausibleCrossyRoadScore, resolveCrossyRoadHost } from '../services/crossyRoadPolicy.ts';
+import { CROSSY_ROAD_FINISH_RUN_SQL } from '../services/crossyRoadSql.ts';
 
 const router = Router();
 
@@ -141,14 +142,29 @@ router.post('/finish', async (req, res) => {
     const pool = createPool();
     client = await pool.connect();
     await client.query('BEGIN');
-    const claimed = await client.query(
-      `UPDATE crossy_road_runs
-          SET completed_at = NOW(), score = $3::integer, coins_awarded = FLOOR($3::numeric / 10.0)::integer
-        WHERE id = $1 AND user_id = $2 AND completed_at IS NULL
-        RETURNING EXTRACT(EPOCH FROM (completed_at - started_at)) AS elapsed_seconds, coins_awarded`,
-      [runId, user.uid, score]
-    );
+    const claimed = await client.query(CROSSY_ROAD_FINISH_RUN_SQL, [runId, user.uid, score]);
     if (!claimed.rowCount) {
+      // A retry can arrive after the first request committed but its response was lost.
+      // Return the already-saved account totals without awarding coins a second time.
+      const previous = await client.query(
+        `SELECT r.score, s.coins, s.high_score, s.total_games
+           FROM crossy_road_runs r
+           JOIN crossy_road_stats s ON s.user_id = r.user_id
+          WHERE r.id = $1 AND r.user_id = $2 AND r.completed_at IS NOT NULL`,
+        [runId, user.uid]
+      );
+      if (previous.rowCount && Number(previous.rows[0].score) === score) {
+        await client.query('COMMIT');
+        const row = previous.rows[0];
+        return res.json({
+          success: true,
+          score,
+          coinsAwarded: 0,
+          coins: Number(row.coins || 0),
+          highScore: Number(row.high_score || 0),
+          totalGames: Number(row.total_games || 0),
+        });
+      }
       await client.query('ROLLBACK');
       return res.status(409).json({ success: false, error: 'This game session was already submitted or is invalid.' });
     }

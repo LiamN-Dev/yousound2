@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canAccessCrossyRoad, isPlausibleCrossyRoadScore, resolveCrossyRoadHost } from '../src/services/crossyRoadPolicy.ts';
+import { CROSSY_ROAD_FINISH_RUN_SQL } from '../src/services/crossyRoadSql.ts';
 
 test('approved active members can play without the legacy gamesEnabled flag', () => {
   assert.equal(canAccessCrossyRoad({ role: 'user', isApproved: true, isSuspended: false, isLocked: false, gamesEnabled: false }), true);
@@ -43,4 +44,9 @@ test('Crossy Road host fails closed for missing, non-HTTPS, or blocked domains',
   assert.equal(resolveCrossyRoadHost('http://script.google.com/macros/s/example/exec').url, null);
   assert.equal(resolveCrossyRoadHost('https://yousound-game-assets.liamnystrom9.workers.dev/crossy-road').url, null);
   assert.equal(resolveCrossyRoadHost('https://example.com/game').url, null);
+});
+
+test('Crossy Road finish SQL uses one consistent type for the score parameter', () => {
+  assert.equal((CROSSY_ROAD_FINISH_RUN_SQL.match(/\$3::integer/g) || []).length, 2);
+  assert.doesNotMatch(CROSSY_ROAD_FINISH_RUN_SQL, /\$3::numeric/);
 });
