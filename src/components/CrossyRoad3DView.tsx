@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-import { gunzipSync } from 'fflate';
 
 export type CrossyRoad3DGame = {
   x: number;
@@ -12,6 +11,7 @@ export type CrossyRoad3DGame = {
     direction: 1 | -1;
     objects: Array<{ id: string; x: number; length: number; kind?: 'vehicle' | 'log' | 'lilyPad' | 'train' }>;
     trees?: number[];
+    boulders?: number[];
   }>;
   score: number;
   running: boolean;
@@ -20,78 +20,41 @@ export type CrossyRoad3DGame = {
 
 type LoadedModels = {
   chicken: THREE.Group;
-  blueCar: THREE.Group;
-  redTruck: THREE.Group;
-  log: THREE.Group;
-  tree: THREE.Group;
-  boulder: THREE.Group;
+  cars: THREE.Group[];
+  logs: THREE.Group[];
+  trees: THREE.Group[];
+  boulders: THREE.Group[];
   grassLight: THREE.Group;
   grassDark: THREE.Group;
   roadMarked: THREE.Group;
   roadBlank: THREE.Group;
   river: THREE.Group;
+  lilyPad: THREE.Group;
+  railroad: THREE.Group;
+  trainFront: THREE.Group;
+  trainMiddle: THREE.Group;
+  trainBack: THREE.Group;
+  trainLightInactive: THREE.Group;
+  trainLightActive0: THREE.Group;
+  trainLightActive1: THREE.Group;
 };
 
 const COLS = 9;
 const VISIBLE_ROWS = 5;
-const decoder = new TextDecoder();
-
-function untarGzip(bytes: Uint8Array): Map<string, Uint8Array> {
-  const tar = gunzipSync(bytes);
-  const files = new Map<string, Uint8Array>();
-  let offset = 0;
-  while (offset + 512 <= tar.length) {
-    const header = tar.subarray(offset, offset + 512);
-    if (header.every((value) => value === 0)) break;
-    const name = decoder.decode(header.subarray(0, 100)).split('\0')[0];
-    const prefix = decoder.decode(header.subarray(345, 500)).split('\0')[0];
-    const fullName = prefix ? prefix + '/' + name : name;
-    const sizeText = decoder.decode(header.subarray(124, 136)).replace(/\0/g, '').trim();
-    const size = Number.parseInt(sizeText || '0', 8);
-    if (!Number.isFinite(size) || size < 0 || offset + 512 + size > tar.length) {
-      throw new Error('The Crossy Road model archive is damaged.');
-    }
-    if (name) files.set(fullName, tar.slice(offset + 512, offset + 512 + size));
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
-  return files;
-}
-
-function loadTexture(
-  loader: THREE.TextureLoader,
-  blobUrls: string[],
-  bytes: Uint8Array,
-): Promise<THREE.Texture> {
-  const imageBytes = new Uint8Array(bytes.byteLength);
-  imageBytes.set(bytes);
-  const url = URL.createObjectURL(new Blob([imageBytes.buffer], { type: 'image/png' }));
-  blobUrls.push(url);
-  return new Promise((resolve, reject) => {
-    loader.load(url, (texture) => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      texture.generateMipmaps = true;
-      resolve(texture);
-    }, undefined, reject);
-  });
-}
-
 async function loadModel(
-  files: Map<string, Uint8Array>,
-  objPath: string,
-  pngPath: string,
+  modelPath: string,
+  texturePath: string,
   objLoader: OBJLoader,
   textureLoader: THREE.TextureLoader,
-  blobUrls: string[],
 ): Promise<THREE.Group> {
-  const objBytes = files.get(objPath);
-  const textureBytes = files.get(pngPath);
-  if (!objBytes || !textureBytes) throw new Error('A Crossy Road model is missing: ' + objPath);
   const [model, texture] = await Promise.all([
-    Promise.resolve().then(() => objLoader.parse(decoder.decode(objBytes))),
-    loadTexture(textureLoader, blobUrls, textureBytes),
+    objLoader.loadAsync('/crossy-source/models/' + modelPath),
+    textureLoader.loadAsync('/crossy-source/models/' + texturePath),
   ]);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
   const material = new THREE.MeshLambertMaterial({ map: texture });
   model.traverse((child) => {
     if (child instanceof THREE.Mesh) {
@@ -103,140 +66,99 @@ async function loadModel(
   return model;
 }
 
-async function loadModels(blobUrls: string[]): Promise<LoadedModels> {
-  const fragments = await Promise.all(Array.from({ length: 7 }, async (_, index) => {
-    const suffix = String(index).padStart(2, '0');
-    const response = await fetch('/crossy3d-assets-' + suffix + '.b64', { cache: 'force-cache' });
-    if (!response.ok) throw new Error('Could not load Crossy Road model archive part ' + suffix + '.');
-    const fragment = (await response.text()).trim();
-    if (!fragment || !/^[A-Za-z0-9+/]+={0,2}$/.test(fragment)) {
-      throw new Error('Crossy Road model archive part ' + suffix + ' is empty or invalid.');
-    }
-    return fragment;
-  }));
-
-  const binary = atob(fragments.join(''));
-  const compressed = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) compressed[index] = binary.charCodeAt(index);
-  const files = untarGzip(compressed);
+async function loadModels(): Promise<LoadedModels> {
   const obj = new OBJLoader();
-  const texture = new THREE.TextureLoader();
-  const models = await Promise.all([
-    loadModel(files, 'models/characters/chicken/0.obj', 'models/characters/chicken/0.png', obj, texture, blobUrls),
-    loadModel(files, 'models/vehicles/blue_car/0.obj', 'models/vehicles/blue_car/0.png', obj, texture, blobUrls),
-    loadModel(files, 'models/vehicles/red_truck/0.obj', 'models/vehicles/red_truck/0.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/log/0/0.obj', 'models/environment/log/0/0.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/tree/0/0.obj', 'models/environment/tree/0/0.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/boulder/0/0.obj', 'models/environment/boulder/0/0.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/grass/model.obj', 'models/environment/grass/light-grass.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/grass/model.obj', 'models/environment/grass/dark-grass.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/road/model.obj', 'models/environment/road/stripes-texture.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/road/model.obj', 'models/environment/road/blank-texture.png', obj, texture, blobUrls),
-    loadModel(files, 'models/environment/river/0.obj', 'models/environment/river/0.png', obj, texture, blobUrls),
+  const textures = new THREE.TextureLoader();
+  const load = (folder: string) => loadModel(folder + '/0.obj', folder + '/0.png', obj, textures);
+  const [
+    chicken,
+    ...models
+  ] = await Promise.all([
+    load('characters/chicken'),
+    ...[
+      'vehicles/police_car',
+      'vehicles/blue_car',
+      'vehicles/blue_truck',
+      'vehicles/green_car',
+      'vehicles/orange_car',
+      'vehicles/purple_car',
+      'vehicles/red_truck',
+      'vehicles/taxi',
+      'environment/log/0',
+      'environment/log/1',
+      'environment/log/2',
+      'environment/log/3',
+      'environment/tree/0',
+      'environment/tree/1',
+      'environment/tree/2',
+      'environment/tree/3',
+      'environment/boulder/0',
+      'environment/boulder/1',
+      'environment/grass-light',
+    ].map((folder) => {
+      if (folder === 'environment/grass-light') {
+        return loadModel('environment/grass/model.obj', 'environment/grass/light-grass.png', obj, textures);
+      }
+      return load(folder);
+    }),
+    loadModel('environment/grass/model.obj', 'environment/grass/dark-grass.png', obj, textures),
+    loadModel('environment/road/model.obj', 'environment/road/stripes-texture.png', obj, textures),
+    loadModel('environment/road/model.obj', 'environment/road/blank-texture.png', obj, textures),
+    load('environment/river'),
+    load('environment/lily_pad'),
+    load('environment/railroad'),
+    load('vehicles/train/front'),
+    load('vehicles/train/middle'),
+    load('vehicles/train/back'),
+    load('environment/train_light/inactive'),
+    load('environment/train_light/active/0'),
+    load('environment/train_light/active/1'),
   ]);
 
   return {
-    chicken: models[0],
-    blueCar: models[1],
-    redTruck: models[2],
-    log: models[3],
-    tree: models[4],
-    boulder: models[5],
-    grassLight: models[6],
-    grassDark: models[7],
-    roadMarked: models[8],
-    roadBlank: models[9],
-    river: models[10],
+    chicken,
+    cars: models.slice(0, 8),
+    logs: models.slice(8, 12),
+    trees: models.slice(12, 16),
+    boulders: models.slice(16, 18),
+    grassLight: models[18],
+    grassDark: models[19],
+    roadMarked: models[20],
+    roadBlank: models[21],
+    river: models[22],
+    lilyPad: models[23],
+    railroad: models[24],
+    trainFront: models[25],
+    trainMiddle: models[26],
+    trainBack: models[27],
+    trainLightInactive: models[28],
+    trainLightActive0: models[29],
+    trainLightActive1: models[30],
   };
 }
 
-function makeRailroadTrack(): THREE.Group {
-  const group = new THREE.Group();
-  const railMaterial = new THREE.MeshStandardMaterial({ color: '#858d91', metalness: 0.72, roughness: 0.34 });
-  const sleeperMaterial = new THREE.MeshStandardMaterial({ color: '#765238', roughness: 0.95 });
-  const ballast = new THREE.Mesh(
-    new THREE.BoxGeometry(9.6, 0.14, 1.18),
-    new THREE.MeshStandardMaterial({ color: '#5c5146', roughness: 0.96 }),
-  );
-  ballast.position.y = -0.015;
-  group.add(ballast);
-  for (const z of [-0.36, 0.36]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.12, 0.09), railMaterial);
-    rail.position.set(0, 0.12, z);
-    rail.castShadow = true;
-    group.add(rail);
+function hashString(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
   }
-  for (let index = 0; index < 22; index += 1) {
-    const sleeper = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 1.05), sleeperMaterial);
-    sleeper.position.set(-4.45 + index * 0.42, 0.05, 0);
-    group.add(sleeper);
+  return Math.abs(hash);
+}
+
+function makeSourceTrain(models: LoadedModels): THREE.Group {
+  const group = new THREE.Group();
+  const parts = [models.trainFront, models.trainMiddle, models.trainMiddle, models.trainBack];
+  let cursor = 0;
+  for (const source of parts) {
+    const part = cloneModel(source);
+    const bounds = new THREE.Box3().setFromObject(part);
+    part.position.x = cursor - bounds.min.x;
+    cursor += bounds.max.x - bounds.min.x;
+    group.add(part);
   }
-  group.userData.crossyGenerated = true;
-  return group;
-}
-
-function makeTrain(): THREE.Group {
-  const group = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: '#c94736', roughness: 0.7 });
-  const cabin = new THREE.MeshStandardMaterial({ color: '#e8eee7', roughness: 0.45 });
-  const windowMaterial = new THREE.MeshStandardMaterial({ color: '#79b9ce', metalness: 0.18, roughness: 0.24 });
-  const wheelMaterial = new THREE.MeshStandardMaterial({ color: '#20272a', roughness: 0.9 });
-  const addCar = (center: number, width: number, engine = false) => {
-    const base = new THREE.Mesh(new THREE.BoxGeometry(width, 0.42, 0.78), body);
-    base.position.set(center, 0.42, 0);
-    base.castShadow = true;
-    base.receiveShadow = true;
-    group.add(base);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(engine ? 1.15 : width * 0.78, 0.38, 0.64), engine ? body : cabin);
-    top.position.set(center + (engine ? 0.05 : 0), 0.79, 0);
-    top.castShadow = true;
-    group.add(top);
-    const window = new THREE.Mesh(new THREE.BoxGeometry(engine ? 0.48 : width * 0.42, 0.18, 0.66), windowMaterial);
-    window.position.set(center + (engine ? 0.28 : 0), 0.86, 0);
-    group.add(window);
-    for (const wheelX of [center - width * 0.32, center + width * 0.32]) {
-      for (const z of [-0.4, 0.4]) {
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.12, 8), wheelMaterial);
-        wheel.rotation.x = Math.PI / 2;
-        wheel.position.set(wheelX, 0.17, z);
-        group.add(wheel);
-      }
-    }
-  };
-  addCar(1.8, 2.0, true);
-  addCar(-0.2, 1.9);
-  addCar(-2.1, 1.9);
-  group.userData.crossyGenerated = true;
-  return group;
-}
-
-function makeLilyPad(): THREE.Group {
-  const group = new THREE.Group();
-  const green = new THREE.MeshStandardMaterial({ color: '#4f9a53', roughness: 0.88 });
-  const center = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.40, 0.09, 10), green);
-  center.position.y = 0.08;
-  center.castShadow = true;
-  group.add(center);
-  const flower = new THREE.Mesh(new THREE.SphereGeometry(0.085, 7, 5), new THREE.MeshStandardMaterial({ color: '#f6e7a6', roughness: 0.8 }));
-  flower.position.set(0.16, 0.14, -0.12);
-  group.add(flower);
-  group.userData.crossyGenerated = true;
-  return group;
-}
-
-function makeRailSignal(): THREE.Group {
-  const group = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.95, 6), new THREE.MeshStandardMaterial({ color: '#555b5d' }));
-  pole.position.y = 0.47;
-  group.add(pole);
-  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.18), new THREE.MeshStandardMaterial({ color: '#292f31' }));
-  housing.position.set(0, 0.9, 0);
-  group.add(housing);
-  const red = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), new THREE.MeshStandardMaterial({ color: '#f23e32', emissive: '#7d0805' }));
-  red.position.set(0, 1.0, 0.105);
-  red.name = 'warning-lamp';
-  group.add(red);
-  group.userData.crossyGenerated = true;
+  const bounds = new THREE.Box3().setFromObject(group);
+  const center = (bounds.min.x + bounds.max.x) / 2;
+  group.children.forEach((part) => { part.position.x -= center; });
   return group;
 }
 
@@ -309,6 +231,15 @@ function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
                 🌲
               </span>
             ))}
+            {isGrass && (lane.boulders || []).map((boulderX, index) => (
+              <span
+                key={lane.row + '-boulder-' + index}
+                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[clamp(12px,3.1vh,26px)] drop-shadow"
+                style={{ left: ((boulderX + 0.5) / COLS) * 100 + '%' }}
+              >
+                🪨
+              </span>
+            ))}
             {!isGrass && lane.objects.map((object, index) => (
               <div
                 key={object.id}
@@ -365,7 +296,6 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     let alive = true;
     let frame = 0;
     let resizeObserver: ResizeObserver | null = null;
-    const blobUrls: string[] = [];
     let renderer: THREE.WebGLRenderer | null = null;
     let scene: THREE.Scene | null = null;
 
@@ -451,12 +381,19 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           playerMotionRef.current = null;
         }
       }
+      const signalPhase = Math.floor(performance.now() / 220) % 2;
+      objectPoolRef.current.forEach((object, key) => {
+        if (!key.includes(':signal:')) return;
+        object.visible = key.endsWith(':inactive')
+          ? false
+          : key.endsWith(':active-a') ? signalPhase === 0 : signalPhase === 1;
+      });
       renderer.render(scene, camera);
       frame = window.requestAnimationFrame(draw);
     };
     frame = window.requestAnimationFrame(draw);
 
-    void loadModels(blobUrls).then((models) => {
+    void loadModels().then((models) => {
       if (!alive) return;
       modelsRef.current = models;
       renderer!.domElement.style.opacity = '1';
@@ -481,21 +418,35 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       objectPoolRef.current.forEach(disposeGeneratedGroup);
       const models = modelsRef.current;
       if (models) {
-        Object.values(models).forEach((model) => {
-          model.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.geometry.dispose();
-              const materials = Array.isArray(child.material) ? child.material : [child.material];
-              materials.forEach((material) => {
-                const map = (material as THREE.MeshLambertMaterial).map;
-                map?.dispose();
-                material.dispose();
-              });
+        const sourceModels = [
+          models.chicken, ...models.cars, ...models.logs, ...models.trees, ...models.boulders,
+          models.grassLight, models.grassDark, models.roadMarked, models.roadBlank, models.river,
+          models.lilyPad, models.railroad, models.trainFront, models.trainMiddle, models.trainBack,
+          models.trainLightInactive, models.trainLightActive0, models.trainLightActive1,
+        ];
+        const geometries = new Set<THREE.BufferGeometry>();
+        const materials = new Set<THREE.Material>();
+        const textures = new Set<THREE.Texture>();
+        sourceModels.forEach((model) => model.traverse((child) => {
+          if (!(child instanceof THREE.Mesh)) return;
+          if (!geometries.has(child.geometry)) {
+            geometries.add(child.geometry);
+            child.geometry.dispose();
+          }
+          const list = Array.isArray(child.material) ? child.material : [child.material];
+          list.forEach((material) => {
+            const map = (material as THREE.MeshLambertMaterial).map;
+            if (map && !textures.has(map)) {
+              textures.add(map);
+              map.dispose();
+            }
+            if (!materials.has(material)) {
+              materials.add(material);
+              material.dispose();
             }
           });
-        });
+        }));
       }
-      for (const url of blobUrls) URL.revokeObjectURL(url);
       modelsRef.current = null;
       objectPoolRef.current.clear();
       playerMotionRef.current = null;
@@ -560,8 +511,13 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           COLS / 25, 1, 1,
         );
         (lane.trees || []).forEach((treeX, index) => {
+          const tree = models.trees[hashString(lane.row + ':tree:' + index) % models.trees.length];
           const size = treeX % 2 === 0 ? 1 : 0.92;
-          place('lane:' + lane.row + ':tree:' + index, models.tree, treeX - 4, 0.36, rel, size, size, size);
+          place('lane:' + lane.row + ':tree:' + index, tree, treeX - 4, 0.36, rel, size, size, size);
+        });
+        (lane.boulders || []).forEach((boulderX, index) => {
+          const boulder = models.boulders[hashString(lane.row + ':boulder:' + index) % models.boulders.length];
+          place('lane:' + lane.row + ':boulder:' + index, boulder, boulderX - 4, 0.31, rel, 1, 1, 1);
         });
       } else if (lane.kind === 'road') {
         place(
@@ -570,54 +526,57 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           0, -0.015, rel,
           COLS / 25, 1, 1,
         );
-        lane.objects.forEach((object, index) => {
-          const isCar = index % 2 === 0;
-          const scale = isCar ? 0.9 : 0.48;
+        lane.objects.forEach((object) => {
+          const vehicle = models.cars[hashString(object.id) % models.cars.length];
+          const vehicleBounds = new THREE.Box3().setFromObject(vehicle);
+          const vehicleLength = Math.max(0.1, vehicleBounds.max.z - vehicleBounds.min.z);
+          const scale = Math.max(0.42, Math.min(1.05, object.length / vehicleLength));
           place(
             'lane:' + lane.row + ':vehicle:' + object.id,
-            isCar ? models.blueCar : models.redTruck,
+            vehicle,
             object.x + object.length / 2 - 4.5,
-            0.26,
+            0.25,
             rel,
             scale, scale, scale,
             lane.direction > 0 ? Math.PI / 2 : -Math.PI / 2,
           );
         });
       } else if (lane.kind === 'railRoad') {
-        let track = objectPoolRef.current.get('lane:' + lane.row + ':track');
-        if (!track) {
-          track = makeRailroadTrack();
-          objectPoolRef.current.set('lane:' + lane.row + ':track', track);
-          world.add(track);
-        }
-        activeKeys.add('lane:' + lane.row + ':track');
-        track.position.set(0, 0, rel);
+        place('lane:' + lane.row + ':track', models.railroad, 0, -0.015, rel, COLS / 25, 1, 1);
 
-        let signal = objectPoolRef.current.get('lane:' + lane.row + ':signal');
-        if (!signal) {
-          signal = makeRailSignal();
-          objectPoolRef.current.set('lane:' + lane.row + ':signal', signal);
-          world.add(signal);
-        }
-        activeKeys.add('lane:' + lane.row + ':signal');
-        signal.position.set(lane.direction > 0 ? -4.65 : 4.65, 0, rel);
-        const lamp = signal.getObjectByName('warning-lamp') as THREE.Mesh | undefined;
-        if (lamp && lamp.material instanceof THREE.MeshStandardMaterial) {
-          const flashing = Math.floor(Date.now() / 260) % 2 === 0;
-          lamp.material.emissiveIntensity = flashing ? 1.8 : 0.18;
-        }
+        const signalX = lane.direction > 0 ? -4.48 : 4.48;
+        const signalModels = [
+          ['inactive', models.trainLightInactive],
+          ['active-a', models.trainLightActive0],
+          ['active-b', models.trainLightActive1],
+        ] as const;
+        signalModels.forEach(([state, source]) => {
+          const key = 'lane:' + lane.row + ':signal:' + state;
+          let signal = objectPoolRef.current.get(key);
+          if (!signal) {
+            signal = cloneModel(source);
+            objectPoolRef.current.set(key, signal);
+            world.add(signal);
+          }
+          activeKeys.add(key);
+          signal.position.set(signalX, 0, rel - 0.42);
+          signal.scale.set(COLS / 25, COLS / 25, COLS / 25);
+          signal.rotation.y = Math.PI;
+          signal.visible = state === 'inactive';
+        });
 
         lane.objects.forEach((object) => {
           const key = 'lane:' + lane.row + ':train:' + object.id;
           let train = objectPoolRef.current.get(key);
           if (!train) {
-            train = makeTrain();
+            train = makeSourceTrain(models);
             objectPoolRef.current.set(key, train);
             world.add(train);
           }
           activeKeys.add(key);
-          train.position.set(object.x + object.length / 2 - 4.5, 0, rel);
-          train.scale.x = lane.direction > 0 ? 1 : -1;
+          train.position.set(object.x + object.length / 2 - 4.5, 0.4, rel + 0.1);
+          const factor = COLS / 25;
+          train.scale.set(lane.direction > 0 ? factor : -factor, factor, factor);
         });
       } else {
         place('lane:' + lane.row + ':surface', models.river, 0, -0.015, rel, COLS / 25, 1, 1);
@@ -626,20 +585,23 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
             const key = 'lane:' + lane.row + ':lily:' + object.id;
             let lily = objectPoolRef.current.get(key);
             if (!lily) {
-              lily = makeLilyPad();
+              lily = cloneModel(models.lilyPad);
               objectPoolRef.current.set(key, lily);
               world.add(lily);
             }
             activeKeys.add(key);
-            lily.position.set(object.x + object.length / 2 - 4.5, 0, rel);
+            lily.position.set(object.x + object.length / 2 - 4.5, 0.02, rel);
           } else {
+            const log = models.logs[hashString(object.id) % models.logs.length];
+            const logBounds = new THREE.Box3().setFromObject(log);
+            const logWidth = Math.max(0.1, logBounds.max.x - logBounds.min.x);
             place(
               'lane:' + lane.row + ':log:' + object.id,
-              models.log,
+              log,
               object.x + object.length / 2 - 4.5,
               0.08,
               rel,
-              Math.max(1, object.length), 0.92, 0.92,
+              object.length / logWidth, 1, 1,
             );
           }
         });

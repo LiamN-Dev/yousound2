@@ -1,18 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, RotateCcw, Trophy, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, RotateCcw, Trophy, Volume2, VolumeX, X } from 'lucide-react';
 import { CrossyRoad3DView } from './CrossyRoad3DView';
 
 type Direction = 'up' | 'down' | 'left' | 'right';
 type LaneKind = 'grass' | 'road' | 'river' | 'railRoad';
 type MovingObjectKind = 'vehicle' | 'log' | 'lilyPad' | 'train';
 type MovingObject = { id: string; x: number; length: number; kind?: MovingObjectKind };
-type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number; trees?: number[] };
+type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number; trees?: number[]; boulders?: number[] };
 type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean };
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
 
 const COLS = 9;
+const MOVE_SOUNDS = Array.from({ length: 12 }, (_, index) => 'move-' + String(index + 1).padStart(2, '0') + '.wav');
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch('/api/games/crossy-road' + path, {
     credentials: 'same-origin',
@@ -32,7 +32,7 @@ function makeLane(row: number): Lane {
   if (sourceRow < 10) {
     // The first five world rows are solid; rows 5-9 leave a clear starting path.
     const trees = sourceRow < 5 ? Array.from({ length: COLS }, (_, index) => index) : [];
-    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees };
+    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees, boulders: [] };
   }
 
   const roll = Math.random();
@@ -41,11 +41,14 @@ function makeLane(row: number): Lane {
     const possiblePositions = [0, 1, 2, 3, 5, 6, 7, 8];
     const count = Math.round(Math.random() * 2) + 1;
     const trees: number[] = [];
-    while (trees.length < count && possiblePositions.length) {
+    const boulders: number[] = [];
+    while (trees.length + boulders.length < count && possiblePositions.length) {
       const index = Math.floor(Math.random() * possiblePositions.length);
-      trees.push(possiblePositions.splice(index, 1)[0]);
+      const position = possiblePositions.splice(index, 1)[0];
+      if (Math.random() < 0.4) boulders.push(position);
+      else trees.push(position);
     }
-    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees };
+    return { row, kind: 'grass', direction: 1, speed: 0, objects: [], spawnIn: 0, trees, boulders };
   }
 
   const direction: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
@@ -114,6 +117,10 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
+  const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const moveSoundIndexRef = useRef(0);
   const runIdRef = useRef<string | null>(null);
   const pendingFinishScoreRef = useRef<{ score: number; session: number } | null>(null);
   const finishBusyRef = useRef(false);
@@ -122,6 +129,34 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const gameSessionRef = useRef(0);
   const startPendingSessionRef = useRef<number | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+
+  const playSound = useCallback((file: string, volume = 0.42) => {
+    if (!soundEnabledRef.current || typeof Audio === 'undefined') return;
+    let source = audioCacheRef.current.get(file);
+    if (!source) {
+      source = new Audio('/crossy-audio/' + encodeURIComponent(file));
+      source.preload = 'auto';
+      audioCacheRef.current.set(file, source);
+    }
+    const voice = source.cloneNode(true) as HTMLAudioElement;
+    voice.volume = Math.max(0, Math.min(1, volume));
+    void voice.play().catch(() => undefined);
+  }, []);
+
+  const toggleSound = () => {
+    const next = !soundEnabledRef.current;
+    soundEnabledRef.current = next;
+    setSoundEnabled(next);
+    if (next) playSound('button-in.wav', 0.28);
+  };
+
+  useEffect(() => () => {
+    audioCacheRef.current.forEach((audio) => {
+      audio.pause();
+      audio.src = '';
+    });
+    audioCacheRef.current.clear();
+  }, []);
 
   const updateGame = useCallback((next: GameState) => {
     gameRef.current = next;
@@ -154,6 +189,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       runIdRef.current = null;
       setStats({ coins: result.coins, highScore: result.highScore, totalGames: result.totalGames });
       setMessage('Score saved · +' + result.coinsAwarded + ' coins');
+      if (result.coinsAwarded > 0) playSound('coin.mp3', 0.62);
       setError('');
       try {
         await refreshLeaderboard();
@@ -168,7 +204,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     } finally {
       if (session === gameSessionRef.current) finishBusyRef.current = false;
     }
-  }, [refreshLeaderboard]);
+  }, [refreshLeaderboard, playSound]);
 
   const startRun = useCallback(async (session = gameSessionRef.current) => {
     if (session !== gameSessionRef.current || runIdRef.current || startPendingSessionRef.current === session) return;
@@ -230,9 +266,19 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     }
     next.lanes = lanes.filter(lane => lane.row >= next.row - 7 && lane.row <= next.row + 7);
     const destinationLane = next.lanes.find(lane => lane.row === next.row);
-    if (destinationLane?.kind === 'grass' && destinationLane.trees?.includes(next.x)) {
+    if (
+      destinationLane?.kind === 'grass' &&
+      (destinationLane.trees?.includes(next.x) || destinationLane.boulders?.includes(next.x))
+    ) {
       return;
     }
+
+    const moved = next.x !== current.x || next.row !== current.row;
+    if (!moved) return;
+    playSound(MOVE_SOUNDS[moveSoundIndexRef.current], 0.32);
+    moveSoundIndexRef.current = (moveSoundIndexRef.current + 1) % MOVE_SOUNDS.length;
+    if (next.row > current.row && next.row > current.score) playSound('points.mp3', 0.28);
+    if (next.row !== current.row && destinationLane?.kind === 'railRoad') playSound('train-alarm.wav', 0.34);
 
     const session = gameSessionRef.current;
     if (!runIdRef.current && startPendingSessionRef.current !== session) {
@@ -242,7 +288,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     next.score = Math.max(current.score, next.row);
     next.running = true;
     updateGame(next);
-  }, [startRun, updateGame]);
+  }, [playSound, startRun, updateGame]);
 
   useEffect(() => {
     const keys: Record<string, Direction> = {
@@ -280,8 +326,14 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
         if (lane.kind === 'railRoad') {
           objects = objects.map(object => {
-            if (lane.direction === 1 && object.x > COLS + 0.5) return { ...object, x: -object.length - 0.5 };
-            if (lane.direction === -1 && object.x + object.length < -0.5) return { ...object, x: COLS + 0.5 };
+            if (lane.direction === 1 && object.x > COLS + 0.5) {
+              playSound('train-pass-01.wav', 0.42);
+              return { ...object, x: -object.length - 0.5 };
+            }
+            if (lane.direction === -1 && object.x + object.length < -0.5) {
+              playSound('train-pass-02.wav', 0.42);
+              return { ...object, x: COLS + 0.5 };
+            }
             return object;
           });
           return { ...lane, objects, spawnIn: 0 };
@@ -309,25 +361,37 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       const player = { x: current.x, row: current.row };
       const lane = lanes.find(item => item.row === player.row);
       let dead = !lane || player.x < 0 || player.x > COLS - 1;
+      let impactSound: string | null = null;
       if ((lane?.kind === 'road' || lane?.kind === 'railRoad') && lane.objects.some(object => player.x + 0.34 > object.x && player.x - 0.34 < object.x + object.length)) {
         dead = true;
+        impactSound = lane.kind === 'railRoad'
+          ? 'train-crash.wav'
+          : (Math.random() < 0.5 ? 'car-hit-01.mp3' : 'car-hit-02.wav');
       }
       if (lane?.kind === 'river') {
         const platform = lane.objects.find(object => player.x + 0.34 > object.x && player.x - 0.34 < object.x + object.length);
-        if (!platform) dead = true;
-        else {
+        if (!platform) {
+          dead = true;
+          impactSound = 'water-splash.mp3';
+        } else {
           // Logs and lily pads both carry the player with the current, like the source engine.
           player.x += lane.direction * lane.speed * dt;
-          if (player.x < 0 || player.x > COLS - 1) dead = true;
+          if (player.x < 0 || player.x > COLS - 1) {
+            dead = true;
+            impactSound = 'water-splash.mp3';
+          }
         }
       }
 
       const next: GameState = { ...current, lanes, x: player.x, running: !dead, gameOver: dead };
       updateGame(next);
-      if (dead) void finishRun(current.score);
+      if (dead) {
+        playSound(impactSound || (Math.random() < 0.5 ? 'death-01.wav' : 'death-02.wav'), 0.68);
+        void finishRun(current.score);
+      }
     }, 50);
     return () => window.clearInterval(timer);
-  }, [finishRun, updateGame]);
+  }, [finishRun, playSound, updateGame]);
 
   const restart = () => {
     gameSessionRef.current += 1;
@@ -367,11 +431,9 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
 
 
-  // GamesHub is rendered inside a Framer Motion tab transition. Its transform creates
-  // a containing block for position:fixed children, so mount the game on document.body
-  // to make the board truly full-screen and prevent it being clipped by the tab panel.
-  return createPortal(
-    <div className="fixed inset-0 z-[130] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f5f2e9] text-[#141a12]">
+  // This screen is a child of the active Arcade tab; it stays inside the YouSound layout.
+  return (
+    <div className="relative mx-auto flex min-h-[min(82vh,760px)] w-full flex-col overflow-hidden rounded-[26px] border border-black/10 bg-[#f5f2e9] text-[#141a12] shadow-xl">
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-black/10 bg-white/75 px-3 py-2 text-xs font-semibold text-[#253126] shadow-sm transition hover:bg-white">
@@ -387,6 +449,9 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             <div className="text-[8px] font-bold uppercase tracking-wider text-black/35">Personal best</div>
             <div className="text-sm font-black tabular-nums">{stats.highScore.toLocaleString()}</div>
           </div>
+          <button type="button" onClick={toggleSound} aria-label={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'} aria-pressed={soundEnabled} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white/75 text-[#263b2b] shadow-sm transition hover:bg-white">
+            {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </button>
           <button type="button" onClick={() => setShowLeaderboard(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#263b2b] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-[#17281c]">
             <Trophy className="h-4 w-4" /><span className="hidden sm:inline">Leaderboard</span>
           </button>
@@ -526,7 +591,6 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <span className={error ? 'text-rose-700' : 'text-[#4d7041]'}>{error || message}</span>
         </div>
       )}
-    </div>,
-    document.body,
+    </div>
   );
 };
