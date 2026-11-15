@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, RotateCcw, Trophy, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, Maximize2, Minimize2, RotateCcw, Trophy, Volume2, VolumeX, X } from 'lucide-react';
 import { CrossyRoad3DView } from './CrossyRoad3DView';
 
 type Direction = 'up' | 'down' | 'left' | 'right';
@@ -115,6 +115,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const [stats, setStats] = useState<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -198,8 +199,9 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       }
     } catch (saveError: any) {
       if (session === gameSessionRef.current) {
+        finishedRunRef.current = false;
         setMessage('');
-        setError(saveError?.message || 'Your score could not be saved.');
+        setError(saveError?.message || 'Your score could not be saved. Use Retry saving to try again.');
       }
     } finally {
       if (session === gameSessionRef.current) finishBusyRef.current = false;
@@ -405,6 +407,12 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     updateGame(initialGame());
   };
 
+  const retrySave = () => {
+    if (!runIdRef.current || finishBusyRef.current) return;
+    finishedRunRef.current = false;
+    void finishRun(game.score);
+  };
+
   const handleBoardPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     swipeStartRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
@@ -433,7 +441,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
   // This screen is a child of the active Arcade tab; it stays inside the YouSound layout.
   return (
-    <div className="relative mx-auto flex min-h-[min(82vh,760px)] w-full flex-col overflow-hidden rounded-[26px] border border-black/10 bg-[#f5f2e9] text-[#141a12] shadow-xl">
+    <div className={"relative mx-auto flex " + (expanded ? "min-h-[min(92vh,980px)] " : "min-h-[min(82vh,760px)] ") + "w-full flex-col overflow-hidden rounded-[26px] border border-black/10 bg-[#f5f2e9] text-[#141a12] shadow-xl"}>
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-black/10 bg-white/75 px-3 py-2 text-xs font-semibold text-[#253126] shadow-sm transition hover:bg-white">
@@ -452,14 +460,17 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           <button type="button" onClick={toggleSound} aria-label={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'} aria-pressed={soundEnabled} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white/75 text-[#263b2b] shadow-sm transition hover:bg-white">
             {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
+          <button type="button" onClick={() => setExpanded(value => !value)} aria-label={expanded ? 'Shrink game board' : 'Enlarge game board'} aria-pressed={expanded} title={expanded ? 'Shrink game board' : 'Enlarge game board'} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-black/10 bg-white/75 text-[#263b2b] shadow-sm transition hover:bg-white">
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
           <button type="button" onClick={() => setShowLeaderboard(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#263b2b] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-[#17281c]">
             <Trophy className="h-4 w-4" /><span className="hidden sm:inline">Leaderboard</span>
           </button>
         </div>
       </header>
 
-      <main className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-3 px-3 pb-3 sm:px-5 lg:flex-row lg:items-center lg:gap-9 lg:px-8 lg:py-5">
-        <aside className="flex shrink-0 flex-row items-center justify-between gap-3 rounded-2xl border border-black/[.07] bg-white/75 p-3 shadow-sm lg:w-[245px] lg:flex-col lg:items-stretch lg:justify-start lg:gap-5 lg:rounded-[26px] lg:p-5">
+      <main className={"mx-auto flex min-h-0 w-full " + (expanded ? "max-w-none " : "max-w-6xl ") + "flex-1 flex-col gap-3 px-3 pb-3 sm:px-5 lg:flex-row lg:items-center lg:gap-9 lg:px-8 lg:py-5"}>
+        <aside className={(expanded ? "hidden " : "") + "flex shrink-0 flex-row items-center justify-between gap-3 rounded-2xl border border-black/[.07] bg-white/75 p-3 shadow-sm lg:w-[245px] lg:flex-col lg:items-stretch lg:justify-start lg:gap-5 lg:rounded-[26px] lg:p-5"}>
           <div className="min-w-0 flex-1 lg:flex-none">
             <div className="text-[9px] font-black uppercase tracking-[.2em] text-[#6d865e]">The endless crossing</div>
             <h1 className="mt-1 font-display text-lg font-semibold leading-tight tracking-tight sm:text-xl">How far can you get?</h1>
@@ -491,7 +502,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           </div>
         </aside>
 
-        <section className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-[26px] border border-black/10 bg-[#cfe9f6] shadow-[0_40px_80px_-45px_rgba(25,40,20,0.7)] lg:aspect-[4/5] lg:max-h-[82vh] lg:w-[500px] lg:flex-none">
+        <section className={"relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-[26px] border border-black/10 bg-[#cfe9f6] shadow-[0_40px_80px_-45px_rgba(25,40,20,0.7)] lg:aspect-[4/5] " + (expanded ? "lg:max-h-[90vh] lg:w-[min(74vw,760px)]" : "lg:max-h-[82vh] lg:w-[500px]") + " lg:flex-none"}>
           <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3 sm:p-4">
             <div className="rounded-xl border border-white/50 bg-white/80 px-3 py-2 shadow-sm backdrop-blur">
               <div className="text-[8px] font-black uppercase tracking-[.16em] text-black/40">Score</div>
@@ -507,7 +518,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
             <div className="absolute inset-0 opacity-50" style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,.35) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.35) 50%, rgba(255,255,255,.35) 75%, transparent 75%, transparent)', backgroundSize: '42px 42px' }} />
             <div className="absolute inset-x-0 bottom-0 top-0 flex items-center justify-center px-2 pb-2 pt-14">
               <div
-                className="relative h-[94%] max-h-[640px] max-w-full touch-none overflow-hidden rounded-[18px] border-4 border-white/65 bg-[#245438] shadow-[0_12px_35px_rgba(12,35,27,.25)]"
+                className={"relative " + (expanded ? "h-[96%] max-h-none " : "h-[94%] max-h-[640px] ") + "max-w-full touch-none overflow-hidden rounded-[18px] border-4 border-white/65 bg-[#245438] shadow-[0_12px_35px_rgba(12,35,27,.25)]"}
                 style={{ aspectRatio: '9 / 11' }}
                 onPointerDown={handleBoardPointerDown}
                 onPointerUp={handleBoardPointerUp}
@@ -540,7 +551,8 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                   <div className="text-[8px] font-black uppercase tracking-wider text-black/40">Your score</div>
                   <div className="mt-0.5 text-3xl font-black tabular-nums text-[#1e3023]">{game.score}</div>
                 </div>
-                <p className="mt-2 text-[10px] leading-5 text-black/55">{message || 'Your run has ended. Your score is saved to your account.'}</p>
+                <p className="mt-2 text-[10px] leading-5 text-black/55">{error || message || 'Your run has ended.'}</p>
+                {error && runIdRef.current && <button type="button" onClick={retrySave} disabled={finishBusyRef.current} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#263b2b]/20 bg-[#e9efdf] px-4 py-3 text-xs font-black text-[#263b2b] transition hover:bg-[#dce8cf] disabled:opacity-50"><RotateCcw className="h-4 w-4" /> Retry saving score</button>}
                 <button type="button" onClick={restart} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#263b2b] px-4 py-3 text-xs font-black text-white transition hover:bg-[#17281c]"><RotateCcw className="h-4 w-4" /> Play again</button>
               </div>
             </div>
