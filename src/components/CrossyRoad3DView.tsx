@@ -231,6 +231,15 @@ function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
                 🌲
               </span>
             ))}
+            {isGrass && (lane.boulders || []).map((boulderX, index) => (
+              <span
+                key={lane.row + '-boulder-' + index}
+                className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-[clamp(12px,3.1vh,26px)] drop-shadow"
+                style={{ left: ((boulderX + 0.5) / COLS) * 100 + '%' }}
+              >
+                🪨
+              </span>
+            ))}
             {!isGrass && lane.objects.map((object, index) => (
               <div
                 key={object.id}
