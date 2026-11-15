@@ -97,7 +97,8 @@ async function prepare() {
     audioBytes += bytes.byteLength;
   }
 
-  if (modelCount < 40) throw new Error('Only ' + modelCount + ' source models were extracted; the full source model set was expected.');
+  if (modelCount !== 74) throw new Error('Expected all 74 original model files, but extracted ' + modelCount + '.');
+  if (audioCount !== 26) throw new Error('Expected all 26 configured original sound files, but extracted ' + audioCount + '.');
   await writeFile(SOURCE_MARKER, SOURCE_COMMIT + '\n');
   await writeFile(AUDIO_MARKER, SOURCE_COMMIT + '\n');
   console.log('[Crossy Road assets] Prepared ' + modelCount + ' models (' + modelBytes + ' bytes) and ' + audioCount + ' original sounds (' + audioBytes + ' bytes).');
