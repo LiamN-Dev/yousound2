@@ -8,9 +8,9 @@ export type CrossyRoad3DGame = {
   row: number;
   lanes: Array<{
     row: number;
-    kind: 'grass' | 'road' | 'river';
+    kind: 'grass' | 'road' | 'river' | 'railRoad';
     direction: 1 | -1;
-    objects: Array<{ id: string; x: number; length: number }>;
+    objects: Array<{ id: string; x: number; length: number; kind?: 'vehicle' | 'log' | 'lilyPad' | 'train' }>;
     trees?: number[];
   }>;
   score: number;
@@ -150,6 +150,86 @@ async function loadModels(blobUrls: string[]): Promise<LoadedModels> {
   };
 }
 
+function makeRailroadTrack(): THREE.Group {
+  const group = new THREE.Group();
+  const railMaterial = new THREE.MeshStandardMaterial({ color: '#858d91', metalness: 0.72, roughness: 0.34 });
+  const sleeperMaterial = new THREE.MeshStandardMaterial({ color: '#765238', roughness: 0.95 });
+  for (const z of [-0.36, 0.36]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.12, 0.09), railMaterial);
+    rail.position.set(0, 0.12, z);
+    rail.castShadow = true;
+    group.add(rail);
+  }
+  for (let index = 0; index < 22; index += 1) {
+    const sleeper = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 1.05), sleeperMaterial);
+    sleeper.position.set(-4.45 + index * 0.42, 0.05, 0);
+    group.add(sleeper);
+  }
+  return group;
+}
+
+function makeTrain(): THREE.Group {
+  const group = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: '#c94736', roughness: 0.7 });
+  const cabin = new THREE.MeshStandardMaterial({ color: '#e8eee7', roughness: 0.45 });
+  const windowMaterial = new THREE.MeshStandardMaterial({ color: '#79b9ce', metalness: 0.18, roughness: 0.24 });
+  const wheelMaterial = new THREE.MeshStandardMaterial({ color: '#20272a', roughness: 0.9 });
+  const addCar = (center: number, width: number, engine = false) => {
+    const base = new THREE.Mesh(new THREE.BoxGeometry(width, 0.42, 0.78), body);
+    base.position.set(center, 0.42, 0);
+    base.castShadow = true;
+    base.receiveShadow = true;
+    group.add(base);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(engine ? 1.15 : width * 0.78, 0.38, 0.64), engine ? body : cabin);
+    top.position.set(center + (engine ? 0.05 : 0), 0.79, 0);
+    top.castShadow = true;
+    group.add(top);
+    const window = new THREE.Mesh(new THREE.BoxGeometry(engine ? 0.48 : width * 0.42, 0.18, 0.66), windowMaterial);
+    window.position.set(center + (engine ? 0.28 : 0), 0.86, 0);
+    group.add(window);
+    for (const wheelX of [center - width * 0.32, center + width * 0.32]) {
+      for (const z of [-0.4, 0.4]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.12, 8), wheelMaterial);
+        wheel.rotation.x = Math.PI / 2;
+        wheel.position.set(wheelX, 0.17, z);
+        group.add(wheel);
+      }
+    }
+  };
+  addCar(1.8, 2.0, true);
+  addCar(-0.2, 1.9);
+  addCar(-2.1, 1.9);
+  return group;
+}
+
+function makeLilyPad(): THREE.Group {
+  const group = new THREE.Group();
+  const green = new THREE.MeshStandardMaterial({ color: '#4f9a53', roughness: 0.88 });
+  const center = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.40, 0.09, 10), green);
+  center.position.y = 0.08;
+  center.castShadow = true;
+  group.add(center);
+  const flower = new THREE.Mesh(new THREE.SphereGeometry(0.085, 7, 5), new THREE.MeshStandardMaterial({ color: '#f6e7a6', roughness: 0.8 }));
+  flower.position.set(0.16, 0.14, -0.12);
+  group.add(flower);
+  return group;
+}
+
+function makeRailSignal(): THREE.Group {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.95, 6), new THREE.MeshStandardMaterial({ color: '#555b5d' }));
+  pole.position.y = 0.47;
+  group.add(pole);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.18), new THREE.MeshStandardMaterial({ color: '#292f31' }));
+  housing.position.set(0, 0.9, 0);
+  group.add(housing);
+  const red = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), new THREE.MeshStandardMaterial({ color: '#f23e32', emissive: '#7d0805' }));
+  red.position.set(0, 1.0, 0.105);
+  red.name = 'warning-lamp';
+  group.add(red);
+  return group;
+}
+
 function cloneModel(source: THREE.Group): THREE.Group {
   const clone = source.clone(true);
   clone.traverse((child) => {
@@ -171,22 +251,25 @@ function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
       {lanes.map((lane) => {
         const isGrass = lane.kind === 'grass';
         const isRoad = lane.kind === 'road';
+        const isRailRoad = lane.kind === 'railRoad';
         return (
           <div
             key={lane.row}
             className={
               'relative min-h-0 flex-1 overflow-hidden border-b border-black/10 ' +
-              (isGrass ? 'bg-[#6da74b]' : isRoad ? 'bg-[#303b3e]' : 'bg-[#438eae]')
+              (isGrass ? 'bg-[#6da74b]' : isRoad ? 'bg-[#303b3e]' : isRailRoad ? 'bg-[#66564a]' : 'bg-[#438eae]')
             }
             style={{
               backgroundImage: isGrass
                 ? 'repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 18px, transparent 18px 36px)'
                 : isRoad
                   ? 'repeating-linear-gradient(90deg, transparent 0 42px, rgba(255,255,255,.04) 42px 44px)'
-                  : 'repeating-linear-gradient(90deg, rgba(255,255,255,.10) 0 24px, transparent 24px 48px)',
+                  : isRailRoad
+                    ? 'linear-gradient(0deg, transparent 36%, rgba(210,210,190,.8) 37% 43%, transparent 44% 56%, rgba(210,210,190,.8) 57% 63%, transparent 64%)'
+                    : 'repeating-linear-gradient(90deg, rgba(255,255,255,.10) 0 24px, transparent 24px 48px)',
             }}
           >
-            {isRoad && (
+            {(isRoad || isRailRoad) && (
               <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t-2 border-dashed border-white/35" />
             )}
             {!isGrass && !isRoad && (
@@ -215,7 +298,7 @@ function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
                   width: Math.max(3, (object.length / COLS) * 100) + '%',
                 }}
               >
-                {isRoad ? (index % 2 === 0 ? '🚙' : '🚚') : '🪵'}
+                {isRailRoad ? '🚆' : isRoad ? (index % 2 === 0 ? '🚙' : '🚚') : object.kind === 'lilyPad' ? '🍃' : '🪵'}
               </div>
             ))}
             {lane.row === game.row && (
@@ -436,17 +519,65 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
             lane.direction > 0 ? Math.PI / 2 : -Math.PI / 2,
           );
         });
+      } else if (lane.kind === 'railRoad') {
+        let track = objectPoolRef.current.get('lane:' + lane.row + ':track');
+        if (!track) {
+          track = makeRailroadTrack();
+          objectPoolRef.current.set('lane:' + lane.row + ':track', track);
+          world.add(track);
+        }
+        activeKeys.add('lane:' + lane.row + ':track');
+        track.position.set(0, 0, rel);
+
+        let signal = objectPoolRef.current.get('lane:' + lane.row + ':signal');
+        if (!signal) {
+          signal = makeRailSignal();
+          objectPoolRef.current.set('lane:' + lane.row + ':signal', signal);
+          world.add(signal);
+        }
+        activeKeys.add('lane:' + lane.row + ':signal');
+        signal.position.set(lane.direction > 0 ? -4.65 : 4.65, 0, rel);
+        const lamp = signal.getObjectByName('warning-lamp') as THREE.Mesh | undefined;
+        if (lamp && lamp.material instanceof THREE.MeshStandardMaterial) {
+          const flashing = Math.floor(Date.now() / 260) % 2 === 0;
+          lamp.material.emissiveIntensity = flashing ? 1.8 : 0.18;
+        }
+
+        lane.objects.forEach((object) => {
+          const key = 'lane:' + lane.row + ':train:' + object.id;
+          let train = objectPoolRef.current.get(key);
+          if (!train) {
+            train = makeTrain();
+            objectPoolRef.current.set(key, train);
+            world.add(train);
+          }
+          activeKeys.add(key);
+          train.position.set(object.x + object.length / 2 - 4.5, 0, rel);
+          train.scale.x = lane.direction > 0 ? 1 : -1;
+        });
       } else {
         place('lane:' + lane.row + ':surface', models.river, 0, -0.015, rel, COLS / 25, 1, 1);
         lane.objects.forEach((object) => {
-          place(
-            'lane:' + lane.row + ':log:' + object.id,
-            models.log,
-            object.x + object.length / 2 - 4.5,
-            0.08,
-            rel,
-            Math.max(1, object.length), 0.92, 0.92,
-          );
+          if (object.kind === 'lilyPad') {
+            const key = 'lane:' + lane.row + ':lily:' + object.id;
+            let lily = objectPoolRef.current.get(key);
+            if (!lily) {
+              lily = makeLilyPad();
+              objectPoolRef.current.set(key, lily);
+              world.add(lily);
+            }
+            activeKeys.add(key);
+            lily.position.set(object.x + object.length / 2 - 4.5, 0, rel);
+          } else {
+            place(
+              'lane:' + lane.row + ':log:' + object.id,
+              models.log,
+              object.x + object.length / 2 - 4.5,
+              0.08,
+              rel,
+              Math.max(1, object.length), 0.92, 0.92,
+            );
+          }
         });
       }
     }
