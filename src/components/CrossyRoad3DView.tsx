@@ -283,6 +283,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
   const lastPlayerCellRef = useRef({ x: game.x, row: game.row });
   const currentGameRowRef = useRef(game.row);
   currentGameRowRef.current = game.row;
+  const deathStartedAtRef = useRef<number | null>(null);
   const playerMotionRef = useRef<{
     fromX: number; fromRow: number; toX: number; toRow: number; startedAt: number; duration: number;
   } | null>(null);
@@ -367,13 +368,21 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       if (!alive || !renderer || !scene) return;
       const motion = playerMotionRef.current;
       const chicken = objectPoolRef.current.get('player:chicken');
-      if (motion && chicken) {
+      const deathStartedAt = deathStartedAtRef.current;
+      if (chicken && deathStartedAt !== null) {
+        const progress = Math.min(1, (performance.now() - deathStartedAt) / 520);
+        chicken.position.y = 0.38 - progress * 0.22;
+        chicken.rotation.set(0, 0, -Math.PI * 0.46 * progress);
+        chicken.scale.set(1, 1 - progress * 0.12, 1);
+        playerMotionRef.current = null;
+      } else if (motion && chicken) {
         const progress = Math.min(1, (performance.now() - motion.startedAt) / motion.duration);
         const eased = progress * progress * (3 - 2 * progress);
         const x = motion.fromX + (motion.toX - motion.fromX) * eased;
         const row = motion.fromRow + (motion.toRow - motion.fromRow) * eased;
         const bounce = Math.sin(progress * Math.PI) * (motion.duration > 100 ? 1 : 0.04);
         chicken.position.set(x - 4, 0.38 + bounce * 0.48, row - currentGameRowRef.current);
+        chicken.rotation.set(0, 0, 0);
         chicken.scale.set(1 - bounce * 0.08, 1 + bounce * 0.18, 1 - bounce * 0.08);
         if (progress >= 1) {
           chicken.position.set(motion.toX - 4, 0.38, motion.toRow - currentGameRowRef.current);
@@ -453,6 +462,10 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       worldRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    deathStartedAtRef.current = game.gameOver ? performance.now() : null;
+  }, [game.gameOver]);
 
   useEffect(() => {
     const world = worldRef.current;
@@ -608,7 +621,8 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       }
     }
 
-    place('player:chicken', models.chicken, game.x - 4, 0.38, 0, 1, 1, 1, Math.PI);
+    // The ported camera looks from -Z, so the chicken faces +Z (toward the crossing).
+    place('player:chicken', models.chicken, game.x - 4, 0.38, 0, 1, 1, 1, 0);
 
     for (const [key, object] of objectPoolRef.current) {
       if (activeKeys.has(key)) continue;
