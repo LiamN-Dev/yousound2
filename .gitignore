@@ -1,0 +1,5 @@
+node_modules/
+dist/
+server.js
+/public/crossy-source/
+/public/crossy-audio/
