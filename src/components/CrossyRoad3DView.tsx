@@ -291,6 +291,8 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame; birdSkinId?: s
   const lastPlayerCellRef = useRef({ x: game.x, row: game.row });
   const currentGameRowRef = useRef(game.row);
   currentGameRowRef.current = game.row;
+  const currentFacingRef = useRef(game.facing || 'up');
+  currentFacingRef.current = game.facing || 'up';
   const deathStartedAtRef = useRef<number | null>(null);
   const playerMotionRef = useRef<{
     fromX: number; fromRow: number; toX: number; toRow: number; startedAt: number; duration: number;
@@ -391,10 +393,13 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame; birdSkinId?: s
         const row = motion.fromRow + (motion.toRow - motion.fromRow) * eased;
         const bounce = Math.sin(progress * Math.PI) * (motion.duration > 100 ? 1 : 0.04);
         chicken.position.set(x - 4, 0.38 + bounce * 0.48, row - currentGameRowRef.current);
-        chicken.rotation.set(0, 0, 0);
+        const facing = currentFacingRef.current;
+        const yaw = facing === 'down' ? Math.PI : facing === 'left' ? -Math.PI / 2 : facing === 'right' ? Math.PI / 2 : 0;
+        chicken.rotation.set(0, yaw, 0);
         chicken.scale.set(1 - bounce * 0.08, 1 + bounce * 0.18, 1 - bounce * 0.08);
         if (progress >= 1) {
           chicken.position.set(motion.toX - 4, 0.38, motion.toRow - currentGameRowRef.current);
+          chicken.rotation.set(0, yaw, 0);
           chicken.scale.set(1, 1, 1);
           playerMotionRef.current = null;
         }
