@@ -526,7 +526,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           0, -0.015, rel,
           COLS / 25, 1, 1,
         );
-        lane.objects.forEach((object, index) => {
+        lane.objects.forEach((object) => {
           const vehicle = models.cars[hashString(object.id) % models.cars.length];
           const vehicleBounds = new THREE.Box3().setFromObject(vehicle);
           const vehicleLength = Math.max(0.1, vehicleBounds.max.z - vehicleBounds.min.z);
@@ -574,7 +574,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
             world.add(train);
           }
           activeKeys.add(key);
-          train.position.set(object.x + object.length / 2 - 4.5, 0, rel + 0.1);
+          train.position.set(object.x + object.length / 2 - 4.5, 0.4, rel + 0.1);
           const factor = COLS / 25;
           train.scale.set(lane.direction > 0 ? factor : -factor, factor, factor);
         });
@@ -592,13 +592,16 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
             activeKeys.add(key);
             lily.position.set(object.x + object.length / 2 - 4.5, 0.02, rel);
           } else {
+            const log = models.logs[hashString(object.id) % models.logs.length];
+            const logBounds = new THREE.Box3().setFromObject(log);
+            const logWidth = Math.max(0.1, logBounds.max.x - logBounds.min.x);
             place(
               'lane:' + lane.row + ':log:' + object.id,
-              models.logs[hashString(object.id) % models.logs.length],
+              log,
               object.x + object.length / 2 - 4.5,
               0.08,
               rel,
-              Math.max(0.55, object.length / 2.2), 1, 1,
+              object.length / logWidth, 1, 1,
             );
           }
         });
