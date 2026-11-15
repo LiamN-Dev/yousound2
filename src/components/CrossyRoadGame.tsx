@@ -470,7 +470,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       </header>
 
       <main className={"mx-auto flex min-h-0 w-full " + (expanded ? "max-w-none " : "max-w-6xl ") + "flex-1 flex-col gap-3 px-3 pb-3 sm:px-5 lg:flex-row lg:items-center lg:gap-9 lg:px-8 lg:py-5"}>
-        <aside className={(expanded ? "hidden " : "") + "flex shrink-0 flex-row items-center justify-between gap-3 rounded-2xl border border-black/[.07] bg-white/75 p-3 shadow-sm lg:w-[245px] lg:flex-col lg:items-stretch lg:justify-start lg:gap-5 lg:rounded-[26px] lg:p-5"}>
+        <aside className={expanded ? "hidden" : "flex shrink-0 flex-row items-center justify-between gap-3 rounded-2xl border border-black/[.07] bg-white/75 p-3 shadow-sm lg:w-[245px] lg:flex-col lg:items-stretch lg:justify-start lg:gap-5 lg:rounded-[26px] lg:p-5"}>
           <div className="min-w-0 flex-1 lg:flex-none">
             <div className="text-[9px] font-black uppercase tracking-[.2em] text-[#6d865e]">The endless crossing</div>
             <h1 className="mt-1 font-display text-lg font-semibold leading-tight tracking-tight sm:text-xl">How far can you get?</h1>
