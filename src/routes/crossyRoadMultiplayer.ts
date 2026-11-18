@@ -29,8 +29,8 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
   }
   throw new Error('Race data changed repeatedly. Try again.');
 }
-function publicRoom(room: Room) {
-  return { id: room.id, code: room.code, hostUid: room.hostUid, status: room.status, winnerUid: room.winnerUid,
+function publicRoom(room: Room, viewerUid: string) {
+  return { id: room.id, code: room.code, hostUid: room.hostUid, isHost: room.hostUid === viewerUid, status: room.status, winnerUid: room.winnerUid,
     players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ uid, username, checkpoint, lives, row, status, finishedAt })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
@@ -60,7 +60,7 @@ router.post('/rooms', async (req, res) => {
     const room: Room = { id, code, hostUid: player.uid, status: 'waiting', createdAt: now, updatedAt: now, winnerUid: null,
       players: [{ ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: now }] };
     await mutate<Room>(ROOM_KEY, rooms => ({ ...rooms, [id]: room }));
-    return res.json({ success: true, room: publicRoom(room) });
+    return res.json({ success: true, room: publicRoom(room, player.uid) });
   } catch (e: any) { return res.status(503).json({ success: false, error: e.message || 'Could not create a race.' }); }
 });
 router.post('/rooms/join', async (req, res) => {
@@ -77,7 +77,7 @@ router.post('/rooms/join', async (req, res) => {
       joined = { ...room, players: [...room.players, { ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: new Date().toISOString() }], updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: joined };
     });
-    return res.json({ success: true, room: publicRoom(joined!) });
+    return res.json({ success: true, room: publicRoom(joined!, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not join that race.' }); }
 });
 router.post('/rooms/:id/start', async (req, res) => {
@@ -91,7 +91,7 @@ router.post('/rooms/:id/start', async (req, res) => {
       updated = { ...room, status: 'active', updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: updated };
     });
-    return res.json({ success: true, room: publicRoom(updated!) });
+    return res.json({ success: true, room: publicRoom(updated!, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not start the race.' }); }
 });
 router.get('/rooms/:id', async (req, res) => {
@@ -100,7 +100,7 @@ router.get('/rooms/:id', async (req, res) => {
     const rooms = await getPersistentSettingDb<Record<string, Room>>(ROOM_KEY) || {};
     const room = rooms[req.params.id];
     if (!room || !room.players.some(p => p.uid === player.uid)) return res.status(404).json({ success: false, error: 'Race not found.' });
-    return res.json({ success: true, room: publicRoom(room) });
+    return res.json({ success: true, room: publicRoom(room, player.uid) });
   } catch { return res.status(500).json({ success: false, error: 'Could not load race status.' }); }
 });
 router.post('/rooms/:id/progress', async (req, res) => {
@@ -123,7 +123,7 @@ router.post('/rooms/:id/progress', async (req, res) => {
       return { ...rooms, [room.id]: updated };
     });
     if (updated?.status === 'finished') await addResult(updated);
-    return res.json({ success: true, room: publicRoom(updated!) });
+    return res.json({ success: true, room: publicRoom(updated!, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not save race progress.' }); }
 });
 router.post('/rooms/:id/death', async (req, res) => {
@@ -144,7 +144,7 @@ router.post('/rooms/:id/death', async (req, res) => {
       return { ...rooms, [room.id]: updated };
     });
     if (updated?.status === 'finished') await addResult(updated);
-    return res.json({ success: true, respawn, eliminated, lives, checkpointRow, room: publicRoom(updated!) });
+    return res.json({ success: true, respawn, eliminated, lives, checkpointRow, room: publicRoom(updated!, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not record that life.' }); }
 });
 router.get('/leaderboard', async (req, res) => {
