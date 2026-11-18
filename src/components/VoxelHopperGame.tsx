@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Crown, Gamepad2, Maximize2, Play, RefreshCw, Users } from 'lucide-react';
 
-type RacePlayer = { id: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; finishedAt?: string | null; isMe: boolean; isWinner: boolean };
+type RacePlayer = { id: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; finishedAt?: string | null; isMe: boolean; isHost: boolean };
 type RaceRoom = { id: string; code: string; isHost: boolean; status: 'waiting' | 'active' | 'finished'; winnerName: string | null; players: RacePlayer[]; checkpoints: number; livesPerCheckpoint: number; checkpointRows: number[] };
 type RaceRank = { username: string; wins: number; bestCheckpoint: number; races: number };
 
@@ -158,7 +158,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
             {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
             {room.status === 'waiting' && <p className="mt-2 text-xs text-slate-400">Share this code with friends. This room accepts up to 8 players.</p>}
             {room.status === 'finished' && <p className="mt-3 rounded-xl bg-amber-300/10 p-3 text-sm font-bold text-amber-200">{winnerName ? winnerName + ' won the race!' : 'Race complete.'}</p>}
-            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{room.players.map(player => <div key={player.id} className="rounded-xl border border-white/10 bg-white/[.04] p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-bold">{player.username}</span>{player.isMe && <Crown className="h-3.5 w-3.5 text-amber-300" />}</div><div className="mt-2 text-xs text-slate-400">Checkpoint {player.checkpoint}/5 · Row {player.row} · {player.lives} lives</div><div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{player.status}</div></div>)}</div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{room.players.map(player => <div key={player.id} className="rounded-xl border border-white/10 bg-white/[.04] p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-bold">{player.username}</span>{player.isHost && <Crown className="h-3.5 w-3.5 text-amber-300" />}</div><div className="mt-2 text-xs text-slate-400">Checkpoint {player.checkpoint}/5 · Row {player.row} · {player.lives} lives</div><div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{player.status}</div></div>)}</div>
           </div>
           {raceActive && <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-white"><span className="text-sm font-bold">Your race</span><button type="button" onClick={() => void frameRef.current?.requestFullscreen?.()} className="inline-flex items-center gap-2 text-xs font-bold text-slate-300 hover:text-white"><Maximize2 className="h-4 w-4" /> Fullscreen</button></div><iframe ref={frameRef} title="Voxel Hopper 3D Crossy Road Multiplayer" src="/games/voxel-hopper.html?multiplayer=1" onLoad={startGameFrame} className="block h-[calc(100vh-250px)] min-h-[600px] w-full bg-sky-300" allow="autoplay; fullscreen" allowFullScreen /></div>}
         </>
