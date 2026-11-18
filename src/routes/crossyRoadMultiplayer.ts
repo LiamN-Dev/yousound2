@@ -42,7 +42,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
 }
 function publicRoom(room: Room, viewerUid: string) {
   return { id: room.id, code: room.code, isHost: room.hostUid === viewerUid, status: room.status, winnerUid: room.winnerUid,
-    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ uid, username, checkpoint, lives, row, status, finishedAt })),
+    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username, username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isWinner: uid === room.winnerUid })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
 async function addResult(room: Room) {
