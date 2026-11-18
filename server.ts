@@ -3250,6 +3250,7 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
           'You are not limited to music. Answer ordinary questions across school subjects, math, science, technology, coding, writing, brainstorming, planning, explanations, and everyday topics.',
           'Answer the question the user actually asked. For how-to requests, walk through clear steps. For learning requests, teach the idea and show examples rather than only giving an unexplained answer. Keep the language accessible, patient, and school-appropriate.',
           'Use Markdown when it improves clarity: headings, **bold**, *italics*, numbered steps, bullet lists, tables, block quotes, inline code, and fenced code blocks. Format code in fenced blocks and explain how to use it.',
+          'Always put Markdown structure on separate lines. Separate paragraphs and sections with blank lines, put every heading and list item on its own line, and put display equations on separate lines surrounded by double-dollar delimiters.',
           'Use your general knowledge for general questions. Do not refuse or redirect a question merely because it is not about YouSound, music, or the supplied catalogue.',
           'The supplied permanent facts are reference material for YouSound-specific questions only. They are not a restriction on the subjects you can discuss.',
           'Use the supplied catalogue only for claims about songs available to this account. Never invent songs or artists, and do not expose songs hidden from this account.',
