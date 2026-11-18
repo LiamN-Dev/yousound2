@@ -72,10 +72,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   useEffect(() => { void loadCatalog(); }, [isAdmin]);
 
-  const activeGames = useMemo(() => [
-    ...games.filter((game) => game.enabled),
-    { id: 'crossy-road' as const, title: 'Crossy Road', description: 'Cross traffic, ride the logs, and see how far you can go. Your high score and coins are saved to your YouSound account.', enabled: true, featured: true, launchUrl: '', launchMode: 'native' as const, playerMode: 'solo' as const, providerLabel: 'YOUSOUND ORIGINAL' },
-  ], [games]);
+  const activeGames = useMemo(() => games.filter((game) => game.enabled), [games]);
 
   const recordLaunch = (gameId: string) => {
     void fetch('/api/games/launch', {
@@ -89,11 +86,11 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   const playGame = (game: ArcadeGame) => {
     if (!game.enabled || embeddedGame) return;
+    recordLaunch(game.id);
     if (game.id === 'crossy-road') {
       setCrossyRoadOpen(true);
       return;
     }
-    recordLaunch(game.id);
     if (game.id === 'youcraft' || game.launchMode === 'native') {
       setYouCraftOpen(true);
       return;
@@ -265,6 +262,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                 {game.id === 'youcraft' ? (
                   <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
                     Native YouSound game. Drag elements together to discover combinations instantly. Your collection and Craft Wars matches are saved to your account.
+                  </div>
+                ) : game.id === 'crossy-road' ? (
+                  <div className="mt-4 rounded-xl border border-emerald-200/15 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-100">
+                    Native 3D Crossy Road. Multiplayer races use six-character room codes, five checkpoints, and three lives per checkpoint.
                   </div>
                 ) : (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
