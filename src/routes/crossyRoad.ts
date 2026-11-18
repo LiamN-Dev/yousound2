@@ -1,10 +1,22 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { checkSqlAvailability, createPool } from '../db/index.ts';
+import { getPersistentSettingDb } from '../db/queries.ts';
 import { canAccessCrossyRoad, isPlausibleCrossyRoadScore, resolveCrossyRoadHost } from '../services/crossyRoadPolicy.ts';
 import { CROSSY_ROAD_FINISH_RUN_SQL } from '../services/crossyRoadSql.ts';
 
 const router = Router();
+
+router.use(async (_req: any, res, next) => {
+  try {
+    const catalog = await getPersistentSettingDb<any[]>('arcade_game_catalog_v1');
+    const configured = Array.isArray(catalog) ? catalog.find((item) => item?.id === 'crossy-road') : null;
+    if (configured && configured.enabled !== true) return res.status(403).json({ success: false, error: 'Crossy Road is currently unavailable in the Arcade.' });
+    next();
+  } catch {
+    return res.status(503).json({ success: false, error: 'Arcade availability could not be checked.' });
+  }
+});
 
 router.use((req: any, res, next) => {
   const user = req.authUser;
