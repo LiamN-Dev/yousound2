@@ -42,7 +42,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
 }
 function publicRoom(room: Room, viewerUid: string) {
   return { id: room.id, code: room.code, isHost: room.hostUid === viewerUid, status: room.status, winnerName: room.players.find(p => p.uid === room.winnerUid)?.username || null,
-    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username, username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isWinner: uid === room.winnerUid })),
+    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username, username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isHost: uid === room.hostUid })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
 async function addResult(room: Room) {
@@ -52,7 +52,6 @@ async function addResult(room: Room) {
     id: room.id + ':' + p.uid, userId: p.uid, username: p.username, checkpoint: p.checkpoint, completed: p.status === 'finished',
     playedAt: p.finishedAt || new Date().toISOString(), roomCode: room.code
   }))];
-  await getPersistentSettingDb(LEADERBOARD_KEY);
   await ensurePersistentSettingDb(LEADERBOARD_KEY, []);
   // A compare-and-set avoids overwriting another room's results.
   for (let i = 0; i < 10; i++) {
