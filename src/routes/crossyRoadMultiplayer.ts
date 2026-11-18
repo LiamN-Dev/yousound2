@@ -6,7 +6,7 @@ import { getAuthUser } from '../services/auth.ts';
 
 type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; finishedAt?: string | null };
 type Room = { id: string; code: string; hostUid: string; status: 'waiting' | 'active' | 'finished'; createdAt: string; updatedAt: string; players: Player[]; winnerUid: string | null };
-type RaceResult = { id: string; username: string; checkpoint: number; completed: boolean; playedAt: string; roomCode: string };
+type RaceResult = { id: string; userId: string; username: string; checkpoint: number; completed: boolean; playedAt: string; roomCode: string };
 const ROOM_KEY = 'crossy_road_race_rooms_v1';
 const LEADERBOARD_KEY = 'crossy_road_race_leaderboard_v1';
 const router = express.Router();
@@ -49,7 +49,7 @@ async function addResult(room: Room) {
   const results = await getPersistentSettingDb<RaceResult[]>(LEADERBOARD_KEY) || [];
   const existing = Array.isArray(results) ? results : [];
   const next = [...existing, ...room.players.map(p => ({
-    id: room.id + ':' + p.uid, username: p.username, checkpoint: p.checkpoint, completed: p.status === 'finished',
+    id: room.id + ':' + p.uid, userId: p.uid, username: p.username, checkpoint: p.checkpoint, completed: p.status === 'finished',
     playedAt: p.finishedAt || new Date().toISOString(), roomCode: room.code
   }))];
   await getPersistentSettingDb(LEADERBOARD_KEY);
@@ -164,9 +164,9 @@ router.get('/leaderboard', async (req, res) => {
     const entries = await getPersistentSettingDb<RaceResult[]>(LEADERBOARD_KEY) || [];
     const totals = new Map<string, { username: string; wins: number; bestCheckpoint: number; races: number }>();
     for (const entry of Array.isArray(entries) ? entries : []) {
-      const current = totals.get(entry.id.split(':').slice(-1)[0]) || { username: entry.username, wins: 0, bestCheckpoint: 0, races: 0 };
+      const current = totals.get(entry.userId) || { username: entry.username, wins: 0, bestCheckpoint: 0, races: 0 };
       current.races += 1; current.bestCheckpoint = Math.max(current.bestCheckpoint, entry.checkpoint); if (entry.completed) current.wins += 1;
-      totals.set(entry.id.split(':').slice(-1)[0], current);
+      totals.set(entry.userId, current);
     }
     const leaderboard = [...totals.values()].sort((a, b) => b.wins - a.wins || b.bestCheckpoint - a.bestCheckpoint || a.username.localeCompare(b.username)).slice(0, 25);
     return res.json({ success: true, leaderboard });
