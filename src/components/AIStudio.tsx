@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { MarkdownMessage } from './MarkdownMessage';
 import { ArrowUp, Bot, BrainCircuit, Loader2, RefreshCw, Send, Sparkles, UserRound } from 'lucide-react';
 
 type ChatMessage = { role: 'user' | 'model'; text: string };
@@ -6,13 +7,13 @@ type MyQuestion = { id: string; question: string; status: 'pending' | 'answered'
 type SavedConversation = { id: string; title: string; updatedAt: string; messages: ChatMessage[] };
 
 const starters = [
-  'Recommend tracks for a focused study session.',
-  'Help me discover something with a calm electronic sound.',
-  'What is the current YouSound site status?',
+  'Explain a topic to me step by step.',
+  'Help me solve a programming or technology problem.',
+  'Help me organize an idea or write something clearly.',
 ];
 
 export const AIStudio: React.FC = () => {
-  const welcome: ChatMessage = { role: 'model', text: 'Welcome to YouSound AI. I can help you discover music from the library, build listening ideas, and explain how YouSound works. What are you looking for?' };
+  const welcome: ChatMessage = { role: 'model', text: 'Welcome to YouSound AI. Ask me about almost anything. I can explain concepts, walk through problems, help with writing and coding, brainstorm ideas, and answer questions about YouSound.' };
   const [messages, setMessages] = useState<ChatMessage[]>([welcome]);
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
   const [conversationId, setConversationId] = useState('');
@@ -220,12 +221,11 @@ export const AIStudio: React.FC = () => {
         <div className="relative flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/25 bg-cyan-300/10 text-cyan-100"><BrainCircuit className="h-6 w-6" /></div>
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-200">Private beta · AI studio</div>
+            <div className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-200">YouSound AI · general assistant</div>
             <h1 className="mt-1 text-3xl font-black tracking-tight">YouSound AI</h1>
           </div>
-          <span className="ml-auto rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3 py-1 text-[9px] font-black tracking-wider text-cyan-100">TEST BUILD</span>
         </div>
-        <p className="relative mt-4 max-w-2xl text-sm leading-6 text-slate-300">A music and site assistant connected to the visible catalogue and the administrator-maintained status and knowledge base. When it does not know a site-specific answer, you can send the question to the admin team.</p>
+        <p className="relative mt-4 max-w-2xl text-sm leading-6 text-slate-300">A general-purpose assistant for explanations, step-by-step help, writing, coding, brainstorming, and everyday questions. It can also help with YouSound, the music library, and site information.</p>
         <p className={'relative mt-3 rounded-xl border px-3 py-2 text-[10px] ' + (serviceStatusError ? 'border-amber-300/20 bg-amber-300/[.06] text-amber-100' : 'border-emerald-300/15 bg-emerald-300/[.05] text-emerald-100')}>{serviceStatus}</p>
       </section>
 
@@ -238,8 +238,8 @@ export const AIStudio: React.FC = () => {
           {messages.map((item, index) => (
             <div key={index} className={'flex gap-3 ' + (item.role === 'user' ? 'justify-end' : 'justify-start')}>
               {item.role === 'model' && <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-cyan-200/20 bg-cyan-300/10 text-cyan-100"><Bot className="h-4 w-4" /></div>}
-              <div className={'max-w-[88%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ' + (item.role === 'user' ? 'border border-violet-300/20 bg-violet-500/15 text-violet-50' : 'border border-white/10 bg-white/[.045] text-slate-200')}>
-                {item.text}
+              <div className={'max-w-[88%] min-w-0 rounded-2xl px-4 py-3 text-sm leading-6 ' + (item.role === 'user' ? 'whitespace-pre-wrap border border-violet-300/20 bg-violet-500/15 text-violet-50' : 'border border-white/10 bg-white/[.045] text-slate-200')}>
+                {item.role === 'model' ? <MarkdownMessage content={item.text} /> : item.text}
               </div>
               {item.role === 'user' && <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-violet-200/20 bg-violet-400/10 text-violet-100"><UserRound className="h-4 w-4" /></div>}
             </div>
@@ -265,7 +265,7 @@ export const AIStudio: React.FC = () => {
         </div>}
         {knowledgeFeedback && <div className="border-t border-cyan-300/15 bg-cyan-300/[.06] px-5 py-3 text-xs text-cyan-100">{knowledgeFeedback}</div>}
         <form onSubmit={event => { event.preventDefault(); void send(draft); }} className="flex items-end gap-2 border-t border-white/10 p-3 sm:p-4">
-          <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1200} placeholder="Ask YouSound AI…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/40" />
+          <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(draft); } }} rows={2} maxLength={1200} placeholder="Ask anything…" className="min-h-[48px] flex-1 resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-200/40" />
           <button type="submit" disabled={busy || conversationsLoading || !conversationId || !draft.trim()} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-cyan-200 text-slate-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}</button>
         </form>
         <div className="px-5 pb-4 text-[9px] leading-4 text-slate-500">AI responses can be wrong. Do not share passwords or private account information in the chat.</div>
