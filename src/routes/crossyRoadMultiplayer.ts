@@ -118,8 +118,7 @@ router.post('/rooms/:id/progress', async (req, res) => {
     const player = await account(req, res); if (!player) return;
     const row = Number(req.body?.row);
     if (!Number.isSafeInteger(row) || row < 0 || row > 10000) return res.status(400).json({ success: false, error: 'Invalid race progress.' });
-    let updated: Room | null = null;
-    await mutate<Room>(ROOM_KEY, rooms => {
+    const savedRooms = await mutate<Room>(ROOM_KEY, rooms => {
       const room = rooms[req.params.id];
       if (!room || room.status !== 'active') throw new Error('This race is not active.');
       const idx = room.players.findIndex(p => p.uid === player.uid);
@@ -129,18 +128,19 @@ router.post('/rooms/:id/progress', async (req, res) => {
       const checkpoint = Math.max(current.checkpoint, Math.min(5, Math.floor(row / 25)));
       players[idx] = { ...current, row: Math.max(current.row, row), checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
       const winnerUid = checkpoint >= 5 && !room.winnerUid ? player.uid : room.winnerUid;
-      updated = { ...room, players, winnerUid, status: winnerUid ? 'finished' : room.status, updatedAt: new Date().toISOString() };
-      return { ...rooms, [room.id]: updated };
+      const updatedRoom: Room = { ...room, players, winnerUid, status: winnerUid ? 'finished' : room.status, updatedAt: new Date().toISOString() };
+      return { ...rooms, [room.id]: updatedRoom };
     });
-    if (updated?.status === 'finished') await addResult(updated);
-    return res.json({ success: true, room: publicRoom(updated!, player.uid) });
+    const updated = savedRooms[req.params.id];
+    if (!updated) throw new Error('Race not found.');
+    if (updated.status === 'finished') await addResult(updated);
+    return res.json({ success: true, room: publicRoom(updated, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not save race progress.' }); }
 });
 router.post('/rooms/:id/death', async (req, res) => {
   try {
     const player = await account(req, res); if (!player) return;
-    let updated: Room | null = null; let respawn = false; let checkpointRow = 0; let lives = 0; let eliminated = false;
-    await mutate<Room>(ROOM_KEY, rooms => {
+    const savedRooms = await mutate<Room>(ROOM_KEY, rooms => {
       const room = rooms[req.params.id];
       if (!room || room.status !== 'active') throw new Error('This race is not active.');
       const idx = room.players.findIndex(p => p.uid === player.uid);
@@ -150,15 +150,23 @@ router.post('/rooms/:id/death', async (req, res) => {
       const latestRow = Number.isSafeInteger(reportedRow) && reportedRow >= current.row ? Math.min(reportedRow, current.row + 20) : current.row;
       const checkpoint = Math.max(current.checkpoint, Math.min(4, Math.floor(latestRow / 25)));
       const livesAtCheckpoint = checkpoint > current.checkpoint ? 3 : current.lives;
-      lives = Math.max(0, livesAtCheckpoint - 1); checkpointRow = checkpoint * 25; respawn = lives > 0; eliminated = !respawn;
+      const lives = Math.max(0, livesAtCheckpoint - 1);
+      const checkpointRow = checkpoint * 25;
+      const eliminated = lives === 0;
       players[idx] = { ...current, checkpoint, lives, row: checkpointRow, status: eliminated ? 'eliminated' : 'playing', ...(eliminated ? { finishedAt: new Date().toISOString() } : {}) };
       const stillPlaying = players.some(p => p.status === 'playing');
-      const finished = !stillPlaying;
-      updated = { ...room, players, status: finished ? 'finished' : room.status, updatedAt: new Date().toISOString() };
-      return { ...rooms, [room.id]: updated };
+      const updatedRoom: Room = { ...room, players, status: stillPlaying ? room.status : 'finished', updatedAt: new Date().toISOString() };
+      return { ...rooms, [room.id]: updatedRoom };
     });
-    if (updated?.status === 'finished') await addResult(updated);
-    return res.json({ success: true, respawn, eliminated, lives, checkpointRow, room: publicRoom(updated!, player.uid) });
+    const updated = savedRooms[req.params.id];
+    if (!updated) throw new Error('Race not found.');
+    if (updated.status === 'finished') await addResult(updated);
+    const savedPlayer = updated.players.find(p => p.uid === player.uid);
+    const lives = savedPlayer?.lives || 0;
+    const checkpointRow = (savedPlayer?.checkpoint || 0) * 25;
+    const eliminated = savedPlayer?.status === 'eliminated';
+    const respawn = !eliminated && savedPlayer?.status === 'playing';
+    return res.json({ success: true, respawn, eliminated, lives, checkpointRow, room: publicRoom(updated, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not record that life.' }); }
 });
 router.get('/leaderboard', async (req, res) => {
