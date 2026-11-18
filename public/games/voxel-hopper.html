@@ -626,6 +626,8 @@
           const stats = await crossyApi('/stats');
           totalCoins = Number(stats.coins || 0);
           bestScore = Number(stats.highScore || 0);
+          if (!CHARACTERS.some((character) => character.id === selectedChar && totalCoins >= character.unlockCoins)) selectedChar = 'chicken';
+          if (!MAPS.some((map) => map.id === selectedMap && totalCoins >= map.unlockCoins)) selectedMap = 'meadow';
           bestEl.textContent = bestScore;
           coinEl.textContent = totalCoins;
           renderSelectors();
