@@ -90,7 +90,9 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
             lives: data.lives, checkpointRow: data.checkpointRow,
           }, window.location.origin);
         }
-      } catch (e: any) { setError(e.message || 'Race progress could not be synchronized.'); }
+      } catch (e: any) {
+        if (!/race is not active/i.test(String(e?.message || ''))) setError(e.message || 'Race progress could not be synchronized.');
+      }
     });
   }, [room?.id]);
 
