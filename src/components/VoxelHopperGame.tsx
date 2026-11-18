@@ -37,6 +37,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
     try {
       const data = await raceRequest('/rooms/' + room.id);
       setRoom(data.room);
+      if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
     } catch (e: any) { setError(e.message || 'Could not refresh race status.'); }
   }, [room?.id]);
 
