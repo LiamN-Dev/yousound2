@@ -1,5 +1,5 @@
 /**
- * Keep each use of $3 explicitly typed as integer before deriving the coin award.
+ * Keep score and collected-coin inputs explicitly typed before calculating the bounded coin award.
  * PostgreSQL cannot infer one parameter as both integer and numeric in this UPDATE.
  */
 export const CROSSY_ROAD_FINISH_RUN_SQL = `
