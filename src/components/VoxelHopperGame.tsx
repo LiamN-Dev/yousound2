@@ -68,27 +68,31 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
     finally { setBusy(false); }
   };
 
-  const handleGameMessage = useCallback(async (event: MessageEvent) => {
-    if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow || !room) return;
+  const raceMessageQueue = useRef<Promise<void>>(Promise.resolve());
+  const handleGameMessage = useCallback((event: MessageEvent) => {
+    if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow || !room?.id) return;
     const message = event.data;
     if (!message || typeof message !== 'object') return;
-    try {
-      if (message.type === 'crossy-progress' && Number.isSafeInteger(message.row)) {
-        const data = await raceRequest('/rooms/' + room.id + '/progress', { method: 'POST', body: JSON.stringify({ row: message.row }) });
-        setRoom(data.room);
-        if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
-      }
-      if (message.type === 'crossy-death') {
-        const data = await raceRequest('/rooms/' + room.id + '/death', { method: 'POST', body: JSON.stringify({ row: Number(message.score || 0) }) });
-        setRoom(data.room);
-        if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
-        frameRef.current?.contentWindow?.postMessage({
-          type: 'crossy-death-result', respawn: data.respawn, eliminated: data.eliminated,
-          lives: data.lives, checkpointRow: data.checkpointRow,
-        }, window.location.origin);
-      }
-    } catch (e: any) { setError(e.message || 'Race progress could not be synchronized.'); }
-  }, [room]);
+    const roomId = room.id;
+    raceMessageQueue.current = raceMessageQueue.current.then(async () => {
+      try {
+        if (message.type === 'crossy-progress' && Number.isSafeInteger(message.row)) {
+          const data = await raceRequest('/rooms/' + roomId + '/progress', { method: 'POST', body: JSON.stringify({ row: message.row }) });
+          setRoom(data.room);
+          if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
+        }
+        if (message.type === 'crossy-death') {
+          const data = await raceRequest('/rooms/' + roomId + '/death', { method: 'POST', body: JSON.stringify({ row: Number(message.score || 0) }) });
+          setRoom(data.room);
+          if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
+          frameRef.current?.contentWindow?.postMessage({
+            type: 'crossy-death-result', respawn: data.respawn, eliminated: data.eliminated,
+            lives: data.lives, checkpointRow: data.checkpointRow,
+          }, window.location.origin);
+        }
+      } catch (e: any) { setError(e.message || 'Race progress could not be synchronized.'); }
+    });
+  }, [room?.id]);
 
   useEffect(() => {
     window.addEventListener('message', handleGameMessage);
