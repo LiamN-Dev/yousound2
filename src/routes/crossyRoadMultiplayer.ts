@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { getPersistentSettingDb, ensurePersistentSettingDb, compareAndSetPersistentSettingDb } from '../db/queries.ts';
-import { getUserByUid, getPersistentSettingDb } from '../db/queries.ts';
+import { getUserByUid } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
 
 type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; finishedAt?: string | null };
