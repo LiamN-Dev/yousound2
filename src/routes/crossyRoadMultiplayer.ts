@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { getPersistentSettingDb, ensurePersistentSettingDb, compareAndSetPersistentSettingDb } from '../db/queries.ts';
-import { getUserByUid } from '../db/queries.ts';
+import { getUserByUid, getPersistentSettingDb } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
 
 type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; finishedAt?: string | null };
@@ -10,6 +10,17 @@ type RaceResult = { id: string; username: string; checkpoint: number; completed:
 const ROOM_KEY = 'crossy_road_race_rooms_v1';
 const LEADERBOARD_KEY = 'crossy_road_race_leaderboard_v1';
 const router = express.Router();
+
+router.use(async (_req, res, next) => {
+  try {
+    const catalog = await getPersistentSettingDb<any[]>('arcade_game_catalog_v1');
+    const configured = Array.isArray(catalog) ? catalog.find((item) => item?.id === 'crossy-road') : null;
+    if (configured && configured.enabled !== true) return res.status(403).json({ success: false, error: 'Crossy Road is currently unavailable in the Arcade.' });
+    next();
+  } catch {
+    return res.status(503).json({ success: false, error: 'Arcade availability could not be checked.' });
+  }
+});
 
 async function account(req: Request, res: Response) {
   const auth = getAuthUser(req);
