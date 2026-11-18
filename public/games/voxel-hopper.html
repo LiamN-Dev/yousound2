@@ -1396,6 +1396,7 @@
           if (message.type === 'crossy-race-init') {
             multiplayerCheckpointRow = 0;
             multiplayerLives = 3;
+            void startAccountRun();
           }
           if (message.type === 'crossy-death-result') {
             multiplayerLives = Math.max(0, Number(message.lives || 0));
@@ -1434,6 +1435,7 @@
             gameState = 'gameover';
             inputQueue = [];
             dpadEl.classList.add('hidden');
+            void finishAccountRun(score, coins);
             showToast('Race finished!');
           }
         });
