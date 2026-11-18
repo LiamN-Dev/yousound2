@@ -147,8 +147,12 @@ router.post('/rooms/:id/death', async (req, res) => {
       const idx = room.players.findIndex(p => p.uid === player.uid);
       if (idx < 0 || room.players[idx].status !== 'playing') throw new Error('You are not an active player.');
       const players = [...room.players]; const current = players[idx];
-      lives = Math.max(0, current.lives - 1); checkpointRow = current.checkpoint * 25; respawn = lives > 0; eliminated = !respawn;
-      players[idx] = { ...current, lives, row: checkpointRow, status: eliminated ? 'eliminated' : 'playing', ...(eliminated ? { finishedAt: new Date().toISOString() } : {}) };
+      const reportedRow = Number(req.body?.row);
+      const latestRow = Number.isSafeInteger(reportedRow) && reportedRow >= current.row ? Math.min(reportedRow, current.row + 20) : current.row;
+      const checkpoint = Math.max(current.checkpoint, Math.min(4, Math.floor(latestRow / 25)));
+      const livesAtCheckpoint = checkpoint > current.checkpoint ? 3 : current.lives;
+      lives = Math.max(0, livesAtCheckpoint - 1); checkpointRow = checkpoint * 25; respawn = lives > 0; eliminated = !respawn;
+      players[idx] = { ...current, checkpoint, lives, row: checkpointRow, status: eliminated ? 'eliminated' : 'playing', ...(eliminated ? { finishedAt: new Date().toISOString() } : {}) };
       const stillPlaying = players.some(p => p.status === 'playing');
       const finished = !stillPlaying;
       updated = { ...room, players, status: finished ? 'finished' : room.status, updatedAt: new Date().toISOString() };
