@@ -30,7 +30,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
   throw new Error('Race data changed repeatedly. Try again.');
 }
 function publicRoom(room: Room) {
-  return { id: room.id, code: room.code, status: room.status, winnerUid: room.winnerUid,
+  return { id: room.id, code: room.code, hostUid: room.hostUid, status: room.status, winnerUid: room.winnerUid,
     players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ uid, username, checkpoint, lives, row, status, finishedAt })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
@@ -117,7 +117,7 @@ router.post('/rooms/:id/progress', async (req, res) => {
       const players = [...room.players];
       const current = players[idx];
       const checkpoint = Math.max(current.checkpoint, Math.min(5, Math.floor(row / 25)));
-      players[idx] = { ...current, row: Math.max(current.row, row), checkpoint, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
+      players[idx] = { ...current, row: Math.max(current.row, row), checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
       const winnerUid = checkpoint >= 5 && !room.winnerUid ? player.uid : room.winnerUid;
       updated = { ...room, players, winnerUid, status: winnerUid ? 'finished' : room.status, updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: updated };
