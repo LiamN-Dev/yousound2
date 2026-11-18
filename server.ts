@@ -129,7 +129,6 @@ import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile
 import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy.ts';
 import youCraftRouter from './src/routes/youcraft.ts';
 import crossyRoadRouter from './src/routes/crossyRoad.ts';
-import { normalizeGoogleSitesPublishedUrl } from './src/services/googleSitesEmbed.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -3251,6 +3250,7 @@ app.post('/api/ai/assistant', async (req: Request, res: Response) => {
           'You are not limited to music. Answer ordinary questions across school subjects, math, science, technology, coding, writing, brainstorming, planning, explanations, and everyday topics.',
           'Answer the question the user actually asked. For how-to requests, walk through clear steps. For learning requests, teach the idea and show examples rather than only giving an unexplained answer. Keep the language accessible, patient, and school-appropriate.',
           'Use Markdown when it improves clarity: headings, **bold**, *italics*, numbered steps, bullet lists, tables, block quotes, inline code, and fenced code blocks. Format code in fenced blocks and explain how to use it.',
+          'Always put Markdown structure on separate lines. Separate paragraphs and sections with blank lines, put every heading and list item on its own line, and put display equations on separate lines surrounded by double-dollar delimiters.',
           'Use your general knowledge for general questions. Do not refuse or redirect a question merely because it is not about YouSound, music, or the supplied catalogue.',
           'The supplied permanent facts are reference material for YouSound-specific questions only. They are not a restriction on the subjects you can discuss.',
           'Use the supplied catalogue only for claims about songs available to this account. Never invent songs or artists, and do not expose songs hidden from this account.',
@@ -3457,7 +3457,6 @@ type ArcadeLaunchEvent = {
 
 const ARCADE_CATALOG_SETTING = 'arcade_game_catalog_v1';
 const ARCADE_LAUNCHES_SETTING = 'arcade_game_launches_v1';
-const ARCADE_GOOGLE_SITE_SETTING = 'arcade_google_sites_host_v1';
 const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
   {
     id: 'openfront',
@@ -3513,47 +3512,13 @@ async function getArcadeAccount(req: Request, res: Response) {
   return { uid: user.uid, username: user.username, isAdmin: user.role === 'admin' };
 }
 
-app.get('/api/games/google-site', async (req: Request, res: Response) => {
-  try {
-    const account = await getArcadeAccount(req, res);
-    if (!account) return;
-    const stored = await getPersistentSettingDb<{ url?: string | null; updatedAt?: string }>(ARCADE_GOOGLE_SITE_SETTING);
-    res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, url: stored?.url || null, updatedAt: stored?.updatedAt || null });
-  } catch (error: any) {
-    console.error('[Arcade] Google Sites settings load failed:', error);
-    return res.status(500).json({ success: false, error: 'The embedded Arcade site could not be loaded.' });
-  }
-});
-
-app.put('/api/admin/games/google-site', async (req: Request, res: Response) => {
-  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-  try {
-    const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
-    const url = rawUrl ? normalizeGoogleSitesPublishedUrl(rawUrl) : null;
-    if (rawUrl && !url) {
-      return res.status(400).json({
-        success: false,
-        error: 'Use a published HTTPS Google Sites URL such as https://sites.google.com/view/your-site. Editor and non-Google URLs are not accepted.',
-      });
-    }
-    const saved = { url, updatedAt: new Date().toISOString() };
-    await setPersistentSettingDb(ARCADE_GOOGLE_SITE_SETTING, saved);
-    res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, ...saved });
-  } catch (error: any) {
-    console.error('[Arcade] Google Sites settings save failed:', error);
-    return res.status(500).json({ success: false, error: 'The embedded Arcade site could not be saved.' });
-  }
-});
-
 app.get('/api/games/catalog', async (req: Request, res: Response) => {
   try {
     const account = await getArcadeAccount(req, res);
     if (!account) return;
-    // Standalone native and third-party game launches have been retired.
+    const games = await getArcadeCatalog();
     res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, games: [] });
+    return res.json({ success: true, games: account.isAdmin ? games : games.filter((game) => game.enabled) });
   } catch (error: any) {
     console.error('[Arcade] Catalog load failed:', error);
     return res.status(500).json({ success: false, error: 'The Arcade catalog could not be loaded.' });
@@ -3609,8 +3574,37 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/games/launch', async (_req: Request, res: Response) => {
-  return res.status(410).json({ success: false, error: 'Standalone Arcade games have been retired. Use the embedded Arcade site.' });
+app.post('/api/games/launch', async (req: Request, res: Response) => {
+  try {
+    const account = await getArcadeAccount(req, res);
+    if (!account) return;
+    const gameId = String(req.body?.gameId || '');
+    const game = (await getArcadeCatalog()).find((item) => item.id === gameId && item.enabled);
+    if (!game) return res.status(403).json({ success: false, error: 'This game is not currently activated.' });
+
+    await ensurePersistentSettingDb(ARCADE_LAUNCHES_SETTING, []);
+    const event: ArcadeLaunchEvent = {
+      id: randomBytes(10).toString('hex'),
+      gameId: game.id,
+      username: account.username,
+      userId: account.uid,
+      launchedAt: new Date().toISOString(),
+    };
+    let saved = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const previous = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
+      const entries = Array.isArray(previous) ? previous : [];
+      if (await compareAndSetPersistentSettingDb(ARCADE_LAUNCHES_SETTING, previous, [...entries, event].slice(-200))) {
+        saved = true;
+        break;
+      }
+    }
+    if (!saved) throw new Error('Arcade activity changed repeatedly while saving.');
+    return res.json({ success: true, recorded: true });
+  } catch (error: any) {
+    console.error('[Arcade] Launch activity could not be recorded:', error);
+    return res.status(500).json({ success: false, error: 'The game launch could not be recorded.' });
+  }
 });
 
 app.get('/api/admin/games/overview', async (_req: Request, res: Response) => {
