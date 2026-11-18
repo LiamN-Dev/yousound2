@@ -41,7 +41,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
   throw new Error('Race data changed repeatedly. Try again.');
 }
 function publicRoom(room: Room, viewerUid: string) {
-  return { id: room.id, code: room.code, hostUid: room.hostUid, isHost: room.hostUid === viewerUid, status: room.status, winnerUid: room.winnerUid,
+  return { id: room.id, code: room.code, isHost: room.hostUid === viewerUid, status: room.status, winnerUid: room.winnerUid,
     players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ uid, username, checkpoint, lives, row, status, finishedAt })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
