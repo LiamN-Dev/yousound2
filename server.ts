@@ -3609,39 +3609,8 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/games/launch', async (req: Request, res: Response) => {
+app.post('/api/games/launch', async (_req: Request, res: Response) => {
   return res.status(410).json({ success: false, error: 'Standalone Arcade games have been retired. Use the embedded Arcade site.' });
-
-  try {
-    const account = await getArcadeAccount(req, res);
-    if (!account) return;
-    const gameId = String(req.body?.gameId || '');
-    const game = (await getArcadeCatalog()).find((item) => item.id === gameId && item.enabled);
-    if (!game) return res.status(403).json({ success: false, error: 'This game is not currently activated.' });
-
-    await ensurePersistentSettingDb(ARCADE_LAUNCHES_SETTING, []);
-    const event: ArcadeLaunchEvent = {
-      id: randomBytes(10).toString('hex'),
-      gameId: game.id,
-      username: account.username,
-      userId: account.uid,
-      launchedAt: new Date().toISOString(),
-    };
-    let saved = false;
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const previous = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
-      const entries = Array.isArray(previous) ? previous : [];
-      if (await compareAndSetPersistentSettingDb(ARCADE_LAUNCHES_SETTING, previous, [...entries, event].slice(-200))) {
-        saved = true;
-        break;
-      }
-    }
-    if (!saved) throw new Error('Arcade activity changed repeatedly while saving.');
-    return res.json({ success: true, recorded: true });
-  } catch (error: any) {
-    console.error('[Arcade] Launch activity could not be recorded:', error);
-    return res.status(500).json({ success: false, error: 'The game launch could not be recorded.' });
-  }
 });
 
 app.get('/api/admin/games/overview', async (_req: Request, res: Response) => {
