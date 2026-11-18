@@ -604,6 +604,7 @@
       const multiplayerMode = new URLSearchParams(window.location.search).get('multiplayer') === '1';
       let multiplayerCheckpointRow = 0;
       let multiplayerLives = 3;
+      let raceFinishHandled = false;
 
       try {
         const savedChar = localStorage.getItem('voxel_hopper_char');
@@ -1396,6 +1397,7 @@
           if (message.type === 'crossy-race-init') {
             multiplayerCheckpointRow = 0;
             multiplayerLives = 3;
+            raceFinishHandled = false;
             void startAccountRun();
           }
           if (message.type === 'crossy-death-result') {
@@ -1431,7 +1433,8 @@
               gameoverOverlay.classList.remove('hidden');
             }
           }
-          if (message.type === 'crossy-race-finished') {
+          if (message.type === 'crossy-race-finished' && !raceFinishHandled) {
+            raceFinishHandled = true;
             gameState = 'gameover';
             inputQueue = [];
             dpadEl.classList.add('hidden');
