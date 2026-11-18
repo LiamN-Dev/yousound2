@@ -37,7 +37,7 @@ function publicRoom(room: Room, viewerUid: string) {
 async function addResult(room: Room) {
   const results = await getPersistentSettingDb<RaceResult[]>(LEADERBOARD_KEY) || [];
   const existing = Array.isArray(results) ? results : [];
-  const next = [...existing, ...room.players.filter(p => p.status === 'finished' || p.status === 'eliminated').map(p => ({
+  const next = [...existing, ...room.players.map(p => ({
     id: room.id + ':' + p.uid, username: p.username, checkpoint: p.checkpoint, completed: p.status === 'finished',
     playedAt: p.finishedAt || new Date().toISOString(), roomCode: room.code
   }))];
