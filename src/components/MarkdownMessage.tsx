@@ -76,7 +76,7 @@ export const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => {
       .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
       .replace(/\s+(\d+\.\s+)/g, "\n$1")
       .replace(/\s+(\*\s+(?=\*\*|If\b|Where\b|Using\b|The\b))/g, "\n$1")
-      .replace(/\s*\$\$([\s\S]*?)\$\$\s*/g, (_match, formula) => "\n\n$\n" + formula + "\n$\n\n");
+      .replace(/\s*\$\$([\s\S]*?)\$\$\s*/g, (_match, formula) => "\n\n" + "$" + "$" + "\n" + formula + "\n" + "$" + "$" + "\n\n");
   }
   const lines = normalized.split("\n");
   const blocks: React.ReactNode[] = [];
