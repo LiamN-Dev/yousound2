@@ -881,9 +881,9 @@ export const ChatHub: React.FC = () => {
                             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · {new Date(msg.createdAt).toLocaleDateString()}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-800 dark:text-slate-200 font-sans break-words">
+                        <div className="text-xs text-slate-800 dark:text-slate-200 font-sans break-words">
                           {msg.senderId === 'yousound-ai' ? <MarkdownMessage content={msg.content} /> : msg.content}
-                        </p>
+                        </div>
                       </div>
 
                       <button
