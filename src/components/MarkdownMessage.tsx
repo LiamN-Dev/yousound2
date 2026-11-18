@@ -1,7 +1,7 @@
 import React from 'react';
 
 function inline(text: string, keyPrefix: string): React.ReactNode[] {
-  const pattern = /(\*\*[\s\S]+?\*\*|__[^_]+__|~~[\s\S]+?~~|`[^`]+ `|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  const pattern = /(\*\*[\s\S]+?\*\*|__[^_]+__|~~[\s\S]+?~~|`[^`]+`|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
   const output: React.ReactNode[] = [];
   let cursor = 0;
   let match: RegExpExecArray | null;
