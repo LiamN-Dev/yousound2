@@ -3,7 +3,7 @@ import React from "react";
 function prettyMath(value: string): string {
   return value
     .replace(/\\left|\\right/g, "")
-    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1) / ($2)")
+    .replace(/\\frac\{((?:[^{}]|\{[^{}]*\})+)\}\{((?:[^{}]|\{[^{}]*\})+)\}/g, "($1) / ($2)")
     .replace(/\\sqrt\{([^{}]+)\}/g, "√($1)")
     .replace(/\\sqrt/g, "√")
     .replace(/\\pm/g, "±")
@@ -15,6 +15,7 @@ function prettyMath(value: string): string {
     .replace(/\\infty/g, "∞")
     .replace(/\^\{([^{}]+)\}/g, "^($1)")
     .replace(/_\{([^{}]+)\}/g, "_($1)")
+    .replace(/[{}]/g, "")
     .replace(/\\([a-zA-Z]+)/g, "$1")
     .trim();
 }
@@ -75,7 +76,7 @@ export const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => {
       .replace(/\s+(#{1,6}\s+)/g, "\n\n$1")
       .replace(/\s+(\d+\.\s+)/g, "\n$1")
       .replace(/\s+(\*\s+(?=\*\*|If\b|Where\b|Using\b|The\b))/g, "\n$1")
-      .replace(/\s*\$\$([\s\S]*?)\$\$\s*/g, "\n\n$$\n$1\n$$\n\n");
+      .replace(/\s*\$\$([\s\S]*?)\$\$\s*/g, (_match, formula) => "\n\n$\n" + formula + "\n$\n\n");
   }
   const lines = normalized.split("\n");
   const blocks: React.ReactNode[] = [];
