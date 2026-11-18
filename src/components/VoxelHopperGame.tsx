@@ -79,7 +79,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
         if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
       }
       if (message.type === 'crossy-death') {
-        const data = await raceRequest('/rooms/' + room.id + '/death', { method: 'POST', body: '{}' });
+        const data = await raceRequest('/rooms/' + room.id + '/death', { method: 'POST', body: JSON.stringify({ row: Number(message.score || 0) }) });
         setRoom(data.room);
         if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
         frameRef.current?.contentWindow?.postMessage({
