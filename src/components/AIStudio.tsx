@@ -221,10 +221,9 @@ export const AIStudio: React.FC = () => {
         <div className="relative flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/25 bg-cyan-300/10 text-cyan-100"><BrainCircuit className="h-6 w-6" /></div>
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-200">Private beta · AI studio</div>
+            <div className="text-[10px] font-black uppercase tracking-[.22em] text-cyan-200">YouSound AI · general assistant</div>
             <h1 className="mt-1 text-3xl font-black tracking-tight">YouSound AI</h1>
           </div>
-          <span className="ml-auto rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3 py-1 text-[9px] font-black tracking-wider text-cyan-100">TEST BUILD</span>
         </div>
         <p className="relative mt-4 max-w-2xl text-sm leading-6 text-slate-300">A general-purpose assistant for explanations, step-by-step help, writing, coding, brainstorming, and everyday questions. It can also help with YouSound, the music library, and site information.</p>
         <p className={'relative mt-3 rounded-xl border px-3 py-2 text-[10px] ' + (serviceStatusError ? 'border-amber-300/20 bg-amber-300/[.06] text-amber-100' : 'border-emerald-300/15 bg-emerald-300/[.05] text-emerald-100')}>{serviceStatus}</p>
