@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Crown, Gamepad2, Maximize2, Play, RefreshCw, Users } from 'lucide-react';
 
 type RacePlayer = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; finishedAt?: string | null };
-type RaceRoom = { id: string; code: string; hostUid: string; isHost: boolean; status: 'waiting' | 'active' | 'finished'; winnerUid: string | null; players: RacePlayer[]; checkpoints: number; livesPerCheckpoint: number; checkpointRows: number[] };
+type RaceRoom = { id: string; code: string; isHost: boolean; status: 'waiting' | 'active' | 'finished'; winnerUid: string | null; players: RacePlayer[]; checkpoints: number; livesPerCheckpoint: number; checkpointRows: number[] };
 type RaceRank = { username: string; wins: number; bestCheckpoint: number; races: number };
 
 async function raceRequest(path: string, options: RequestInit = {}) {
