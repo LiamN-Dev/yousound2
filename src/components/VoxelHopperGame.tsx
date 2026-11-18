@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Copy, Crown, Gamepad2, Maximize2, Play, RefreshCw, Users } from 'lucide-react';
 
 type RacePlayer = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; finishedAt?: string | null };
-type RaceRoom = { id: string; code: string; status: 'waiting' | 'active' | 'finished'; winnerUid: string | null; players: RacePlayer[]; checkpoints: number; livesPerCheckpoint: number; checkpointRows: number[] };
+type RaceRoom = { id: string; code: string; hostUid: string; status: 'waiting' | 'active' | 'finished'; winnerUid: string | null; players: RacePlayer[]; checkpoints: number; livesPerCheckpoint: number; checkpointRows: number[] };
 type RaceRank = { username: string; wins: number; bestCheckpoint: number; races: number };
 
 async function raceRequest(path: string, options: RequestInit = {}) {
@@ -75,10 +75,12 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
       if (message.type === 'crossy-progress' && Number.isSafeInteger(message.row)) {
         const data = await raceRequest('/rooms/' + room.id + '/progress', { method: 'POST', body: JSON.stringify({ row: message.row }) });
         setRoom(data.room);
+        if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
       }
       if (message.type === 'crossy-death') {
         const data = await raceRequest('/rooms/' + room.id + '/death', { method: 'POST', body: '{}' });
         setRoom(data.room);
+        if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
         frameRef.current?.contentWindow?.postMessage({
           type: 'crossy-death-result', respawn: data.respawn, eliminated: data.eliminated,
           lives: data.lives, checkpointRow: data.checkpointRow,
@@ -102,7 +104,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
     catch { setError('Copy failed. Select the game code and copy it manually.'); }
   };
 
-  const isHost = Boolean(room?.players[0]?.uid);
+  const isHost = Boolean(room?.hostUid);
   const winner = room?.players.find(player => player.uid === room.winnerUid);
   const raceActive = room?.status === 'active' || room?.status === 'finished';
 
@@ -145,7 +147,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
           <div className="rounded-2xl border border-emerald-300/20 bg-slate-950 p-4 text-white">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><div className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-300">{room.status === 'waiting' ? 'Waiting room' : room.status === 'finished' ? 'Race finished' : 'Race in progress'}</div><div className="mt-1 flex items-center gap-2 text-xl font-black">Room {room.code}<button type="button" onClick={() => void copyCode()} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white" title="Copy game code"><Copy className="h-4 w-4" /></button>{copied && <span className="text-xs font-semibold text-emerald-300">Copied</span>}</div></div>
-              {room.status === 'waiting' && <button type="button" onClick={() => void startRace()} disabled={busy || room.players.length < 2} className="inline-flex items-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40"><Play className="h-4 w-4" /> Start race</button>}
+              {room.status === 'waiting' && isHost && <button type="button" onClick={() => void startRace()} disabled={busy || room.players.length < 2} className="inline-flex items-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40"><Play className="h-4 w-4" /> Start race</button>}
               {room.status === 'waiting' && <span className="text-xs text-slate-400">At least 2 players required</span>}
             </div>
             {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
