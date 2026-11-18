@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/storage';
+import { MarkdownMessage } from './MarkdownMessage';
 import { User, ChatRequest, ChatThread, ChatMessage, ChatPairingBlock } from '../types';
 
 type ChatSafetyFlag = { id: string; threadId: string; senderUsername: string; receiverId: string; category: string; severity: 'high' | 'medium' | 'unverified'; reason: string; excerpt: string; createdAt: string; status: 'open' | 'dismissed'; lockedByAi?: boolean };
@@ -881,7 +882,7 @@ export const ChatHub: React.FC = () => {
                           </span>
                         </div>
                         <p className="text-xs text-slate-800 dark:text-slate-200 font-sans break-words">
-                          {msg.content}
+                          {msg.senderId === 'yousound-ai' ? <MarkdownMessage content={msg.content} /> : msg.content}
                         </p>
                       </div>
 
@@ -1629,7 +1630,7 @@ export const ChatHub: React.FC = () => {
                                   : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-white/10 rounded-bl-xs'
                               }`}
                             >
-                              {m.content}
+                              {m.senderId === 'yousound-ai' ? <MarkdownMessage content={m.content} /> : m.content}
                             </div>
                           </div>
                         );
@@ -1938,7 +1939,7 @@ export const ChatHub: React.FC = () => {
                         {new Date(m.createdAt).toLocaleString()}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-800 dark:text-slate-200">{m.content}</p>
+                    <div className="text-xs text-slate-800 dark:text-slate-200">{m.senderId === 'yousound-ai' ? <MarkdownMessage content={m.content} /> : m.content}</div>
                   </div>
                 ))
               )}
