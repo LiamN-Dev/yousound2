@@ -601,6 +601,9 @@
       let currentRunId = null;
       let runStarting = false;
       let pendingRunResult = null;
+      const multiplayerMode = new URLSearchParams(window.location.search).get('multiplayer') === '1';
+      let multiplayerCheckpointRow = 0;
+      let multiplayerLives = 3;
 
       try {
         const savedChar = localStorage.getItem('voxel_hopper_char');
@@ -1295,12 +1298,19 @@
           startOverlay.classList.add('hidden');
           gameoverOverlay.classList.add('hidden');
           dpadEl.classList.remove('hidden');
-          void startAccountRun();
+          if (!multiplayerMode) void startAccountRun();
         }
       }
 
       function triggerGameOver(reasonText) {
         if (gameState !== 'playing') return;
+        if (multiplayerMode && window.parent !== window) {
+          gameState = 'waiting';
+          inputQueue = [];
+          shakeTime = 0.28;
+          window.parent.postMessage({ type: 'crossy-death', reason: reasonText, score }, window.location.origin);
+          return;
+        }
         gameState = 'gameover';
         inputQueue = [];
         shakeTime = 0.28;
@@ -1370,12 +1380,63 @@
           score = maxRow;
           scoreEl.textContent = score;
           ensureLanesAround(playerRow);
+          if (multiplayerMode && window.parent !== window) window.parent.postMessage({ type: 'crossy-progress', row: score }, window.location.origin);
 
           if (score > 0 && score % 25 === 0) {
             SoundFX.playMilestone();
             showToast(`${score} Hops! Keep going!`);
           }
         }
+      }
+
+      if (multiplayerMode) {
+        window.addEventListener('message', (event) => {
+          if (event.source !== window.parent || event.origin !== window.location.origin || !event.data) return;
+          const message = event.data;
+          if (message.type === 'crossy-race-init') {
+            multiplayerCheckpointRow = 0;
+            multiplayerLives = 3;
+          }
+          if (message.type === 'crossy-death-result') {
+            multiplayerLives = Math.max(0, Number(message.lives || 0));
+            if (message.respawn) {
+              multiplayerCheckpointRow = Math.max(0, Number(message.checkpointRow || 0));
+              clearWorld();
+              playerCol = 0;
+              playerRow = multiplayerCheckpointRow;
+              maxRow = multiplayerCheckpointRow;
+              score = multiplayerCheckpointRow;
+              hopAnim = null;
+              inputQueue = [];
+              shakeTime = 0;
+              scoreEl.textContent = String(score);
+              applyMapTheme(selectedMap);
+              ensureLanesAround(playerRow);
+              createPlayerMesh();
+              gameState = 'playing';
+              startOverlay.classList.add('hidden');
+              gameoverOverlay.classList.add('hidden');
+              dpadEl.classList.remove('hidden');
+              showToast('Checkpoint ' + Math.floor(multiplayerCheckpointRow / 25) + ' · ' + multiplayerLives + ' lives left');
+            } else {
+              gameState = 'gameover';
+              void finishAccountRun(score, coins);
+              document.getElementById('death-reason').textContent = 'Out of lives at checkpoint ' + Math.floor(multiplayerCheckpointRow / 25) + '.';
+              document.getElementById('final-score').textContent = score;
+              document.getElementById('final-best').textContent = bestScore;
+              document.getElementById('final-coins').textContent = coins;
+              document.getElementById('new-best-badge').classList.add('hidden');
+              dpadEl.classList.add('hidden');
+              gameoverOverlay.classList.remove('hidden');
+            }
+          }
+          if (message.type === 'crossy-race-finished') {
+            gameState = 'gameover';
+            inputQueue = [];
+            dpadEl.classList.add('hidden');
+            showToast('Race finished!');
+          }
+        });
       }
 
       // Keyboard controls
