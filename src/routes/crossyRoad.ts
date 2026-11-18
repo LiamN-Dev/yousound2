@@ -132,7 +132,8 @@ router.post('/finish', async (req, res) => {
   if (!user) return res.status(401).json({ success: false, error: 'Please sign in again.' });
   const runId = String(req.body?.runId || '');
   const score = Number(req.body?.score);
-  if (!/^[0-9a-f-]{36}$/i.test(runId) || !Number.isSafeInteger(score) || score < 0 || score > 10000) {
+  const coinsCollected = Number(req.body?.coinsCollected ?? 0);
+  if (!/^[0-9a-f-]{36}$/i.test(runId) || !Number.isSafeInteger(score) || score < 0 || score > 10000 || !Number.isSafeInteger(coinsCollected) || coinsCollected < 0 || coinsCollected > 10000) {
     return res.status(400).json({ success: false, error: 'Invalid game result.' });
   }
 
@@ -142,7 +143,7 @@ router.post('/finish', async (req, res) => {
     const pool = createPool();
     client = await pool.connect();
     await client.query('BEGIN');
-    const claimed = await client.query(CROSSY_ROAD_FINISH_RUN_SQL, [runId, user.uid, score]);
+    const claimed = await client.query(CROSSY_ROAD_FINISH_RUN_SQL, [runId, user.uid, score, coinsCollected]);
     if (!claimed.rowCount) {
       // A retry can arrive after the first request committed but its response was lost.
       // Return the already-saved account totals without awarding coins a second time.
