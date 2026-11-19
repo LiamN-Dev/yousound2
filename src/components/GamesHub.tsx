@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { YouCraftGame } from './YouCraftGame';
 import { VoxelHopperGame } from './VoxelHopperGame';
+import { InfiniteCraftGame } from './InfiniteCraftGame';
 import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play, RefreshCw, ShieldCheck, Star, Users } from 'lucide-react';
 
 type LaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGame = {
-  id: 'openfront' | 'youcraft' | 'crossy-road';
+  id: 'openfront' | 'youcraft' | 'crossy-road' | 'infinite-craft';
   title: string;
   description: string;
   enabled: boolean;
@@ -24,11 +25,14 @@ type LaunchEvent = {
 };
 
 type Props = { isAdmin: boolean };
+type CrossyRank = { username: string; wins: number; bestCheckpoint: number; races: number };
+type CraftRank = { rank: number; username: string; score: number; discoveries: number; combinations: number; raceWins: number };
 
 const gameArtwork: Record<string, string> = {
   openfront: 'from-emerald-950 via-teal-900 to-slate-950',
   youcraft: 'from-violet-950 via-fuchsia-950 to-slate-950',
   'crossy-road': 'from-emerald-950 via-green-900 to-slate-950',
+  'infinite-craft': 'from-indigo-950 via-violet-900 to-slate-950',
 };
 
 async function readJson(response: Response) {
@@ -38,7 +42,7 @@ async function readJson(response: Response) {
 }
 
 export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
-  const [tab, setTab] = useState<'arcade' | 'control'>('arcade');
+  const [tab, setTab] = useState<'arcade' | 'leaderboards' | 'control'>('arcade');
   const [games, setGames] = useState<ArcadeGame[]>([]);
   const [recentLaunches, setRecentLaunches] = useState<LaunchEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +52,12 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [embeddedGame, setEmbeddedGame] = useState<ArcadeGame | null>(null);
   const [youCraftOpen, setYouCraftOpen] = useState(false);
   const [crossyRoadOpen, setCrossyRoadOpen] = useState(false);
+  const [infiniteCraftOpen, setInfiniteCraftOpen] = useState(false);
+  const [crossyLeaderboard, setCrossyLeaderboard] = useState<CrossyRank[]>([]);
+  const [craftLeaderboard, setCraftLeaderboard] = useState<CraftRank[]>([]);
+  const [crossyLeaderboardError, setCrossyLeaderboardError] = useState('');
+  const [craftLeaderboardError, setCraftLeaderboardError] = useState('');
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
 
   const loadCatalog = async () => {
@@ -74,6 +84,33 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   const activeGames = useMemo(() => games.filter((game) => game.enabled), [games]);
 
+  const loadLeaderboards = useCallback(async () => {
+    setLeaderboardLoading(true);
+    const [crossyResult, craftResult] = await Promise.allSettled([
+      fetch('/api/games/crossy-road/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
+      fetch('/api/games/infinite-craft/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
+    ]);
+    if (crossyResult.status === 'fulfilled') {
+      setCrossyLeaderboard(Array.isArray(crossyResult.value.leaderboard) ? crossyResult.value.leaderboard : []);
+      setCrossyLeaderboardError('');
+    } else {
+      setCrossyLeaderboard([]);
+      setCrossyLeaderboardError(crossyResult.reason?.message || 'Crossy Road leaderboard is unavailable.');
+    }
+    if (craftResult.status === 'fulfilled') {
+      setCraftLeaderboard(Array.isArray(craftResult.value.leaderboard) ? craftResult.value.leaderboard : []);
+      setCraftLeaderboardError('');
+    } else {
+      setCraftLeaderboard([]);
+      setCraftLeaderboardError(craftResult.reason?.message || 'Infinite Craft leaderboard is unavailable.');
+    }
+    setLeaderboardLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'leaderboards') void loadLeaderboards();
+  }, [tab, loadLeaderboards]);
+
   const recordLaunch = (gameId: string) => {
     void fetch('/api/games/launch', {
       method: 'POST',
@@ -91,7 +128,11 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
       setCrossyRoadOpen(true);
       return;
     }
-    if (game.id === 'youcraft' || game.launchMode === 'native') {
+    if (game.id === 'infinite-craft') {
+      setInfiniteCraftOpen(true);
+      return;
+    }
+    if (game.id === 'youcraft') {
       setYouCraftOpen(true);
       return;
     }
@@ -130,6 +171,8 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   };
 
   if (crossyRoadOpen) return <VoxelHopperGame onBack={() => setCrossyRoadOpen(false)} />;
+
+  if (infiniteCraftOpen) return <InfiniteCraftGame onBack={() => setInfiniteCraftOpen(false)} />;
 
   if (youCraftOpen) return <YouCraftGame onBack={() => setYouCraftOpen(false)} />;
 
@@ -176,12 +219,11 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
         </div>
       </section>
 
-      {isAdmin && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setTab('arcade')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'arcade' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Arcade preview</button>
-          <button type="button" onClick={() => setTab('control')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'control' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Game Control & Activity</button>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setTab('arcade')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'arcade' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Arcade</button>
+        <button type="button" onClick={() => setTab('leaderboards')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'leaderboards' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Leaderboards</button>
+        {isAdmin && <button type="button" onClick={() => setTab('control')} className={'rounded-xl px-4 py-2 text-xs font-bold transition ' + (tab === 'control' ? 'bg-cyan-300 text-slate-950' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10')}>Game Control & Activity</button>}
+      </div>
 
       {error && <div role="alert" className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>}
       {notice && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm text-cyan-100">{notice}</div>}
@@ -229,6 +271,48 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
         </>
       )}
 
+      {tab === 'leaderboards' && (
+        <section className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-black text-white">Arcade Leaderboards</h2>
+              <p className="mt-1 text-sm text-slate-400">Account-based results saved by YouSound across games.</p>
+            </div>
+            <button type="button" onClick={() => void loadLeaderboards()} disabled={leaderboardLoading} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-white/10 disabled:opacity-50">
+              <RefreshCw className={'h-4 w-4 ' + (leaderboardLoading ? 'animate-spin' : '')} /> Refresh
+            </button>
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <section className="rounded-3xl border border-emerald-300/20 bg-slate-950 p-5 text-white shadow-xl">
+              <h3 className="text-lg font-black text-emerald-300">Crossy Road Race</h3>
+              <p className="mt-1 text-xs text-slate-400">Ranked by wins, then best checkpoint reached.</p>
+              {crossyLeaderboardError && <p className="mt-3 text-xs text-amber-300">{crossyLeaderboardError}</p>}
+              <div className="mt-4 space-y-2">
+                {crossyLeaderboard.length ? crossyLeaderboard.map((entry, index) => (
+                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
+                    <div className="shrink-0 text-right text-xs"><span className="font-black text-amber-300">{entry.wins} wins</span><div className="text-slate-400">{entry.races} races · CP {entry.bestCheckpoint}/5</div></div>
+                  </div>
+                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Crossy Road race results yet.</p>}
+              </div>
+            </section>
+            <section className="rounded-3xl border border-violet-300/20 bg-slate-950 p-5 text-white shadow-xl">
+              <h3 className="text-lg font-black text-violet-300">Infinite Craft</h3>
+              <p className="mt-1 text-xs text-slate-400">Ranked by discovery score, then discovered items and race wins.</p>
+              {craftLeaderboardError && <p className="mt-3 text-xs text-amber-300">{craftLeaderboardError}</p>}
+              <div className="mt-4 space-y-2">
+                {craftLeaderboard.length ? craftLeaderboard.map((entry, index) => (
+                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
+                    <div className="shrink-0 text-right text-xs"><span className="font-black text-amber-300">{entry.score.toLocaleString()} pts</span><div className="text-slate-400">{entry.discoveries} discoveries · {entry.raceWins} race wins</div></div>
+                  </div>
+                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Infinite Craft discoveries yet.</p>}
+              </div>
+            </section>
+          </div>
+        </section>
+      )}
+
       {tab === 'control' && isAdmin && (
         <section className="space-y-5 rounded-3xl border border-cyan-200/20 bg-slate-950/80 p-5 shadow-xl sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -266,6 +350,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                 ) : game.id === 'crossy-road' ? (
                   <div className="mt-4 rounded-xl border border-emerald-200/15 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-100">
                     Native 3D Crossy Road. Multiplayer races use six-character room codes, five checkpoints, and three lives per checkpoint.
+                  </div>
+                ) : game.id === 'infinite-craft' ? (
+                  <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
+                    Imported Infinite Craft. Recipes are resolved by YouSound's named recipe database; unknown pairs do not generate random adjective-prefixed items. Rooms and discovery leaderboards are stored on the account backend.
                   </div>
                 ) : (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
