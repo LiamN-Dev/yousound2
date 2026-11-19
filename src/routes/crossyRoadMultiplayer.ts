@@ -93,7 +93,7 @@ router.post('/rooms/join', async (req, res) => {
   try {
     const player = await account(req, res); if (!player) return;
     const code = String(req.body?.code || '').trim().toUpperCase();
-    if (!/^[A-F0-9]{6}$/.test(code)) return res.status(400).json({ success: false, error: 'Enter the six-character game code.' });
+    if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) return res.status(400).json({ success: false, error: 'Enter the six-character game code.' });
     let joined: Room | null = null;
     await mutate<Room>(ROOM_KEY, rooms => {
       const room = Object.values(rooms).find(r => r.code === code && r.status === 'waiting');
