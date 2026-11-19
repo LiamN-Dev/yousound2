@@ -387,30 +387,32 @@ router.post('/discoveries', async (req, res) => {
     if (!a || !b) return res.status(400).json({ success: false, error: 'Choose two ingredients.' });
     const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId.slice(0, 48) : null;
     const soloRaceTarget = roomId ? '' : normalizeCraftName(req.body?.raceTarget);
+    const outcome: { value: ReturnType<typeof recordCombination> | null } = { value: null };
     const store = await mutateStore((current) => {
       const next: CraftStore = {
         rooms: { ...current.rooms },
         profiles: { ...current.profiles },
         seenRecipes: { ...current.seenRecipes },
       };
-      recordCombination(next, account, a, b, roomId, soloRaceTarget);
+      outcome.value = recordCombination(next, account, a, b, roomId, soloRaceTarget);
       return next;
     });
     const recipe = findInfiniteCraftRecipe(a, b);
-    if (!recipe) return res.status(422).json({ success: false, error: 'No known recipe for those ingredients yet.' });
+    if (!recipe || !outcome.value) return res.status(422).json({ success: false, error: 'No known recipe for those ingredients yet.' });
+    const result = outcome.value;
     const profile = store.profiles[account.uid] || getProfile(store, account);
     const room = roomId ? store.rooms[roomId] : null;
-    const discovery = room?.discoveries.find((item) => item.recipeKey === recipe.key) || null;
     return res.json({
       success: true,
       item: { name: recipe.result, emoji: recipe.emoji },
       profile,
       room: room ? publicRoom(room, account.uid) : null,
-      discovery,
-      points: discovery?.points ?? 0,
-      firstDiscovery: discovery?.firstDiscovery ?? false,
-      alreadyDiscovered: profile.recipes.includes(recipe.key) && !discovery,
-      won: room ? room.winnerUid === account.uid : false,
+      discovery: result.discovery || null,
+      points: result.points,
+      firstDiscovery: result.firstDiscovery,
+      alreadyDiscovered: result.alreadyDiscovered,
+      won: result.won,
+      winBonus: result.winBonus || 0,
     });
   } catch (error: any) {
     const noRecipe = /No known discovery/.test(String(error?.message || ''));
