@@ -122,6 +122,27 @@ router.get('/leaderboard', async (_req, res) => {
   }
 });
 
+router.get('/high-score-leaderboard', async (_req, res) => {
+  try {
+    await ensureCrossySchema();
+    const result = await createPool().query(
+      'SELECT username, high_score, total_games FROM crossy_road_stats WHERE high_score > 0 ORDER BY high_score DESC, updated_at ASC LIMIT 25'
+    );
+    return res.json({
+      success: true,
+      leaderboard: result.rows.map((row: any, index: number) => ({
+        rank: index + 1,
+        username: String(row.username),
+        highScore: Number(row.high_score || 0),
+        totalGames: Number(row.total_games || 0),
+      })),
+    });
+  } catch (error: any) {
+    console.error('[Crossy Road] High-score leaderboard failed:', error?.message || error);
+    return res.status(503).json({ success: false, error: 'The Crossy Road high-score leaderboard is temporarily unavailable.' });
+  }
+});
+
 router.post('/start', async (req, res) => {
   try {
     const user = identity(req);
