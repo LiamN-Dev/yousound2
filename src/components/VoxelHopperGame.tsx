@@ -82,7 +82,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
           if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
         }
         if (message.type === 'crossy-death') {
-          const data = await raceRequest('/rooms/' + roomId + '/death', { method: 'POST', body: JSON.stringify({ row: Number(message.score || 0) }) });
+          const data = await raceRequest('/rooms/' + roomId + '/death', { method: 'POST', body: '{}' });
           setRoom(data.room);
           if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
           frameRef.current?.contentWindow?.postMessage({
@@ -102,7 +102,15 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
   }, [handleGameMessage]);
 
   const startGameFrame = () => {
-    frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-init', roomId: room?.id, code: room?.code }, window.location.origin);
+    if (!room?.id || room.status !== 'active') {
+      if (room?.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
+      return;
+    }
+    const me = room.players.find(player => player.isMe);
+    frameRef.current?.contentWindow?.postMessage({
+      type: 'crossy-race-init', roomId: room.id, code: room.code,
+      username: me?.username || 'Player',
+    }, window.location.origin);
   };
 
   const copyCode = async () => {
