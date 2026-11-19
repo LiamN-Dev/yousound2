@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infinite Craft — by Liam</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; font-family: 'Inter', system-ui, sans-serif;
+      background: #f8fafc; color: #0f172a; user-select: none;
+    }
+    .dot-grid {
+      background-color: #f8fafc;
+      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .craft-chip {
+      position: absolute;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      background: #ffffff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: grab;
+      transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+      touch-action: none;
+    }
+    .craft-chip:hover { border-color: #94a3b8; box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12); }
+    .craft-chip.dragging { cursor: grabbing; transform: scale(1.06); z-index: 50; border-color: #4f46e5; box-shadow: 0 12px 26px rgba(79, 70, 229, 0.22); }
+    .craft-chip.merge-target { border-color: #10b981; background: #ecfdf5; transform: scale(1.08); }
+    @keyframes popIn { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+    .pop-in { animation: popIn 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+  </style>
+</head>
+<body class="flex flex-col h-full">
+
+  <!-- Start Menu Overlay -->
+  <div id="start-menu" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto custom-scroll">
+      <div class="text-center space-y-1">
+        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 text-xs font-bold tracking-wide uppercase">
+          ✨ Infinite Alchemy · 1–10 Laptops
+        </div>
+        <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">Infinite Craft</h1>
+        <p class="text-sm font-semibold text-indigo-600">by Liam</p>
+      </div>
+
+      <!-- Mode Selector -->
+      <div class="grid grid-cols-2 gap-2">
+        <button id="mode-coop" type="button" class="py-2 px-3 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-700 text-xs font-bold text-left">
+          <div>🤝 Co-op Discovery</div>
+          <div class="font-normal text-[11px] opacity-80">Share discoveries live</div>
+        </button>
+        <button id="mode-race" type="button" class="py-2 px-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-xs font-bold text-left hover:border-slate-300">
+          <div>🏆 Target Race</div>
+          <div class="font-normal text-[11px] opacity-75">First to craft goal wins</div>
+        </button>
+      </div>
+
+      <!-- Play Type: Solo vs Online Room -->
+      <div class="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-3">
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your Name</label>
+          <input id="my-name-input" type="text" maxlength="14" value="Liam" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <button id="btn-solo" type="button" class="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition">
+            Play Solo
+          </button>
+          <button id="btn-create-room" type="button" class="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition">
+            Host Room (1–10)
+          </button>
+        </div>
+
+        <!-- Join Existing Room -->
+        <div class="flex gap-2">
+          <input id="join-code-input" type="text" maxlength="6" placeholder="6-character room code" class="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-mono uppercase tracking-widest text-slate-800 focus:outline-none focus:border-indigo-500" />
+          <button id="btn-join-room" type="button" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition">Join</button>
+        </div>
+
+        <!-- Active Room Lobby -->
+        <div id="room-lobby" class="hidden bg-white rounded-xl p-3 border border-indigo-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-[10px] uppercase font-bold text-slate-400">Room Code</div>
+              <div id="room-code-display" class="font-mono text-lg font-extrabold tracking-widest text-indigo-600">-----</div>
+            </div>
+            <button id="btn-copy-code" type="button" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold">Copy Code</button>
+          </div>
+          <div id="room-status" class="text-[11px] font-medium text-emerald-600">Connecting…</div>
+          <div id="lobby-players" class="flex flex-wrap gap-1.5"></div>
+          <button id="btn-host-start" type="button" class="hidden w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Start Room Game →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Bar -->
+  <header class="h-14 bg-white border-b border-slate-200 px-3 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-20">
+    <div class="flex items-center gap-2.5">
+      <span class="font-extrabold text-base tracking-tight text-slate-900">Infinite Craft</span>
+      <span class="text-xs font-semibold text-indigo-600 hidden sm:inline">by Liam</span>
+      <span id="room-badge" class="hidden px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-mono text-[11px] font-bold"></span>
+      <span id="race-target-pill" class="hidden px-2.5 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">
+        🎯 Goal: <span id="race-target-name">Robot</span>
+      </span>
+    </div>
+
+    <div id="players-bar" class="flex items-center gap-1.5 overflow-x-auto max-w-[45vw] py-1"></div>
+
+    <div class="flex items-center gap-1.5">
+      <button id="btn-clear-board" type="button" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">Clear</button>
+      <button id="btn-mute" type="button" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition" title="Toggle Sound">🔊</button>
+      <button id="btn-menu" type="button" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition">Menu</button>
+    </div>
+  </header>
+
+  <!-- Main Workspace + Discovery Sidebar -->
+  <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+    <section id="workspace" class="flex-1 relative dot-grid overflow-hidden">
+      <div class="absolute top-3 left-3 pointer-events-none text-xs text-slate-500 bg-white/85 backdrop-blur px-2.5 py-1 rounded-lg border border-slate-200/80">
+        Drag elements together to combine · Double-click to duplicate · Right-click to remove
+      </div>
+      <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xl opacity-0 pointer-events-none transition-opacity"></div>
+    </section>
+
+    <aside class="w-full md:w-80 h-60 md:h-auto bg-white border-t md:border-t-0 md:border-l border-slate-200 flex flex-col shrink-0 z-10">
+      <div class="p-2.5 border-b border-slate-200 flex items-center gap-2">
+        <input id="search-elements" type="text" placeholder="Search discoveries…" class="flex-1 bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500" />
+        <select id="sort-elements" class="bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-700">
+          <option value="recent">Recent</option>
+          <option value="az">A–Z</option>
+          <option value="first">First Disc.</option>
+        </select>
+      </div>
+      <div class="px-3 py-1.5 text-[11px] font-semibold text-slate-500 flex justify-between border-b border-slate-100">
+        <span id="discovered-count">4 Discovered</span>
+        <span>Click to spawn</span>
+      </div>
+      <div id="inventory-list" class="flex-1 overflow-y-auto custom-scroll p-2.5 flex flex-wrap content-start gap-1.5"></div>
+    </aside>
+  </main>
+
+  <!-- Winner Modal -->
+  <div id="win-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
+      <div class="text-4xl">🏆</div>
+      <h2 id="win-title" class="text-xl font-extrabold text-slate-900">Player Wins!</h2>
+      <p id="win-sub" class="text-xs text-slate-500"></p>
+      <div class="flex gap-2">
+        <button id="btn-new-target" type="button" class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">New Target</button>
+        <button id="btn-win-menu" type="button" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold">Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // =========================================================================
+      // 1. RECIPE DATABASE + SAFE DETERMINISTIC COMBINER (ZERO UNDEFINED!)
+      // =========================================================================
+      const RAW_RECIPES = [
+        ['Earth', 'Water', 'Plant', '🌱'], ['Fire', 'Water', 'Steam', '💨'], ['Earth', 'Fire', 'Lava', '🌋'],
+        ['Water', 'Wind', 'Wave', '🌊'], ['Earth', 'Wind', 'Dust', '🌫️'], ['Fire', 'Wind', 'Smoke', '💨'],
+        ['Water', 'Water', 'Lake', '🏞️'], ['Fire', 'Fire', 'Inferno', '🔥'], ['Earth', 'Earth', 'Mountain', '⛰️'],
+        ['Wind', 'Wind', 'Tornado', '🌪️'], ['Lake', 'Water', 'Ocean', '🌊'], ['Ocean', 'Wind', 'Hurricane', '🌀'],
+        ['Lava', 'Water', 'Obsidian', '🪨'], ['Lava', 'Wind', 'Stone', '🪨'], ['Fire', 'Stone', 'Metal', '⚙️'],
+        ['Dust', 'Fire', 'Ash', '⚱️'], ['Plant', 'Water', 'Swamp', '🐊'], ['Swamp', 'Fire', 'Dragon', '🐉'],
+        ['Plant', 'Wind', 'Dandelion', '🌼'], ['Plant', 'Plant', 'Tree', '🌳'], ['Tree', 'Tree', 'Forest', '🌲'],
+        ['Forest', 'Fire', 'Charcoal', '⬛'], ['Sand', 'Fire', 'Glass', '🪟'], ['Dust', 'Earth', 'Planet', '🪐'],
+        ['Dust', 'Water', 'Mud', '🟤'], ['Mud', 'Fire', 'Brick', '🧱'], ['Brick', 'Brick', 'Wall', '🧱'],
+        ['Wall', 'Wall', 'House', '🏠'], ['House', 'House', 'Village', '🏘️'], ['Village', 'Village', 'City', '🏙️'],
+        ['City', 'City', 'Metropolis', '🌆'], ['Stone', 'Wind', 'Sand', '🏖️'], ['Fire', 'Planet', 'Sun', '☀️'],
+        ['Planet', 'Sun', 'Solar System', '🌌'], ['Solar System', 'Solar System', 'Galaxy', '🌌'],
+        ['Galaxy', 'Galaxy', 'Universe', '✨'], ['Steam', 'Wind', 'Cloud', '☁️'], ['Cloud', 'Water', 'Rain', '🌧️'],
+        ['Rain', 'Sun', 'Rainbow', '🌈'], ['Cloud', 'Fire', 'Lightning', '⚡'], ['Lightning', 'Metal', 'Electricity', '⚡'],
+        ['Electricity', 'Glass', 'Computer', '💻'], ['Computer', 'Computer', 'Internet', '🌐'],
+        ['Internet', 'Robot', 'AI', '🤖'], ['Swamp', 'Lightning', 'Life', '🧬'], ['Life', 'Earth', 'Human', '🧑'],
+        ['Human', 'Metal', 'Tool', '🛠️'], ['Metal', 'Electricity', 'Robot', '🤖'], ['Human', 'Computer', 'Programmer', '👨‍💻'],
+        ['Human', 'Ocean', 'Sailor', '⛵'], ['Human', 'Sky', 'Astronaut', '👨‍🚀'], ['Cloud', 'Cloud', 'Sky', '🌤️'],
+        ['Sky', 'Fire', 'Star', '⭐'], ['Star', 'Star', 'Constellation', '✨'], ['Metal', 'Wind', 'Airplane', '✈️'],
+        ['Airplane', 'Star', 'Spaceship', '🚀'], ['Astronaut', 'Spaceship', 'Moon Landing', '🌕'],
+        ['Life', 'Water', 'Fish', '🐟'], ['Fish', 'Earth', 'Frog', '🐸'], ['Life', 'Wind', 'Bird', '🐦'],
+        ['Bird', 'Fire', 'Phoenix', '🔥'], ['Human', 'Fire', 'Chef', '👨‍🍳'], ['Plant', 'Sun', 'Flower', '🌸'],
+        ['Plant', 'Earth', 'Wheat', '🌾'], ['Wheat', 'Fire', 'Bread', '🍞'], ['Bread', 'Cheese', 'Pizza', '🍕'],
+        ['Water', 'Cold', 'Ice', '🧊'], ['Wind', 'Rain', 'Cold', '❄️'], ['Ice', 'Fire', 'Water', '💧'],
+        ['Time', 'Sand', 'Hourglass', '⏳'], ['Computer', 'Clock', 'Time Machine', '⏰'], ['Clock', 'Clock', 'Time', '⏱️'],
+        ['Glass', 'Time', 'Clock', '🕰️'], ['Human', 'Robot', 'Cyborg', '🦾'], ['Dragon', 'Fire', 'Volcano', '🌋'],
+        ['Mountain', 'Fire', 'Volcano', '🌋'], ['Metal', 'Fire', 'Sword', '⚔️'], ['Human', 'Sword', 'Knight', '🛡️'],
+        ['Knight', 'Dragon', 'Hero', '🦸'], ['Electricity', 'Water', 'Hydrogen', '⚛️'], ['Star', 'Time', 'Black Hole', '🕳️'],
+        ['Water', 'Milk', 'Cheese', '🧀'], ['Life', 'Grass', 'Cow', '🐄'], ['Cow', 'Human', 'Milk', '🥛'],
+        ['Earth', 'Plant', 'Grass', '🌿'], ['Ocean', 'Fish', 'Whale', '🐋'], ['Stone', 'Time', 'Fossil', '🦴'],
+        ['Fossil', 'Fire', 'Oil', '🛢️'], ['Oil', 'Metal', 'Car', '🚗'], ['Car', 'Car', 'Traffic', '🚦'],
+        ['City', 'Car', 'Highway', '🛣️'], ['Programmer', 'Pizza', 'Hackathon', '💻']
+      ];
+
+      const RECIPES = {};
+      for (const [a, b, res, em] of RAW_RECIPES) {
+        const key = [a, b].sort().join('+');
+        RECIPES[key] = [res, em];
+      }
+
+      const RACE_TARGETS = ['Robot', 'Spaceship', 'Dragon', 'Galaxy', 'Pizza', 'Internet', 'Volcano', 'Phoenix', 'Black Hole', 'Time Machine'];
+      const PLAYER_COLORS = ['#4f46e5', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#6366f1'];
+
+      function proceduralCombine(a, b) {
+        const nameA = String(a || '');
+        const nameB = String(b || '');
+        const key = [nameA, nameB].map((x) => x.toLocaleLowerCase()).sort().join('+');
+        return RECIPES[key] || null;
+      }
+
+      // =========================================================================
+      // 2. AUDIO & TOAST
+      // =========================================================================
+      let audioCtx = null;
+      let muted = false;
+      function playTone(freq, dur = 0.09, type = 'sine') {
+        if (muted) return;
+        try {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          osc.start(); osc.stop(audioCtx.currentTime + dur);
+        } catch (_) {}
+      }
+
+      function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.remove('opacity-0');
+        clearTimeout(t._timer);
+        t._timer = setTimeout(() => t.classList.add('opacity-0'), 2400);
+      }
+
+      // =========================================================================
+      // 3. STATE & ROOM-CODE MULTIPLAYER (PEERJS WEBRTC)
+      // =========================================================================
+      const state = {
+        mode: 'coop',
+        roomCode: null,
+        roomId: null,
+        roomStatus: 'waiting',
+        roomPollTimer: null,
+        lastRoomDiscoveryCount: 0,
+        gameStarted: false,
+        winnerShown: false,
+        isHost: true,
+        myId: 'local',
+        myName: 'Liam',
+        players: [{ id: 'local', name: 'Liam', color: PLAYER_COLORS[0], score: 0 }],
+        raceTarget: 'Robot',
+        discovered: [],
+        discoveredSet: new Set(),
+        canvasItems: [],
+        nextId: 1,
+        sortMode: 'recent',
+        search: ''
+      };
+
+      const STARTERS = [
+        { name: 'Water', emoji: '💧' },
+        { name: 'Fire', emoji: '🔥' },
+        { name: 'Wind', emoji: '🌬️' },
+        { name: 'Earth', emoji: '🌍' }
+      ];
+
+      async function craftApi(path, options = {}) {
+        const response = await fetch('/api/games/infinite-craft' + path, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+          ...options
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.error || 'Infinite Craft request failed.');
+        return data;
+      }
+
+      function renderLobbyPlayers() {
+        const el = document.getElementById('lobby-players');
+        el.innerHTML = state.players.map((p) =>
+          '<span class="px-2 py-1 rounded-full bg-slate-100 text-xs font-semibold text-slate-800 flex items-center gap-1.5">' +
+          '<span class="w-2 h-2 rounded-full" style="background:' + p.color + '"></span>' +
+          p.name + (p.isHost ? ' 👑' : '') + '</span>'
+        ).join('');
+      }
+
+      function syncRoomSnapshot(room) {
+        if (!room) return;
+        state.roomId = room.id;
+        state.roomCode = room.code;
+        state.roomStatus = room.status;
+        state.isHost = room.isHost === true;
+        state.mode = room.mode || state.mode;
+        if (room.raceTarget) state.raceTarget = room.raceTarget;
+        state.players = (room.players || []).map((p, index) => ({
+          id: p.id, name: p.username, username: p.username,
+          color: PLAYER_COLORS[index % PLAYER_COLORS.length],
+          score: Number(p.score || 0), isMe: p.isMe === true, isHost: p.isHost === true
+        }));
+        const me = state.players.find((p) => p.isMe);
+        if (me) {
+          state.myId = me.id;
+          state.myName = me.name;
+          document.getElementById('my-name-input').value = me.name;
+        }
+        document.getElementById('room-lobby').classList.remove('hidden');
+        document.getElementById('room-code-display').textContent = room.code;
+        document.getElementById('room-status').textContent =
+          room.status === 'waiting' ? 'Waiting for friends to join…' :
+          room.status === 'active' ? 'Game in progress · room synced' : 'Room finished';
+        document.getElementById('btn-host-start').classList.toggle('hidden', !state.isHost || room.status !== 'waiting');
+        renderLobbyPlayers();
+        renderPlayersBar();
+
+        if (room.status === 'active' && !state.gameStarted) beginLocalGame();
+
+        const discoveries = Array.isArray(room.discoveries) ? room.discoveries : [];
+        for (const item of discoveries.slice(state.lastRoomDiscoveryCount)) {
+          const player = state.players.find((p) => p.name === item.by);
+          applyDiscovery(item.name, item.emoji, item.firstDiscovery, player ? player.id : item.by, item.by, item.points, false);
+        }
+        state.lastRoomDiscoveryCount = discoveries.length;
+
+        // Re-apply server scores after displaying newly arrived discovery events.
+        state.players = (room.players || []).map((p, index) => ({
+          id: p.id, name: p.username, username: p.username,
+          color: PLAYER_COLORS[index % PLAYER_COLORS.length],
+          score: Number(p.score || 0), isMe: p.isMe === true, isHost: p.isHost === true
+        }));
+        renderPlayersBar();
+        renderLobbyPlayers();
+
+        if (room.status === 'finished' && room.winnerName && !state.winnerShown) {
+          state.winnerShown = true;
+          showWinner(room.winnerName, room.raceTarget || 'the target', '🏆', state.players.find((p) => p.name === room.winnerName)?.score || 0);
+          if (state.roomPollTimer) clearInterval(state.roomPollTimer);
+        }
+      }
+
+      async function refreshRoom() {
+        if (!state.roomId) return;
+        try {
+          const data = await craftApi('/rooms/' + state.roomId);
+          syncRoomSnapshot(data.room);
+        } catch (error) {
+          document.getElementById('room-status').textContent = error.message || 'Room connection lost.';
+        }
+      }
+
+      function startRoomPolling() {
+        if (state.roomPollTimer) clearInterval(state.roomPollTimer);
+        state.roomPollTimer = setInterval(() => { void refreshRoom(); }, 900);
+      }
+
+      async function hostRoom() {
+        const status = document.getElementById('room-status');
+        status.textContent = 'Creating your room…';
+        document.getElementById('room-lobby').classList.remove('hidden');
+        try {
+          const data = await craftApi('/rooms', { method: 'POST', body: '{}' });
+          state.gameStarted = false;
+          state.winnerShown = false;
+          state.lastRoomDiscoveryCount = 0;
+          syncRoomSnapshot(data.room);
+          startRoomPolling();
+          showToast('Room created. Share code ' + data.room.code);
+        } catch (error) {
+          status.textContent = error.message || 'Could not create room.';
+        }
+      }
+
+      async function joinRoom() {
+        const code = document.getElementById('join-code-input').value.trim().toUpperCase();
+        const status = document.getElementById('room-status');
+        if (code.length !== 6) {
+          document.getElementById('room-lobby').classList.remove('hidden');
+          status.textContent = 'Enter the full six-character room code.';
+          return;
+        }
+        document.getElementById('room-lobby').classList.remove('hidden');
+        status.textContent = 'Joining room ' + code + '…';
+        try {
+          const data = await craftApi('/rooms/join', { method: 'POST', body: JSON.stringify({ code }) });
+          state.gameStarted = false;
+          state.winnerShown = false;
+          state.lastRoomDiscoveryCount = 0;
+          syncRoomSnapshot(data.room);
+          startRoomPolling();
+          showToast('Joined room ' + data.room.code);
+        } catch (error) {
+          status.textContent = error.message || 'Could not join room.';
+        }
+      }
+
+      async function loadCraftProfile() {
+        try {
+          const data = await craftApi('/profile');
+          state.myName = data.profile.username;
+          state.myId = data.profile.username;
+          document.getElementById('my-name-input').value = data.profile.username;
+          state.players = [{ id: state.myId, name: state.myName, color: PLAYER_COLORS[0], score: data.profile.score || 0 }];
+          renderPlayersBar();
+        } catch (error) {
+          showToast(error.message || 'Your profile could not be loaded.');
+        }
+      }
+
+      async function loadRecipeDatabase() {
+        try {
+          const data = await craftApi('/recipes');
+          for (const recipe of data.recipes || []) {
+            const key = [recipe.inputA, recipe.inputB].map((x) => x.toLocaleLowerCase()).sort().join('+');
+            RECIPES[key] = [recipe.result, recipe.emoji];
+          }
+        } catch (error) {
+          showToast(error.message || 'The recipe database could not be loaded.');
+        }
+      }
+
+      // =========================================================================
+      // 4. GAME START, INVENTORY & DISCOVERY
+      // =========================================================================
+      function beginLocalGame() {
+        state.gameStarted = true;
+        state.discovered = [];
+        state.discoveredSet.clear();
+        for (const st of STARTERS) {
+          state.discovered.push({ name: st.name, emoji: st.emoji, isFirst: false, by: 'Starter' });
+          state.discoveredSet.add(st.name);
+        }
+        clearWorkspace();
+        if (state.mode === 'race') {
+          document.getElementById('race-target-name').textContent = state.raceTarget;
+          document.getElementById('race-target-pill').classList.remove('hidden');
+        } else {
+          document.getElementById('race-target-pill').classList.add('hidden');
+        }
+        const badge = document.getElementById('room-badge');
+        if (state.roomCode) {
+          badge.textContent = `ROOM: ${state.roomCode}`;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+        document.getElementById('start-menu').classList.add('hidden');
+        renderPlayersBar();
+        renderInventory();
+      }
+
+      function renderPlayersBar() {
+        const bar = document.getElementById('players-bar');
+        bar.innerHTML = state.players.map((p) => `
+          <span class="px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 shrink-0 bg-slate-100 text-slate-800 border border-slate-200">
+            <span class="w-2 h-2 rounded-full" style="background:${p.color}"></span>
+            <span>${p.name}</span>
+            <span class="font-mono font-bold text-indigo-600">${p.score}</span>
+          </span>
+        `).join('');
+      }
+
+      function renderInventory() {
+        const list = document.getElementById('inventory-list');
+        const q = state.search.trim().toLowerCase();
+        let items = state.discovered.filter((d) => !q || d.name.toLowerCase().includes(q));
+        if (state.sortMode === 'az') items = [...items].sort((a, b) => a.name.localeCompare(b.name));
+        else if (state.sortMode === 'first') items = items.filter((d) => d.isFirst);
+        else items = [...items].reverse();
+
+        document.getElementById('discovered-count').textContent = `${state.discovered.length} Discovered`;
+        list.innerHTML = '';
+        for (const item of items) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition hover:scale-[1.03] active:scale-95 ${
+            item.isFirst ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-slate-50 hover:bg-white border-slate-200 text-slate-800'
+          }`;
+          btn.innerHTML = `<span>${item.emoji}</span><span>${item.name}</span>`;
+          btn.addEventListener('click', () => {
+            const ws = document.getElementById('workspace').getBoundingClientRect();
+            const x = Math.max(20, Math.min(ws.width - 140, ws.width * 0.35 + (Math.random() - 0.5) * 180));
+            const y = Math.max(48, Math.min(ws.height - 60, ws.height * 0.42 + (Math.random() - 0.5) * 140));
+            spawnChip(item.name, item.emoji, x, y, true);
+            playTone(440, 0.06);
+          });
+          list.appendChild(btn);
+        }
+      }
+
+      // =========================================================================
+      // 5. WORKSPACE DRAG, DROP & MERGE
+      // =========================================================================
+      const workspace = document.getElementById('workspace');
+      function clearWorkspace() {
+        state.canvasItems = [];
+        workspace.querySelectorAll('.craft-chip').forEach((el) => el.remove());
+      }
+
+      function spawnChip(name, emoji, x, y, animate = false) {
+        const safeName = String(name || 'Unknown');
+        const safeEmoji = String(emoji || '✨');
+        const id = state.nextId++;
+        const el = document.createElement('div');
+        el.className = 'craft-chip' + (animate ? ' pop-in' : '');
+        el.dataset.id = String(id);
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.innerHTML = `<span>${safeEmoji}</span><span>${safeName}</span>`;
+
+        const itemObj = { id, name: safeName, emoji: safeEmoji, x, y, el };
+        state.canvasItems.push(itemObj);
+
+        el.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          spawnChip(itemObj.name, itemObj.emoji, itemObj.x + 22, itemObj.y + 22, true);
+          playTone(520, 0.06);
+        });
+        el.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          removeChip(itemObj.id);
+        });
+
+        let dragStartX = 0, dragStartY = 0, origX = 0, origY = 0, dragging = false;
+        el.addEventListener('pointerdown', (e) => {
+          if (e.button === 2) return;
+          e.stopPropagation();
+          try { el.setPointerCapture(e.pointerId); } catch (_) {}
+          dragging = true;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          origX = itemObj.x;
+          origY = itemObj.y;
+          el.classList.add('dragging');
+        });
+        el.addEventListener('pointermove', (e) => {
+          if (!dragging) return;
+          itemObj.x = origX + (e.clientX - dragStartX);
+          itemObj.y = origY + (e.clientY - dragStartY);
+          el.style.left = `${itemObj.x}px`;
+          el.style.top = `${itemObj.y}px`;
+          const target = findOverlap(itemObj);
+          state.canvasItems.forEach((c) => c.el.classList.toggle('merge-target', target && c.id === target.id));
+        });
+        const endDrag = () => {
+          if (!dragging) return;
+          dragging = false;
+          el.classList.remove('dragging');
+          state.canvasItems.forEach((c) => c.el.classList.remove('merge-target'));
+          const target = findOverlap(itemObj);
+          if (target) combineChips(itemObj, target);
+        };
+        el.addEventListener('pointerup', endDrag);
+        el.addEventListener('pointercancel', endDrag);
+
+        workspace.appendChild(el);
+        return itemObj;
+      }
+
+      function removeChip(id) {
+        const idx = state.canvasItems.findIndex((c) => c.id === id);
+        if (idx !== -1) {
+          state.canvasItems[idx].el.remove();
+          state.canvasItems.splice(idx, 1);
+        }
+      }
+
+      function findOverlap(chip) {
+        const r1 = chip.el.getBoundingClientRect();
+        for (const other of state.canvasItems) {
+          if (other.id === chip.id) continue;
+          const r2 = other.el.getBoundingClientRect();
+          if (!(r1.right < r2.left || r1.left > r2.right || r1.bottom < r2.top || r1.top > r2.bottom)) return other;
+        }
+        return null;
+      }
+
+      function applyDiscovery(name, emoji, isFirst, byId, byName, points, isLocal) {
+        if (state.discoveredSet.has(name)) return;
+        state.discoveredSet.add(name);
+        state.discovered.push({ name, emoji, isFirst, by: byName });
+        const p = state.players.find((x) => x.id === byId || x.name === byName) || state.players[0];
+        if (p) p.score += Number(points || 0);
+        if (isLocal) playTone(isFirst ? 780 : 620, 0.14, 'triangle');
+        showToast(byName + ' ' + (isFirst ? '✨ First Discovery: ' : 'discovered ') + emoji + ' ' + name + '!');
+        renderInventory();
+        renderPlayersBar();
+      }
+
+      function showWinner(winnerName, resName, resEmoji, score) {
+        document.getElementById('win-title').textContent = `${winnerName} Wins!`;
+        document.getElementById('win-sub').textContent = `Crafted ${resEmoji} ${resName} with ${score} points!`;
+        document.getElementById('win-modal').classList.remove('hidden');
+        document.getElementById('win-modal').classList.add('flex');
+        playTone(880, 0.25, 'triangle');
+      }
+
+      async function combineChips(a, b) {
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        const me = state.players.find((p) => p.id === state.myId) || state.players[0];
+        try {
+          const result = await craftApi('/discoveries', {
+            method: 'POST',
+            body: JSON.stringify({
+              ingredientA: a.name,
+              ingredientB: b.name,
+              roomId: state.roomId,
+              raceTarget: !state.roomId && state.mode === 'race' ? state.raceTarget : ''
+            })
+          });
+          const resName = result.item.name;
+          const resEmoji = result.item.emoji;
+          removeChip(a.id);
+          removeChip(b.id);
+          spawnChip(resName, resEmoji, mx, my, true);
+          if (!state.discoveredSet.has(resName)) {
+            applyDiscovery(resName, resEmoji, Boolean(result.firstDiscovery), me.id, me.name, Number(result.points || 0), true);
+          } else {
+            playTone(360, 0.07);
+            showToast('You already discovered ' + resName + '. Try a new combination!');
+          }
+          if (result.room) syncRoomSnapshot(result.room);
+          if (result.won) showWinner(me.name, resName, resEmoji, me.score);
+        } catch (error) {
+          showToast(error.message || 'No recipe found. Try another pair.');
+        }
+      }
+
+      // =========================================================================
+      // 6. EVENT WIRING
+      // =========================================================================
+      document.getElementById('mode-coop').addEventListener('click', () => {
+        state.mode = 'coop';
+        document.getElementById('mode-coop').className = 'py-2 px-3 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-700 text-xs font-bold text-left';
+        document.getElementById('mode-race').className = 'py-2 px-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-xs font-bold text-left hover:border-slate-300';
+      });
+      document.getElementById('mode-race').addEventListener('click', () => {
+        state.mode = 'race';
+        document.getElementById('mode-race').className = 'py-2 px-3 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-700 text-xs font-bold text-left';
+        document.getElementById('mode-coop').className = 'py-2 px-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700 text-xs font-bold text-left hover:border-slate-300';
+      });
+
+      document.getElementById('btn-solo').addEventListener('click', () => {
+        state.roomCode = null;
+        state.roomId = null;
+        state.roomStatus = 'waiting';
+        state.isHost = true;
+        state.myName = document.getElementById('my-name-input').value.trim() || state.myName || 'Player';
+        state.myId = state.myName;
+        state.players = [{ id: state.myId, name: state.myName, color: PLAYER_COLORS[0], score: 0 }];
+        state.gameStarted = false;
+        state.winnerShown = false;
+        state.raceTarget = RACE_TARGETS[Math.floor(Math.random() * RACE_TARGETS.length)];
+        beginLocalGame();
+      });
+
+      document.getElementById('btn-create-room').addEventListener('click', hostRoom);
+      document.getElementById('btn-join-room').addEventListener('click', joinRoom);
+      document.getElementById('btn-copy-code').addEventListener('click', () => {
+        if (!state.roomCode) return;
+        try { navigator.clipboard.writeText(state.roomCode); } catch (_) {}
+        showToast(`Copied room code: ${state.roomCode}`);
+      });
+      document.getElementById('btn-host-start').addEventListener('click', async () => {
+        if (!state.roomId || !state.isHost) return;
+        state.raceTarget = RACE_TARGETS[Math.floor(Math.random() * RACE_TARGETS.length)];
+        document.getElementById('room-status').textContent = 'Starting room…';
+        try {
+          const data = await craftApi('/rooms/' + state.roomId + '/start', {
+            method: 'POST',
+            body: JSON.stringify({ mode: state.mode, raceTarget: state.raceTarget })
+          });
+          syncRoomSnapshot(data.room);
+        } catch (error) {
+          document.getElementById('room-status').textContent = error.message || 'Could not start room.';
+        }
+      });
+
+      document.getElementById('btn-menu').addEventListener('click', () => document.getElementById('start-menu').classList.remove('hidden'));
+      document.getElementById('btn-clear-board').addEventListener('click', clearWorkspace);
+      document.getElementById('search-elements').addEventListener('input', (e) => { state.search = e.target.value; renderInventory(); });
+      document.getElementById('sort-elements').addEventListener('change', (e) => { state.sortMode = e.target.value; renderInventory(); });
+      document.getElementById('btn-new-target').addEventListener('click', () => {
+        state.raceTarget = RACE_TARGETS[Math.floor(Math.random() * RACE_TARGETS.length)];
+        document.getElementById('race-target-name').textContent = state.raceTarget;
+        document.getElementById('win-modal').classList.add('hidden');
+        document.getElementById('win-modal').classList.remove('flex');
+      });
+      document.getElementById('btn-win-menu').addEventListener('click', () => {
+        document.getElementById('win-modal').classList.add('hidden');
+        document.getElementById('win-modal').classList.remove('flex');
+        document.getElementById('start-menu').classList.remove('hidden');
+      });
+      document.getElementById('btn-mute').addEventListener('click', (e) => { muted = !muted; e.target.textContent = muted ? '🔇' : '🔊'; });
+
+      void loadCraftProfile();
+      void loadRecipeDatabase();
+    })();
+  </script>
+</body>
+</html>
