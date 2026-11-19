@@ -11,6 +11,17 @@ const ROOM_KEY = 'crossy_road_race_rooms_v1';
 const LEADERBOARD_KEY = 'crossy_road_race_leaderboard_v1';
 const router = express.Router();
 
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function makeUniqueRoomCode(rooms: Record<string, Room>): string {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const bytes = randomBytes(6);
+    let code = '';
+    for (let i = 0; i < 6; i += 1) code += ROOM_CODE_ALPHABET[bytes[i] % ROOM_CODE_ALPHABET.length];
+    if (!Object.values(rooms).some((room) => room.code === code && room.status !== 'finished')) return code;
+  }
+  throw new Error('Could not create a unique room code. Please try again.');
+}
+
 router.use(async (_req, res, next) => {
   try {
     const catalog = await getPersistentSettingDb<any[]>('arcade_game_catalog_v1');
@@ -65,11 +76,16 @@ router.post('/rooms', async (req, res) => {
   try {
     const player = await account(req, res); if (!player) return;
     const id = randomBytes(12).toString('hex');
-    const code = randomBytes(3).toString('hex').toUpperCase();
-    const now = new Date().toISOString();
-    const room: Room = { id, code, hostUid: player.uid, status: 'waiting', createdAt: now, updatedAt: now, winnerUid: null,
-      players: [{ ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: now }] };
-    await mutate<Room>(ROOM_KEY, rooms => ({ ...rooms, [id]: room }));
+    let createdRoom: Room | null = null;
+    const savedRooms = await mutate<Room>(ROOM_KEY, rooms => {
+      const code = makeUniqueRoomCode(rooms);
+      const now = new Date().toISOString();
+      const room: Room = { id, code, hostUid: player.uid, status: 'waiting', createdAt: now, updatedAt: now, winnerUid: null,
+        players: [{ ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: now }] };
+      createdRoom = room;
+      return { ...rooms, [id]: room };
+    });
+    const room = savedRooms[id] || createdRoom!;
     return res.json({ success: true, room: publicRoom(room, player.uid) });
   } catch (e: any) { return res.status(503).json({ success: false, error: e.message || 'Could not create a race.' }); }
 });
@@ -125,8 +141,10 @@ router.post('/rooms/:id/progress', async (req, res) => {
       if (idx < 0 || room.players[idx].status !== 'playing') throw new Error('You are not an active player in this race.');
       const players = [...room.players];
       const current = players[idx];
-      const checkpoint = Math.max(current.checkpoint, Math.min(5, Math.floor(row / 25)));
-      players[idx] = { ...current, row: Math.max(current.row, row), checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
+      // One legitimate forward hop is recorded per event; the iframe sends every row change.
+      const acceptedRow = Math.min(Math.max(current.row, row), current.row + 1);
+      const checkpoint = Math.max(current.checkpoint, Math.min(5, Math.floor(acceptedRow / 25)));
+      players[idx] = { ...current, row: acceptedRow, checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
       const winnerUid = checkpoint >= 5 && !room.winnerUid ? player.uid : room.winnerUid;
       const updatedRoom: Room = { ...room, players, winnerUid, status: winnerUid ? 'finished' : room.status, updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: updatedRoom };
@@ -146,11 +164,9 @@ router.post('/rooms/:id/death', async (req, res) => {
       const idx = room.players.findIndex(p => p.uid === player.uid);
       if (idx < 0 || room.players[idx].status !== 'playing') throw new Error('You are not an active player.');
       const players = [...room.players]; const current = players[idx];
-      const reportedRow = Number(req.body?.row);
-      const latestRow = Number.isSafeInteger(reportedRow) && reportedRow >= current.row ? Math.min(reportedRow, current.row + 20) : current.row;
-      const checkpoint = Math.max(current.checkpoint, Math.min(4, Math.floor(latestRow / 25)));
-      const livesAtCheckpoint = checkpoint > current.checkpoint ? 3 : current.lives;
-      const lives = Math.max(0, livesAtCheckpoint - 1);
+      // Death consumes a life at the checkpoint already confirmed by server-side progress.
+      const checkpoint = current.checkpoint;
+      const lives = Math.max(0, current.lives - 1);
       const checkpointRow = checkpoint * 25;
       const eliminated = lives === 0;
       players[idx] = { ...current, checkpoint, lives, row: checkpointRow, status: eliminated ? 'eliminated' : 'playing', ...(eliminated ? { finishedAt: new Date().toISOString() } : {}) };
