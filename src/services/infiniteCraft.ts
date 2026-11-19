@@ -99,7 +99,12 @@ const RAW_RECIPES: Array<[string, string, string, string]> = [
 ['Tree', 'Water', 'Paper', '📄'], ['Paper', 'Pencil', 'Writing', '✍️'], ['Metal', 'Gold', 'Coin', '🪙'],
 ['Gold', 'Coin', 'Money', '💰'], ['Money', 'Paper', 'Banknote', '💵'], ['Rocket', 'Human', 'Astronaut', '👨‍🚀'],
 ['Human', 'Animal', 'Farmer', '👩‍🌾'], ['Farmer', 'Wheat', 'Bread', '🍞'], ['Human', 'Ocean', 'Sailor', '⛵'],
-['Human', 'Computer', 'Programmer', '👨‍💻'], ['Programmer', 'Internet', 'Website', '🌐'], ['Website', 'Video', 'YouTube', '▶️']
+['Human', 'Computer', 'Programmer', '👨‍💻'], ['Programmer', 'Internet', 'Website', '🌐'], ['Website', 'Video', 'YouTube', '▶️'], ['Air', 'Metal', 'Sound', '🔊'],
+['Life', 'Forest', 'Animal', '🐾'], ['Dragon', 'Human', 'Monster', '👹'],
+['Metal', 'Glass', 'Camera', '📷'], ['Camera', 'Computer', 'Video', '📹'],
+['Animal', 'Knife', 'Leather', '👜'], ['Leather', 'Air', 'Ball', '⚽'],
+['Human', 'Ball', 'Football Player', '🏈'], ['Taylor Swift', 'Football Player', 'Travis Kelce', '🏈'],
+['Metal', 'Stone', 'Knife', '🔪'], ['Wood', 'Metal', 'Tool', '🛠️']
 ];
 
 export function normalizeCraftName(value: unknown): string {
