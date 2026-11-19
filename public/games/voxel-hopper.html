@@ -1296,10 +1296,8 @@
       }
 
       function startSession() {
-        if (multiplayerMode) {
-          if (gameState !== 'playing') startYouSoundRace(raceCheckpointRow, false);
-          return;
-        }
+        // In a YouSound race, only the parent room service can start or respawn a run.
+        if (multiplayerMode) return;
         beginMultiplayerRound();
       }
 
@@ -1787,6 +1785,8 @@
         startRound(false);
         if (multiplayerMode) {
           document.getElementById('hud-menu-btn').classList.add('hidden');
+          document.getElementById('menu-btn').classList.add('hidden');
+          document.getElementById('restart-btn').classList.add('hidden');
           void loadAccountStats();
         }
         requestAnimationFrame(animate);
