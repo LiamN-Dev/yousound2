@@ -35,13 +35,22 @@ test('known crafting recipes resolve instantly and are order-independent', () =>
   assert.equal(steam.name, reversed.name);
 });
 
-test('unknown recipes use a deterministic local fallback', () => {
-  const [water, fire, earth] = YOUCRAFT_STARTER_ITEMS;
-  const key = canonicalYouCraftRecipe(water.name, earth.name).key;
-  const first = createInstantYouCraftDiscovery(water, earth, key);
-  const second = createInstantYouCraftDiscovery(water, earth, key);
-  assert.equal(first.name, second.name);
-  assert.equal(first.attack + first.defense >= 9, true);
+test('known recipes create real named discoveries such as Donald Trump', () => {
+  const template = YOUCRAFT_STARTER_ITEMS[0];
+  const uncleSam = { ...template, name: 'Uncle Sam' };
+  const shark = { ...template, name: 'Shark' };
+  const key = canonicalYouCraftRecipe(uncleSam.name, shark.name).key;
+  const discovery = createInstantYouCraftDiscovery(uncleSam, shark, key);
+  assert.equal(discovery.name, 'Donald Trump');
+  assert.equal(discovery.category, 'Person');
+});
+
+test('unknown combinations never create adjective-prefixed filler items', () => {
+  const [water, fire] = YOUCRAFT_STARTER_ITEMS;
+  const unknown = { ...water, name: 'Nova Banana' };
+  const other = { ...fire, name: 'Cosmic Potato' };
+  const key = canonicalYouCraftRecipe(unknown.name, other.name).key;
+  assert.throws(() => createInstantYouCraftDiscovery(unknown, other, key), /No real-world discovery/);
 });
 
 test('two players can join a match and alternate turns', () => {
