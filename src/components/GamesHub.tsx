@@ -28,6 +28,8 @@ type Props = { isAdmin: boolean };
 type CrossyRank = { username: string; wins: number; bestCheckpoint: number; races: number };
 type CraftRank = { rank: number; username: string; score: number; discoveries: number; combinations: number; raceWins: number };
 type OpenFrontRank = { rank: number; username: string; plays: number; lastPlayedAt: string };
+type CrossyHighScoreRank = { rank: number; username: string; highScore: number; totalGames: number };
+type YouCraftRank = { rank: number; username: string; discoveries: number; combinations: number };
 
 const gameArtwork: Record<string, string> = {
   openfront: 'from-emerald-950 via-teal-900 to-slate-950',
@@ -57,9 +59,13 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [crossyLeaderboard, setCrossyLeaderboard] = useState<CrossyRank[]>([]);
   const [craftLeaderboard, setCraftLeaderboard] = useState<CraftRank[]>([]);
   const [openFrontLeaderboard, setOpenFrontLeaderboard] = useState<OpenFrontRank[]>([]);
+  const [crossyHighScoreLeaderboard, setCrossyHighScoreLeaderboard] = useState<CrossyHighScoreRank[]>([]);
+  const [youCraftLeaderboard, setYouCraftLeaderboard] = useState<YouCraftRank[]>([]);
   const [crossyLeaderboardError, setCrossyLeaderboardError] = useState('');
   const [craftLeaderboardError, setCraftLeaderboardError] = useState('');
   const [openFrontLeaderboardError, setOpenFrontLeaderboardError] = useState('');
+  const [crossyHighScoreError, setCrossyHighScoreError] = useState('');
+  const [youCraftLeaderboardError, setYouCraftLeaderboardError] = useState('');
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
 
@@ -89,9 +95,11 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   const loadLeaderboards = useCallback(async () => {
     setLeaderboardLoading(true);
-    const [crossyResult, craftResult, openFrontResult] = await Promise.allSettled([
+    const [crossyResult, crossyHighScoreResult, craftResult, youCraftResult, openFrontResult] = await Promise.allSettled([
       fetch('/api/games/crossy-road/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
+      fetch('/api/games/crossy-road/high-score-leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
       fetch('/api/games/infinite-craft/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
+      fetch('/api/youcraft/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
       fetch('/api/games/openfront/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
     ]);
     if (crossyResult.status === 'fulfilled') {
@@ -101,12 +109,26 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
       setCrossyLeaderboard([]);
       setCrossyLeaderboardError(crossyResult.reason?.message || 'Crossy Road leaderboard is unavailable.');
     }
+    if (crossyHighScoreResult.status === 'fulfilled') {
+      setCrossyHighScoreLeaderboard(Array.isArray(crossyHighScoreResult.value.leaderboard) ? crossyHighScoreResult.value.leaderboard : []);
+      setCrossyHighScoreError('');
+    } else {
+      setCrossyHighScoreLeaderboard([]);
+      setCrossyHighScoreError(crossyHighScoreResult.reason?.message || 'Crossy Road high-score leaderboard is unavailable.');
+    }
     if (craftResult.status === 'fulfilled') {
       setCraftLeaderboard(Array.isArray(craftResult.value.leaderboard) ? craftResult.value.leaderboard : []);
       setCraftLeaderboardError('');
     } else {
       setCraftLeaderboard([]);
       setCraftLeaderboardError(craftResult.reason?.message || 'Infinite Craft leaderboard is unavailable.');
+    }
+    if (youCraftResult.status === 'fulfilled') {
+      setYouCraftLeaderboard(Array.isArray(youCraftResult.value.leaderboard) ? youCraftResult.value.leaderboard : []);
+      setYouCraftLeaderboardError('');
+    } else {
+      setYouCraftLeaderboard([]);
+      setYouCraftLeaderboardError(youCraftResult.reason?.message || 'YouCraft leaderboard is unavailable.');
     }
     if (openFrontResult.status === 'fulfilled') {
       setOpenFrontLeaderboard(Array.isArray(openFrontResult.value.leaderboard) ? openFrontResult.value.leaderboard : []);
@@ -307,6 +329,19 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                 )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Crossy Road race results yet.</p>}
               </div>
             </section>
+            <section className="rounded-3xl border border-emerald-200/20 bg-slate-950 p-5 text-white shadow-xl">
+              <h3 className="text-lg font-black text-emerald-200">Crossy Road · High Scores</h3>
+              <p className="mt-1 text-xs text-slate-400">Best solo runs saved to YouSound accounts.</p>
+              {crossyHighScoreError && <p className="mt-3 text-xs text-amber-300">{crossyHighScoreError}</p>}
+              <div className="mt-4 space-y-2">
+                {crossyHighScoreLeaderboard.length ? crossyHighScoreLeaderboard.map((entry, index) => (
+                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
+                    <div className="shrink-0 text-right text-xs"><span className="font-black text-emerald-200">{entry.highScore.toLocaleString()} rows</span><div className="text-slate-400">{entry.totalGames} runs</div></div>
+                  </div>
+                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Crossy Road high scores yet.</p>}
+              </div>
+            </section>
             <section className="rounded-3xl border border-violet-300/20 bg-slate-950 p-5 text-white shadow-xl">
               <h3 className="text-lg font-black text-violet-300">Infinite Craft</h3>
               <p className="mt-1 text-xs text-slate-400">Ranked by discovery score, then discovered items and race wins.</p>
@@ -318,6 +353,19 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                     <div className="shrink-0 text-right text-xs"><span className="font-black text-amber-300">{entry.score.toLocaleString()} pts</span><div className="text-slate-400">{entry.discoveries} discoveries · {entry.raceWins} race wins</div></div>
                   </div>
                 )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Infinite Craft discoveries yet.</p>}
+              </div>
+            </section>
+            <section className="rounded-3xl border border-fuchsia-300/20 bg-slate-950 p-5 text-white shadow-xl">
+              <h3 className="text-lg font-black text-fuchsia-300">YouCraft Discoveries</h3>
+              <p className="mt-1 text-xs text-slate-400">Ranked by unique discoveries, then combinations.</p>
+              {youCraftLeaderboardError && <p className="mt-3 text-xs text-amber-300">{youCraftLeaderboardError}</p>}
+              <div className="mt-4 space-y-2">
+                {youCraftLeaderboard.length ? youCraftLeaderboard.map((entry, index) => (
+                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
+                    <div className="shrink-0 text-right text-xs"><span className="font-black text-fuchsia-300">{entry.discoveries} discoveries</span><div className="text-slate-400">{entry.combinations} combinations</div></div>
+                  </div>
+                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No YouCraft discoveries yet.</p>}
               </div>
             </section>
             <section className="rounded-3xl border border-teal-300/20 bg-slate-950 p-5 text-white shadow-xl">
