@@ -27,6 +27,7 @@ type LaunchEvent = {
 type Props = { isAdmin: boolean };
 type CrossyRank = { username: string; wins: number; bestCheckpoint: number; races: number };
 type CraftRank = { rank: number; username: string; score: number; discoveries: number; combinations: number; raceWins: number };
+type OpenFrontRank = { rank: number; username: string; plays: number; lastPlayedAt: string };
 
 const gameArtwork: Record<string, string> = {
   openfront: 'from-emerald-950 via-teal-900 to-slate-950',
@@ -55,8 +56,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [infiniteCraftOpen, setInfiniteCraftOpen] = useState(false);
   const [crossyLeaderboard, setCrossyLeaderboard] = useState<CrossyRank[]>([]);
   const [craftLeaderboard, setCraftLeaderboard] = useState<CraftRank[]>([]);
+  const [openFrontLeaderboard, setOpenFrontLeaderboard] = useState<OpenFrontRank[]>([]);
   const [crossyLeaderboardError, setCrossyLeaderboardError] = useState('');
   const [craftLeaderboardError, setCraftLeaderboardError] = useState('');
+  const [openFrontLeaderboardError, setOpenFrontLeaderboardError] = useState('');
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
 
@@ -86,9 +89,10 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   const loadLeaderboards = useCallback(async () => {
     setLeaderboardLoading(true);
-    const [crossyResult, craftResult] = await Promise.allSettled([
+    const [crossyResult, craftResult, openFrontResult] = await Promise.allSettled([
       fetch('/api/games/crossy-road/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
       fetch('/api/games/infinite-craft/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
+      fetch('/api/games/openfront/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
     ]);
     if (crossyResult.status === 'fulfilled') {
       setCrossyLeaderboard(Array.isArray(crossyResult.value.leaderboard) ? crossyResult.value.leaderboard : []);
@@ -103,6 +107,13 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
     } else {
       setCraftLeaderboard([]);
       setCraftLeaderboardError(craftResult.reason?.message || 'Infinite Craft leaderboard is unavailable.');
+    }
+    if (openFrontResult.status === 'fulfilled') {
+      setOpenFrontLeaderboard(Array.isArray(openFrontResult.value.leaderboard) ? openFrontResult.value.leaderboard : []);
+      setOpenFrontLeaderboardError('');
+    } else {
+      setOpenFrontLeaderboard([]);
+      setOpenFrontLeaderboardError(openFrontResult.reason?.message || 'OpenFront leaderboard is unavailable.');
     }
     setLeaderboardLoading(false);
   }, []);
@@ -282,7 +293,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
               <RefreshCw className={'h-4 w-4 ' + (leaderboardLoading ? 'animate-spin' : '')} /> Refresh
             </button>
           </div>
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
             <section className="rounded-3xl border border-emerald-300/20 bg-slate-950 p-5 text-white shadow-xl">
               <h3 className="text-lg font-black text-emerald-300">Crossy Road Race</h3>
               <p className="mt-1 text-xs text-slate-400">Ranked by wins, then best checkpoint reached.</p>
@@ -307,6 +318,19 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                     <div className="shrink-0 text-right text-xs"><span className="font-black text-amber-300">{entry.score.toLocaleString()} pts</span><div className="text-slate-400">{entry.discoveries} discoveries · {entry.raceWins} race wins</div></div>
                   </div>
                 )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Infinite Craft discoveries yet.</p>}
+              </div>
+            </section>
+            <section className="rounded-3xl border border-teal-300/20 bg-slate-950 p-5 text-white shadow-xl">
+              <h3 className="text-lg font-black text-teal-300">OpenFront · Most Played</h3>
+              <p className="mt-1 text-xs text-slate-400">Ranked by YouSound launch activity. OpenFront hosts its own in-game scores separately.</p>
+              {openFrontLeaderboardError && <p className="mt-3 text-xs text-amber-300">{openFrontLeaderboardError}</p>}
+              <div className="mt-4 space-y-2">
+                {openFrontLeaderboard.length ? openFrontLeaderboard.map((entry, index) => (
+                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
+                    <div className="shrink-0 text-right text-xs"><span className="font-black text-teal-300">{entry.plays} plays</span><div className="text-slate-400">Last: {new Date(entry.lastPlayedAt).toLocaleDateString()}</div></div>
+                  </div>
+                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No OpenFront launches recorded yet.</p>}
               </div>
             </section>
           </div>
