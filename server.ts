@@ -3633,6 +3633,34 @@ app.post('/api/games/launch', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/games/openfront/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const account = await getArcadeAccount(req, res);
+    if (!account) return;
+    const game = (await getArcadeCatalog()).find((item) => item.id === 'openfront' && item.enabled);
+    if (!game) return res.status(403).json({ success: false, error: 'OpenFront is currently unavailable in the Arcade.' });
+    const stored = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
+    const totals = new Map<string, { username: string; plays: number; lastPlayedAt: string }>();
+    for (const event of Array.isArray(stored) ? stored : []) {
+      if (event.gameId !== 'openfront') continue;
+      const current = totals.get(event.userId) || { username: event.username, plays: 0, lastPlayedAt: event.launchedAt };
+      current.username = event.username;
+      current.plays += 1;
+      if (event.launchedAt > current.lastPlayedAt) current.lastPlayedAt = event.launchedAt;
+      totals.set(event.userId, current);
+    }
+    const leaderboard = [...totals.values()]
+      .sort((a, b) => b.plays - a.plays || b.lastPlayedAt.localeCompare(a.lastPlayedAt) || a.username.localeCompare(b.username))
+      .slice(0, 25)
+      .map((entry, index) => ({ rank: index + 1, ...entry }));
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, leaderboard, metric: 'launches', window: 'latest 200 Arcade launch events' });
+  } catch (error: any) {
+    console.error('[Arcade] OpenFront leaderboard failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'The OpenFront activity leaderboard could not be loaded.' });
+  }
+});
+
 app.get('/api/admin/games/overview', async (_req: Request, res: Response) => {
   if (!isAdminReq(_req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   try {
