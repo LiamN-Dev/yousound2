@@ -130,6 +130,7 @@ import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy
 import youCraftRouter from './src/routes/youcraft.ts';
 import crossyRoadRouter from './src/routes/crossyRoad.ts';
 import crossyRoadMultiplayerRouter from './src/routes/crossyRoadMultiplayer.ts';
+import infiniteCraftRouter from './src/routes/infiniteCraft.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -285,6 +286,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
 app.use('/api/youcraft', youCraftRouter);
+app.use('/api/games/infinite-craft', infiniteCraftRouter);
 app.use('/api/games/crossy-road', crossyRoadMultiplayerRouter);
 app.use('/api/games/crossy-road', crossyRoadRouter);
 
@@ -3438,7 +3440,7 @@ app.get('/api/admin/ai/diagnostics/:id', async (req: Request, res: Response) => 
 // ----------------- YOUSOUND ARCADE CATALOG -----------------
 type ArcadeLaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGameConfig = {
-  id: 'openfront' | 'youcraft' | 'crossy-road';
+  id: 'openfront' | 'youcraft' | 'crossy-road' | 'infinite-craft';
   title: string;
   description: string;
   enabled: boolean;
@@ -3493,6 +3495,17 @@ const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
     playerMode: 'multiplayer',
     providerLabel: 'YouSound 3D Arcade',
   },
+  {
+    id: 'infinite-craft',
+    title: 'Infinite Craft',
+    description: 'Combine elements to discover real places, people, pop-culture icons, and surprising things. Create rooms and compete with friends.',
+    enabled: true,
+    featured: true,
+    launchUrl: '/games/infinite-craft.html',
+    launchMode: 'native',
+    playerMode: 'multiplayer',
+    providerLabel: 'YouSound Discovery Lab',
+  },
 ];
 
 async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
@@ -3505,8 +3518,8 @@ async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
       ...defaults,
       enabled: saved.enabled === true,
       featured: saved.featured === true,
-      launchUrl: (defaults.id === 'youcraft' || defaults.id === 'crossy-road') ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
-      launchMode: (defaults.id === 'youcraft' || defaults.id === 'crossy-road') ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
+      launchUrl: (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
+      launchMode: (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
     };
   });
 }
@@ -3551,7 +3564,7 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
       if (!item || typeof item.enabled !== 'boolean' || typeof item.featured !== 'boolean') {
         return res.status(400).json({ success: false, error: 'A game entry is missing a valid activation or featured setting.' });
       }
-      if (defaults.id === 'youcraft' || defaults.id === 'crossy-road') {
+      if (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') {
         normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'native' });
         continue;
       }
