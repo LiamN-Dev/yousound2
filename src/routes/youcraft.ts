@@ -220,6 +220,28 @@ router.post('/matches/:id/action', async (req, res) => {
   }
 });
 
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const account = await getAccount(req, res);
+    if (!account) return;
+    const profiles = await getPersistentSettingDb<Record<string, Profile>>(PROFILE_KEY) || {};
+    const leaderboard = Object.values(profiles).map((profile) => ({
+      username: profile.username,
+      discoveries: Array.isArray(profile.discoveries) ? profile.discoveries.length : 0,
+      combinations: Number(profile.combinations || 0),
+    })).sort((a, b) =>
+      b.discoveries - a.discoveries ||
+      b.combinations - a.combinations ||
+      a.username.localeCompare(b.username)
+    ).slice(0, 25).map((entry, index) => ({ rank: index + 1, ...entry }));
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, leaderboard });
+  } catch (error: any) {
+    console.error('[YouCraft] Leaderboard failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not load the YouCraft leaderboard.' });
+  }
+});
+
 router.get('/admin/overview', async (req, res) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   try {
