@@ -7,6 +7,9 @@ test('known Infinite Craft recipes create named discoveries rather than generate
   assert.equal(findInfiniteCraftRecipe('America', 'Tornado')?.result, 'Trump');
   assert.equal(findInfiniteCraftRecipe('Donald Trump', 'Duck')?.result, 'Donald Duck');
   assert.equal(findInfiniteCraftRecipe('Donald Trump', 'Florida')?.result, 'Mar-a-Lago');
+  assert.equal(findInfiniteCraftRecipe('Entrepreneur', 'Rocket')?.result, 'Elon Musk');
+  assert.equal(findInfiniteCraftRecipe('YouTube', 'Human')?.result, 'YouTuber');
+  assert.equal(findInfiniteCraftRecipe('Taylor Swift', 'Football Player')?.result, 'Travis Kelce');
 });
 
 test('Infinite Craft recipe lookup is order independent', () => {
