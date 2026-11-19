@@ -113,14 +113,20 @@ router.post('/combine', async (req, res) => {
     const recipe = canonicalYouCraftRecipe(first.name, second.name);
     const existingRecipes = await getPersistentSettingDb<Record<string, RecipeRecord>>(RECIPE_KEY) || {};
     const existing = existingRecipes[recipe.key];
-    let item = existing?.item;
-    if (!item) item = generateDiscovery(first, second, recipe.key);
+    // Always resolve against the current real recipe table first. This prevents old
+    // adjective/word-blend fallback items stored by earlier versions from resurfacing.
+    const generatedItem = generateDiscovery(first, second, recipe.key);
+    let item = existing?.item?.name === generatedItem.name ? existing.item : generatedItem;
 
-    // Only one generated result wins globally for a recipe, even if two users combine it simultaneously.
-    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => recipes[recipe.key] ? recipes : ({
-      ...recipes,
-      [recipe.key]: { key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB, item: item!, createdAt: new Date().toISOString() },
-    }));
+    // Only one canonical, meaningful result wins globally for a recipe.
+    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => {
+      const cached = recipes[recipe.key];
+      if (cached?.item?.name === item!.name) return recipes;
+      return {
+        ...recipes,
+        [recipe.key]: { key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB, item: item!, createdAt: new Date().toISOString() },
+      };
+    });
     item = canonicalRecipes[recipe.key].item;
 
     const savedProfile: { value: Profile | null } = { value: null };
