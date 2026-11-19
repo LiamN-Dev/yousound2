@@ -111,17 +111,34 @@ const LOCAL_CRAFT_RECIPES: Record<string, LocalRecipe> = {
   "stone + air": { name: "Sand", emoji: "🏜️", category: "Earth", description: "Wind wears stone down into sand.", abilityName: "Erosion", abilityDescription: "Slowly reshapes the battlefield." },
   "tree + water": { name: "Paper", emoji: "📄", category: "Material", description: "Wood fibers and water can become paper.", abilityName: "Blueprint", abilityDescription: "Turns an idea into a plan." },
   "wood + fire": { name: "Charcoal", emoji: "⬛", category: "Material", description: "Wood heated by fire becomes charcoal.", abilityName: "Ember", abilityDescription: "Keeps a useful spark alive." },
+  "air + air": { name: "Windstorm", emoji: "🌪️", category: "Weather", description: "Two air currents combine into a powerful windstorm.", abilityName: "Gale", abilityDescription: "A fast-moving burst of force." },
+  "earth + earth": { name: "Mountain", emoji: "⛰️", category: "Land", description: "Layers of earth rise into a mountain.", abilityName: "High Ground", abilityDescription: "The elevated ground gives extra protection." },
+  "fire + fire": { name: "Energy", emoji: "⚡", category: "Power", description: "Two flames release a stronger source of energy.", abilityName: "Overcharge", abilityDescription: "Stores a burst of raw power." },
+  "lake + water": { name: "Ocean", emoji: "🌊", category: "Water", description: "A lake joins the wider ocean.", abilityName: "Deep Current", abilityDescription: "Draws strength from deep water." },
+  "earth + plant": { name: "Grass", emoji: "🌿", category: "Nature", description: "Plants spread into a carpet of grass.", abilityName: "Groundcover", abilityDescription: "Turns open ground into a living field." },
+  "plant + plant": { name: "Tree", emoji: "🌳", category: "Nature", description: "A growing plant matures into a tree.", abilityName: "Canopy", abilityDescription: "Offers cover and protection." },
+  "tree + tree": { name: "Forest", emoji: "🌲", category: "Nature", description: "Trees growing together form a forest.", abilityName: "Woodland", abilityDescription: "A dense natural stronghold." },
+  "earth + life": { name: "Human", emoji: "🧑", category: "Life", description: "Life takes human form.", abilityName: "Adapt", abilityDescription: "Learns and adapts to new situations." },
+  "life + water": { name: "Fish", emoji: "🐟", category: "Life", description: "Aquatic life becomes a fish.", abilityName: "Current", abilityDescription: "Moves easily through water." },
+  "fish + fish": { name: "Shark", emoji: "🦈", category: "Animal", description: "A powerful ocean predator.", abilityName: "Predator", abilityDescription: "A focused attack." },
+  "fish + ocean": { name: "Whale", emoji: "🐋", category: "Animal", description: "A giant marine mammal.", abilityName: "Deep Dive", abilityDescription: "Uses the strength of the deep." },
+  "america + human": { name: "Uncle Sam", emoji: "🎩", category: "Person", description: "A famous personification of the United States.", abilityName: "Patriot", abilityDescription: "A symbol recognized around the world." },
+  "shark + uncle sam": { name: "Donald Trump", emoji: "👔", category: "Person", description: "A real-world public figure discovered through an unexpected combination.", abilityName: "Headline", abilityDescription: "A discovery that makes the news." },
+  "donald trump + internet": { name: "Truth Social", emoji: "📱", category: "Technology", description: "A social media platform associated with Donald Trump.", abilityName: "Broadcast", abilityDescription: "Sends a message to a wide audience." },
+  "donald trump + duck": { name: "Donald Duck", emoji: "🦆", category: "Character", description: "The famous Disney cartoon duck.", abilityName: "Quack", abilityDescription: "A loud and unmistakable call." },
+  "human + internet": { name: "YouTuber", emoji: "📹", category: "Creator", description: "A person who creates videos for YouTube.", abilityName: "Upload", abilityDescription: "Shares a creation with an audience." },
+  "beast + youtuber": { name: "MrBeast", emoji: "💵", category: "Creator", description: "The online creator known for large-scale challenges and philanthropy.", abilityName: "Big Challenge", abilityDescription: "Turns an idea into a huge event." },
+  "human + music": { name: "Musician", emoji: "🎸", category: "Artist", description: "A person who creates or performs music.", abilityName: "Encore", abilityDescription: "Brings a performance back to life." },
+  "country + musician": { name: "Taylor Swift", emoji: "🎤", category: "Person", description: "A globally known singer-songwriter.", abilityName: "Songwriting", abilityDescription: "Turns stories into songs." },
+  "argentina + football player": { name: "Lionel Messi", emoji: "⚽", category: "Person", description: "An Argentine football player.", abilityName: "Playmaker", abilityDescription: "Creates opportunities for the whole team." },
+  "human + video game": { name: "Gamer", emoji: "🎮", category: "Person", description: "A person who plays video games.", abilityName: "High Score", abilityDescription: "Improves through practice." },
+  "block + gamer": { name: "Minecraft", emoji: "⛏️", category: "Game", description: "A sandbox game built around blocks and creativity.", abilityName: "Build", abilityDescription: "Creates structures from simple materials." },
+  "human + movie": { name: "Actor", emoji: "🎬", category: "Person", description: "A performer who portrays characters on screen.", abilityName: "Transform", abilityDescription: "Becomes a character." },
+  "actor + comedy": { name: "Comedian", emoji: "🎭", category: "Person", description: "A performer who makes people laugh.", abilityName: "Punchline", abilityDescription: "Turns timing into impact." },
+  "america + lake": { name: "Great Lakes", emoji: "🌊", category: "Place", description: "The connected freshwater lakes of North America.", abilityName: "Freshwater", abilityDescription: "A vast reserve of fresh water." },
+  "continent + lake": { name: "America", emoji: "🇺🇸", category: "Place", description: "A country discovered through a chain of geography recipes.", abilityName: "Landmark", abilityDescription: "A place with a recognizable identity." },
 };
 
-function fallbackCraftName(first: string, second: string): string {
-  const words = [first.trim(), second.trim()].sort((a, b) => a.localeCompare(b));
-  if (words[0].toLowerCase() === words[1].toLowerCase()) return "Super " + words[0];
-  const left = words[0].replace(/[^a-z0-9]/gi, "");
-  const right = words[1].replace(/[^a-z0-9]/gi, "");
-  const blend = left.slice(0, Math.max(2, Math.ceil(left.length * 0.55))) + right.slice(Math.floor(right.length * 0.45));
-  const clean = blend.slice(0, 1).toUpperCase() + blend.slice(1).toLowerCase();
-  return clean.length >= 4 ? clean : words.join(" ");
-}
 
 export function createInstantYouCraftDiscovery(first: YouCraftItem, second: YouCraftItem, recipeKey: string): YouCraftItem {
   const key = [first.name, second.name].map((name) => name.trim().toLowerCase()).sort().join(" + ");
@@ -129,14 +146,10 @@ export function createInstantYouCraftDiscovery(first: YouCraftItem, second: YouC
   const hash = Number.parseInt(recipeKey.slice(0, 8), 16) || 0;
   const attack = 3 + (hash % 6);
   const defense = 12 - attack;
-  const recipe = known || {
-    name: fallbackCraftName(first.name, second.name),
-    emoji: "✨",
-    category: "Discovery",
-    description: first.name + " and " + second.name + " combine into a brand-new discovery.",
-    abilityName: "Fusion",
-    abilityDescription: "An unexpected combination with its own potential.",
-  };
+  if (!known) {
+    throw new Error("No real-world discovery is mapped for " + first.name + " + " + second.name + " yet. Try another combination.");
+  }
+  const recipe = known;
   return normalizeYouCraftItem({
     ...recipe,
     attack,
