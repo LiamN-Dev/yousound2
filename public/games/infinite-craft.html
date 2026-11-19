@@ -314,7 +314,7 @@
         state.roomCode = room.code;
         state.roomStatus = room.status;
         state.isHost = room.isHost === true;
-        state.mode = room.mode || state.mode;
+        if (room.status !== 'waiting') state.mode = room.mode || state.mode;
         if (room.raceTarget) state.raceTarget = room.raceTarget;
         state.players = (room.players || []).map((p, index) => ({
           id: p.id, name: p.username, username: p.username,
