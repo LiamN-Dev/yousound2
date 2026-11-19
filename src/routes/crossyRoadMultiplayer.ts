@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
+import { CROSSY_ROAD_ROOM_CODE_ALPHABET, isValidCrossyRoadRoomCode } from '../services/crossyRoadRoomCode.ts';
 import { getPersistentSettingDb, ensurePersistentSettingDb, compareAndSetPersistentSettingDb } from '../db/queries.ts';
 import { getUserByUid } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
@@ -11,12 +12,11 @@ const ROOM_KEY = 'crossy_road_race_rooms_v1';
 const LEADERBOARD_KEY = 'crossy_road_race_leaderboard_v1';
 const router = express.Router();
 
-const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function makeUniqueRoomCode(rooms: Record<string, Room>): string {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const bytes = randomBytes(6);
     let code = '';
-    for (let i = 0; i < 6; i += 1) code += ROOM_CODE_ALPHABET[bytes[i] % ROOM_CODE_ALPHABET.length];
+    for (let i = 0; i < 6; i += 1) code += CROSSY_ROAD_ROOM_CODE_ALPHABET[bytes[i] % CROSSY_ROAD_ROOM_CODE_ALPHABET.length];
     if (!Object.values(rooms).some((room) => room.code === code && room.status !== 'finished')) return code;
   }
   throw new Error('Could not create a unique room code. Please try again.');
@@ -93,7 +93,7 @@ router.post('/rooms/join', async (req, res) => {
   try {
     const player = await account(req, res); if (!player) return;
     const code = String(req.body?.code || '').trim().toUpperCase();
-    if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) return res.status(400).json({ success: false, error: 'Enter the six-character game code.' });
+    if (!isValidCrossyRoadRoomCode(code)) return res.status(400).json({ success: false, error: 'Enter the six-character game code.' });
     let joined: Room | null = null;
     await mutate<Room>(ROOM_KEY, rooms => {
       const room = Object.values(rooms).find(r => r.code === code && r.status === 'waiting');
