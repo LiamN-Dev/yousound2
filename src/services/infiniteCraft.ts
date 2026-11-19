@@ -50,7 +50,7 @@ const RAW_RECIPES: Array<[string, string, string, string]> = [
 
 export function normalizeCraftName(value: unknown): string {
   return typeof value === 'string'
-    ? value.normalize('NFKC').replace(/[<>\\u0000-\\u001f]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 60)
+    ? value.normalize('NFKC').replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60)
     : '';
 }
 
