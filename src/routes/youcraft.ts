@@ -135,8 +135,12 @@ router.post('/combine', async (req, res) => {
     }
     return res.json({ success: true, item, profile: updated, reusedRecipe: Boolean(existing) });
   } catch (error: any) {
+    const message = error?.message || 'The combination could not be created.';
+    if (/No real-world discovery/.test(String(message))) {
+      return res.status(422).json({ success: false, error: message });
+    }
     console.error('[YouCraft] Combine failed:', error);
-    return res.status(503).json({ success: false, error: error?.message || 'The combination could not be created.' });
+    return res.status(503).json({ success: false, error: message });
   }
 });
 
