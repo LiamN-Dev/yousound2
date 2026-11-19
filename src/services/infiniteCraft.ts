@@ -92,7 +92,14 @@ const RAW_RECIPES: Array<[string, string, string, string]> = [
 ['Time', 'Human', 'History', '📜'], ['History', 'Computer', 'Wikipedia', '📚'], ['Book', 'Internet', 'Wikipedia', '📚'],
 ['Human', 'Robot', 'AI', '🤖'], ['AI', 'Art', 'AI Art', '🖼️'], ['AI', 'Music', 'AI Music', '🎶'],
 ['Fire', 'Ice', 'Steam', '♨️'], ['Water', 'Earth', 'Life', '🧬'], ['Life', 'Ocean', 'Sea Monster', '🐙'],
-['Storm', 'Ocean', 'Hurricane', '🌀'], ['Cloud', 'Electricity', 'Lightning', '⚡'], ['Lightning', 'Tree', 'Fire', '🔥']
+['Storm', 'Ocean', 'Hurricane', '🌀'], ['Cloud', 'Electricity', 'Lightning', '⚡'], ['Lightning', 'Tree', 'Fire', '🔥'],
+['Metal', 'Sun', 'Gold', '🥇'], ['Gold', 'Paper', 'Money', '💵'], ['Money', 'Human', 'Entrepreneur', '💼'],
+['Airplane', 'Fire', 'Rocket', '🚀'], ['Spaceship', 'Fire', 'Rocket', '🚀'], ['Animal', 'Monster', 'Beast', '🐲'],
+['Video', 'Internet', 'YouTube', '▶️'], ['Camera', 'Computer', 'Video', '📹'], ['Human', 'Sound', 'Music', '🎵'],
+['Tree', 'Water', 'Paper', '📄'], ['Paper', 'Pencil', 'Writing', '✍️'], ['Metal', 'Gold', 'Coin', '🪙'],
+['Gold', 'Coin', 'Money', '💰'], ['Money', 'Paper', 'Banknote', '💵'], ['Rocket', 'Human', 'Astronaut', '👨‍🚀'],
+['Human', 'Animal', 'Farmer', '👩‍🌾'], ['Farmer', 'Wheat', 'Bread', '🍞'], ['Human', 'Ocean', 'Sailor', '⛵'],
+['Human', 'Computer', 'Programmer', '👨‍💻'], ['Programmer', 'Internet', 'Website', '🌐'], ['Website', 'Video', 'YouTube', '▶️']
 ];
 
 export function normalizeCraftName(value: unknown): string {
