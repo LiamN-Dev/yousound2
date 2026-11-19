@@ -34,7 +34,7 @@ const RAW_RECIPES: Array<[string, string, string, string]> = [
         ['Water', 'Milk', 'Cheese', '🧀'], ['Life', 'Grass', 'Cow', '🐄'], ['Cow', 'Human', 'Milk', '🥛'],
         ['Earth', 'Plant', 'Grass', '🌿'], ['Ocean', 'Fish', 'Whale', '🐋'], ['Stone', 'Time', 'Fossil', '🦴'],
         ['Fossil', 'Fire', 'Oil', '🛢️'], ['Oil', 'Metal', 'Car', '🚗'], ['Car', 'Car', 'Traffic', '🚦'],
-        ['City', 'Car', 'Highway', '🛣️'], ['Programmer', 'Pizza', 'Hackathon', '💻']
+        ['City', 'Car', 'Highway', '🛣️'], ['Programmer', 'Pizza', 'Hackathon', '💻'],
 ['Lake', 'Tornado', 'Island', '🏝️'], ['Island', 'Island', 'Continent', '🌎'], ['Continent', 'Lake', 'America', '🇺🇸'],
 ['Water', 'Smoke', 'Fog', '🌫️'], ['Earth', 'Dust', 'Planet', '🪐'], ['Planet', 'Fog', 'Venus', '♀️'], ['Venus', 'Mud', 'Adam', '🧑'], ['Earth', 'Adam', 'Man', '👨'],
 ['America', 'Sun', 'USA', '🇺🇸'], ['USA', 'Man', 'Uncle Sam', '🎩'], ['Lake', 'Water', 'Ocean', '🌊'], ['Ocean', 'Water', 'Fish', '🐟'], ['Fish', 'Fish', 'Shark', '🦈'],
