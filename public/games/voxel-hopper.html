@@ -911,7 +911,7 @@
         startRound(true, initialRow, preserveCoins);
       }
 
-      window.addEventListener('message', (event) => {
+      window.addEventListener('message', async (event) => {
         if (!multiplayerMode || event.source !== window.parent || event.origin !== window.location.origin) return;
         const message = event.data;
         if (!message || typeof message !== 'object') return;
@@ -920,6 +920,7 @@
           racePlayerName = String(message.username || 'Player').slice(0, 24);
           raceCheckpointRow = 0;
           raceRunFinished = false;
+          await loadAccountStats();
           void startAccountRun();
           startYouSoundRace(0, false);
         }
@@ -1417,7 +1418,7 @@
         if (isNewBest) {
           bestScore = score;
           bestEl.textContent = bestScore;
-          try { localStorage.setItem('voxel_hopper_best', String(bestScore)); } catch (e) {}
+          if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_best', String(bestScore)); } catch (e) {} }
         }
         if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_coins', String(totalCoins)); } catch (e) {} }
 
@@ -1474,7 +1475,7 @@
         if (gameState !== 'playing') return;
 
         const k = e.key.toLowerCase();
-        const myRacer = racers.find((r) => r.cfg.id === myPeerId) || racers[0];
+        const myRacer = racers.find((r) => r.cfg.id === localPlayerId) || racers[0];
         if (myRacer) {
           if (k === 'w' || e.key === 'ArrowUp') queueMoveFor(myRacer, 0, 1);
           else if (k === 's' || e.key === 'ArrowDown') queueMoveFor(myRacer, 0, -1);
@@ -1652,7 +1653,7 @@
                   const prevTotal = totalCoins;
                   totalCoins++;
                   coinEl.textContent = totalCoins;
-                  try { localStorage.setItem('voxel_hopper_coins', String(totalCoins)); } catch (e) {}
+                  if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_coins', String(totalCoins)); } catch (e) {} }
                   if (!r.cfg.isBot) SoundFX.playCoin();
                   checkNewUnlocks(prevTotal, totalCoins);
                   break;
