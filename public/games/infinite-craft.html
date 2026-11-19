@@ -287,6 +287,12 @@
         { name: 'Earth', emoji: '🌍' }
       ];
 
+      const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      document.getElementById('join-code-input').addEventListener('input', (event) => {
+        const input = event.target;
+        input.value = input.value.toUpperCase().split('').filter((character) => ROOM_CODE_ALPHABET.includes(character)).join('').slice(0, 6);
+      });
+
       async function craftApi(path, options = {}) {
         const response = await fetch('/api/games/infinite-craft' + path, {
           credentials: 'same-origin',
