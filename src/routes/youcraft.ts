@@ -28,6 +28,17 @@ const MATCH_KEY = 'youcraft_matches_v1';
 const router = express.Router();
 const combineAttempts = new Map<string, number[]>();
 
+router.use(async (_req, res, next) => {
+  try {
+    const catalog = await getPersistentSettingDb<any[]>('arcade_game_catalog_v1');
+    const configured = Array.isArray(catalog) ? catalog.find((item) => item?.id === 'youcraft') : null;
+    if (configured && configured.enabled !== true) return res.status(403).json({ success: false, error: 'YouCraft is currently unavailable in the Arcade.' });
+    next();
+  } catch {
+    return res.status(503).json({ success: false, error: 'Arcade availability could not be checked.' });
+  }
+});
+
 async function getAccount(req: Request, res: Response) {
   const auth = getAuthUser(req);
   if (!auth) { res.status(401).json({ success: false, error: 'Sign in to play YouCraft.' }); return null; }
