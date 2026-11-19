@@ -129,6 +129,8 @@ import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile
 import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy.ts';
 import youCraftRouter from './src/routes/youcraft.ts';
 import crossyRoadRouter from './src/routes/crossyRoad.ts';
+import crossyRoadMultiplayerRouter from './src/routes/crossyRoadMultiplayer.ts';
+import infiniteCraftRouter from './src/routes/infiniteCraft.ts';
 import {
   generateSupabaseMigrationSql,
   testSupabaseDbConnection,
@@ -284,6 +286,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
 app.use('/api/youcraft', youCraftRouter);
+app.use('/api/games/infinite-craft', infiniteCraftRouter);
+app.use('/api/games/crossy-road', crossyRoadMultiplayerRouter);
 app.use('/api/games/crossy-road', crossyRoadRouter);
 
 // ----------------- YOUTUBE MODE -----------------
@@ -3436,7 +3440,7 @@ app.get('/api/admin/ai/diagnostics/:id', async (req: Request, res: Response) => 
 // ----------------- YOUSOUND ARCADE CATALOG -----------------
 type ArcadeLaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGameConfig = {
-  id: 'openfront' | 'youcraft';
+  id: 'openfront' | 'youcraft' | 'crossy-road' | 'infinite-craft';
   title: string;
   description: string;
   enabled: boolean;
@@ -3462,8 +3466,8 @@ const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
     id: 'openfront',
     title: 'OpenFront',
     description: 'The original real-time multiplayer world-conquest strategy game.',
-    enabled: false,
-    featured: false,
+    enabled: true,
+    featured: true,
     launchUrl: 'https://openfront.io/',
     launchMode: 'new-tab',
     playerMode: 'multiplayer',
@@ -3480,6 +3484,28 @@ const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
     playerMode: 'multiplayer',
     providerLabel: 'Original YouSound game',
   },
+  {
+    id: 'crossy-road',
+    title: 'Crossy Road',
+    description: 'Race friends through five checkpoints. Share a game code, survive three lives at each checkpoint, and reach the finish first.',
+    enabled: true,
+    featured: true,
+    launchUrl: '/games/voxel-hopper.html',
+    launchMode: 'native',
+    playerMode: 'multiplayer',
+    providerLabel: 'YouSound 3D Arcade',
+  },
+  {
+    id: 'infinite-craft',
+    title: 'Infinite Craft',
+    description: 'Combine elements to discover real places, people, pop-culture icons, and surprising things. Create rooms and compete with friends.',
+    enabled: true,
+    featured: true,
+    launchUrl: '/games/infinite-craft.html',
+    launchMode: 'native',
+    playerMode: 'multiplayer',
+    providerLabel: 'YouSound Discovery Lab',
+  },
 ];
 
 async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
@@ -3492,8 +3518,8 @@ async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
       ...defaults,
       enabled: saved.enabled === true,
       featured: saved.featured === true,
-      launchUrl: defaults.id === 'youcraft' ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
-      launchMode: defaults.id === 'youcraft' ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
+      launchUrl: (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
+      launchMode: (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
     };
   });
 }
@@ -3538,7 +3564,7 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
       if (!item || typeof item.enabled !== 'boolean' || typeof item.featured !== 'boolean') {
         return res.status(400).json({ success: false, error: 'A game entry is missing a valid activation or featured setting.' });
       }
-      if (defaults.id === 'youcraft') {
+      if (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') {
         normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'native' });
         continue;
       }
@@ -3604,6 +3630,34 @@ app.post('/api/games/launch', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[Arcade] Launch activity could not be recorded:', error);
     return res.status(500).json({ success: false, error: 'The game launch could not be recorded.' });
+  }
+});
+
+app.get('/api/games/openfront/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const account = await getArcadeAccount(req, res);
+    if (!account) return;
+    const game = (await getArcadeCatalog()).find((item) => item.id === 'openfront' && item.enabled);
+    if (!game) return res.status(403).json({ success: false, error: 'OpenFront is currently unavailable in the Arcade.' });
+    const stored = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
+    const totals = new Map<string, { username: string; plays: number; lastPlayedAt: string }>();
+    for (const event of Array.isArray(stored) ? stored : []) {
+      if (event.gameId !== 'openfront') continue;
+      const current = totals.get(event.userId) || { username: event.username, plays: 0, lastPlayedAt: event.launchedAt };
+      current.username = event.username;
+      current.plays += 1;
+      if (event.launchedAt > current.lastPlayedAt) current.lastPlayedAt = event.launchedAt;
+      totals.set(event.userId, current);
+    }
+    const leaderboard = [...totals.values()]
+      .sort((a, b) => b.plays - a.plays || b.lastPlayedAt.localeCompare(a.lastPlayedAt) || a.username.localeCompare(b.username))
+      .slice(0, 25)
+      .map((entry, index) => ({ rank: index + 1, ...entry }));
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, leaderboard, metric: 'launches', window: 'latest 200 Arcade launch events' });
+  } catch (error: any) {
+    console.error('[Arcade] OpenFront leaderboard failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'The OpenFront activity leaderboard could not be loaded.' });
   }
 });
 

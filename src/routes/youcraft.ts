@@ -28,6 +28,17 @@ const MATCH_KEY = 'youcraft_matches_v1';
 const router = express.Router();
 const combineAttempts = new Map<string, number[]>();
 
+router.use(async (_req, res, next) => {
+  try {
+    const catalog = await getPersistentSettingDb<any[]>('arcade_game_catalog_v1');
+    const configured = Array.isArray(catalog) ? catalog.find((item) => item?.id === 'youcraft') : null;
+    if (configured && configured.enabled !== true) return res.status(403).json({ success: false, error: 'YouCraft is currently unavailable in the Arcade.' });
+    next();
+  } catch {
+    return res.status(503).json({ success: false, error: 'Arcade availability could not be checked.' });
+  }
+});
+
 async function getAccount(req: Request, res: Response) {
   const auth = getAuthUser(req);
   if (!auth) { res.status(401).json({ success: false, error: 'Sign in to play YouCraft.' }); return null; }
@@ -102,14 +113,20 @@ router.post('/combine', async (req, res) => {
     const recipe = canonicalYouCraftRecipe(first.name, second.name);
     const existingRecipes = await getPersistentSettingDb<Record<string, RecipeRecord>>(RECIPE_KEY) || {};
     const existing = existingRecipes[recipe.key];
-    let item = existing?.item;
-    if (!item) item = generateDiscovery(first, second, recipe.key);
+    // Always resolve against the current real recipe table first. This prevents old
+    // adjective/word-blend fallback items stored by earlier versions from resurfacing.
+    const generatedItem = generateDiscovery(first, second, recipe.key);
+    let item = existing?.item?.name === generatedItem.name ? existing.item : generatedItem;
 
-    // Only one generated result wins globally for a recipe, even if two users combine it simultaneously.
-    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => recipes[recipe.key] ? recipes : ({
-      ...recipes,
-      [recipe.key]: { key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB, item: item!, createdAt: new Date().toISOString() },
-    }));
+    // Only one canonical, meaningful result wins globally for a recipe.
+    const canonicalRecipes = await mutateMap<RecipeRecord>(RECIPE_KEY, (recipes) => {
+      const cached = recipes[recipe.key];
+      if (cached?.item?.name === item!.name) return recipes;
+      return {
+        ...recipes,
+        [recipe.key]: { key: recipe.key, inputA: recipe.inputA, inputB: recipe.inputB, item: item!, createdAt: new Date().toISOString() },
+      };
+    });
     item = canonicalRecipes[recipe.key].item;
 
     const savedProfile: { value: Profile | null } = { value: null };
@@ -135,8 +152,12 @@ router.post('/combine', async (req, res) => {
     }
     return res.json({ success: true, item, profile: updated, reusedRecipe: Boolean(existing) });
   } catch (error: any) {
+    const message = error?.message || 'The combination could not be created.';
+    if (/No real-world discovery/.test(String(message))) {
+      return res.status(422).json({ success: false, error: message });
+    }
     console.error('[YouCraft] Combine failed:', error);
-    return res.status(503).json({ success: false, error: error?.message || 'The combination could not be created.' });
+    return res.status(503).json({ success: false, error: message });
   }
 });
 
@@ -213,6 +234,28 @@ router.post('/matches/:id/action', async (req, res) => {
     return res.json({ success: true, match: { id: updated.id, code: updated.code, status: updated.status, state: updated.state } });
   } catch (error: any) {
     return res.status(400).json({ success: false, error: error?.message || 'That move could not be played.' });
+  }
+});
+
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const account = await getAccount(req, res);
+    if (!account) return;
+    const profiles = await getPersistentSettingDb<Record<string, Profile>>(PROFILE_KEY) || {};
+    const leaderboard = Object.values(profiles).map((profile) => ({
+      username: profile.username,
+      discoveries: Array.isArray(profile.discoveries) ? profile.discoveries.length : 0,
+      combinations: Number(profile.combinations || 0),
+    })).sort((a, b) =>
+      b.discoveries - a.discoveries ||
+      b.combinations - a.combinations ||
+      a.username.localeCompare(b.username)
+    ).slice(0, 25).map((entry, index) => ({ rank: index + 1, ...entry }));
+    res.setHeader('Cache-Control', 'no-store, private');
+    return res.json({ success: true, leaderboard });
+  } catch (error: any) {
+    console.error('[YouCraft] Leaderboard failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not load the YouCraft leaderboard.' });
   }
 });
 

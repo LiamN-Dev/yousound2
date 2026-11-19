@@ -302,7 +302,7 @@ export const YouCraftGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             <div className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
               <div className="text-sm font-black text-white">Join a friend</div>
               <p className="mt-1 text-xs text-slate-400">Enter the code they shared with you.</p>
-              <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().slice(0,6))} placeholder="6-CHAR CODE" className="mt-3 w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-3 text-center font-mono text-lg font-black tracking-[.3em] text-white outline-none focus:border-cyan-200/50"/>
+              <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-F0-9]/g, '').slice(0,6))} placeholder="6-CHAR CODE" className="mt-3 w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-3 text-center font-mono text-lg font-black tracking-[.3em] text-white outline-none focus:border-cyan-200/50"/>
               <button disabled={busy || joinCode.length !== 6} onClick={() => void joinMatch()} className="mt-3 w-full rounded-xl border border-cyan-200/20 bg-cyan-200/10 px-4 py-3 text-xs font-black text-cyan-100 disabled:opacity-40"><Users className="mr-2 inline h-4 w-4"/> Join match</button>
             </div>
             <div className="rounded-2xl border border-white/10 p-4">
