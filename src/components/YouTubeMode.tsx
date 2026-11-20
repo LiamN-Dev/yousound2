@@ -99,6 +99,43 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
     return()=>{active=false;};
   },[requestProfile,loadFeed]);
 
+  // Receive moderation changes while this page is open. EventSource keeps the
+  // existing signed-in session and updates the current UI without a reload.
+  useEffect(() => {
+    const stream = new EventSource('/api/youtube-mode/events');
+    const handleModeration = (rawEvent: Event) => {
+      const event = rawEvent as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(event.data || '{}') as { blockedVideoIds?: string[] };
+        const blockedIds = new Set(Array.isArray(payload.blockedVideoIds) ? payload.blockedVideoIds : []);
+        if (!blockedIds.size) return;
+        let removedCount = 0;
+        setVideos(current => {
+          const next = current.filter(video => {
+            const blocked = blockedIds.has(video.videoId);
+            if (blocked) removedCount++;
+            return !blocked;
+          });
+          return next;
+        });
+        setSelected(current => current && blockedIds.has(current.videoId) ? null : current);
+        if (removedCount > 0) {
+          setNotice('A video was blocked by YouSound Safety and removed from your feed.');
+        }
+      } catch {
+        // Ignore malformed events; the server will send the next state change.
+      }
+    };
+    stream.addEventListener('moderation', handleModeration);
+    stream.onerror = () => {
+      // EventSource automatically reconnects. Do not disturb the user's session.
+    };
+    return () => {
+      stream.removeEventListener('moderation', handleModeration);
+      stream.close();
+    };
+  }, []);
+
   const switchSection = (next:Section) => {
     setSection(next);
     if(next === 'search') {
