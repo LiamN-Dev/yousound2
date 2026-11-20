@@ -404,7 +404,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                 </label>
                 {game.id === 'crossy-road' ? (
                   <div className="mt-4 rounded-xl border border-emerald-200/15 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-100">
-                    Native 3D Crossy Road. Multiplayer races use six-character room codes, five checkpoints, and three lives per checkpoint.
+                    Native 3D Crossy Road with solo high scores and live multiplayer races, six-character room codes, five checkpoints, and three lives per checkpoint.
                   </div>
                 ) : game.id === 'infinite-craft' ? (
                   <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
@@ -482,83 +482,6 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
               ))}
             </div>
           </div>
-iv>
-        </section>
-      )}
-    </div>
-  );
-};
-
-      {tab === 'control' && isAdmin && (
-        <section className="space-y-5 rounded-3xl border border-cyan-200/20 bg-slate-950/80 p-5 shadow-xl sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-black text-white">Game Control Room</h2>
-              <p className="mt-1 text-xs leading-5 text-slate-400">Publish or unpublish each game. Unpublished games are hidden from members and rejected by the game-launch API.</p>
-            </div>
-            <button type="button" onClick={() => void loadCatalog()} disabled={loading || saving} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-white/5 disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
-          </div>
-          <div className="space-y-4">
-            {games.map((game) => (
-              <div key={game.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-black text-white">{game.title}</h3>
-                      <span className="rounded-md border border-white/10 px-2 py-1 text-[9px] font-bold uppercase text-slate-400">{game.playerMode}</span>
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-slate-400">{game.description}</p>
-                  </div>
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white">
-                    <input type="checkbox" checked={game.enabled} onChange={(event) => updateGame(game.id, { enabled: event.target.checked, featured: event.target.checked && game.featured })} className="h-4 w-4 accent-cyan-300" />
-                    {game.enabled ? 'Activated' : 'Inactive'}
-                  </label>
-                </div>
-                <label className="mt-4 flex items-center gap-2 text-xs font-semibold text-slate-300">
-                  <input type="checkbox" checked={game.featured} disabled={!game.enabled} onChange={(event) => updateGame(game.id, { featured: event.target.checked })} className="h-4 w-4 accent-cyan-300" />
-                  Feature this game in the Arcade
-                  <Star className="h-3.5 w-3.5 text-amber-300" />
-                </label>
-                {game.id === 'crossy-road' ? (
-                  <div className="mt-4 rounded-xl border border-emerald-200/15 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-100">
-                    Native 3D Crossy Road with account-backed solo high scores and live multiplayer races. The room host can end a race.
-                  </div>
-                ) : game.id === 'infinite-craft' ? (
-                  <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
-                    AI evaluates ingredient pairs and either returns a validated noun with an emoji or rejects the pair. Accepted discoveries and one-point combinations are saved to accounts.
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-xl border border-sky-200/15 bg-sky-300/5 p-3 text-xs leading-5 text-sky-100">
-                    OrbitalVision 3D is served directly from YouSound. It includes the uploaded live 3D Earth, satellite catalogs, orbit propagation, observer controls and telemetry interface.
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-            <p className="text-[11px] text-slate-500">Only activated games can be launched, including by administrators.</p>
-            <button type="button" onClick={() => void saveCatalog()} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-5 py-3 text-xs font-black text-slate-950 hover:bg-cyan-200 disabled:opacity-50">
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save game settings
-            </button>
-          </div>
-          <div className="border-t border-white/10 pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-black text-white">Recent community launches</h3>
-                <p className="mt-1 text-[11px] text-slate-500">Latest 50 launch events recorded by YouSound. These are launch records, not proof that the external game finished loading or that a player remains online.</p>
-              </div>
-              <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{recentLaunches.length} RECENT</span>
-            </div>
-            <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
-                <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
-                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{games.find((game) => game.id === event.gameId)?.title || event.gameId}</strong></div>
-                  <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
-                </div>
-              ))}
-            </div>
-          </div>
-iv>
         </section>
       )}
     </div>
