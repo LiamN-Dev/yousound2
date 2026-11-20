@@ -65,6 +65,8 @@ interface AuthContextType {
           colorAccent?: string;
           dailyListenLimit?: number | null;
           isLocked?: boolean;
+          accountLockReason?: string;
+          periodicTableOnly?: boolean;
           christmasMode?: boolean;
           gamesEnabled?: boolean;
           aiBetaEnabled?: boolean;
@@ -302,6 +304,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           colorAccent?: string;
           dailyListenLimit?: number | null;
           isLocked?: boolean;
+          accountLockReason?: string;
+          periodicTableOnly?: boolean;
           christmasMode?: boolean;
           gamesEnabled?: boolean;
           aiBetaEnabled?: boolean;
@@ -323,6 +327,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       colorAccent?: string;
       dailyListenLimit?: number | null;
       isLocked?: boolean;
+      accountLockReason?: string;
+      periodicTableOnly?: boolean;
       christmasMode?: boolean;
       gamesEnabled?: boolean;
       aiBetaEnabled?: boolean;
@@ -343,6 +349,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         colorAccent: paramsOrUsername.colorAccent,
         dailyListenLimit: paramsOrUsername.dailyListenLimit,
         isLocked: paramsOrUsername.isLocked,
+        accountLockReason: paramsOrUsername.accountLockReason,
+        periodicTableOnly: paramsOrUsername.periodicTableOnly,
         christmasMode: paramsOrUsername.christmasMode,
         gamesEnabled: paramsOrUsername.gamesEnabled,
         aiBetaEnabled: paramsOrUsername.aiBetaEnabled,
