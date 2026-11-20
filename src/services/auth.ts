@@ -175,6 +175,9 @@ const RULES: Rule[] = [
   // Any signed-in account (even pending / suspended)
   ['*', /^\/api\/auth\/(me|change-password)/, 'login'],
   ['POST', /^\/api\/chat\/appeal$/, 'login'],
+  // Suspended members may use only their own appeal thread; handlers verify participant and thread type.
+  ['GET', /^\/api\/chat\/messages\/[^/]+$/, 'login'],
+  ['POST', /^\/api\/chat\/messages$/, 'login'],
 
   // Regular members
   ['POST', /^\/api\/songs\/[^/]+\/play$/, 'member'],
@@ -228,7 +231,8 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
   // Keep only account status, appeal, login feedback, and logout available.
   const safeSuspendedRoute =
     (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
-    (req.method === 'POST' && ['/api/chat/appeal', '/api/auth/logout', '/api/auth/login'].includes(url));
+    (req.method === 'POST' && ['/api/chat/appeal', '/api/chat/messages', '/api/auth/logout', '/api/auth/login'].includes(url)) ||
+    (req.method === 'GET' && /^\/api\/chat\/messages\/[^/]+$/.test(url));
   if (user.role !== 'admin' && user.isSuspended && !safeSuspendedRoute) {
     return res.status(403).json({
       success: false,
@@ -242,7 +246,7 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
   const safePeriodicTableRoute =
     (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
     (req.method === 'POST' && ['/api/auth/logout', '/api/auth/login'].includes(url));
-  if (user.role !== 'admin' && user.periodicTableOnly && !safePeriodicTableRoute) {
+  if (user.role !== 'admin' && user.periodicTableOnly && !safePeriodicTableRoute && !(user.isSuspended && safeSuspendedRoute)) {
     return res.status(403).json({
       success: false,
       error: 'This account is restricted to the Periodic Table.',

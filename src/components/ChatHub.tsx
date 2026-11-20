@@ -222,7 +222,7 @@ export const ChatHub: React.FC = () => {
       return;
     }
 
-    if (currentUser.chatBlocked) {
+    if (currentUser.chatBlocked && !currentThread.isAppealThread) {
       setSendError('Your chat privileges have been disabled by Administrator');
       return;
     }
@@ -1656,7 +1656,7 @@ export const ChatHub: React.FC = () => {
                         onChange={(e) => setMessageInput(e.target.value)}
                         disabled={
                           activeThread.isTerminated ||
-                          currentUser?.chatBlocked ||
+                          (currentUser?.chatBlocked && !activeThread.isAppealThread) ||
                           isSending ||
                           Boolean(
                             activeThread.isAppealThread &&
@@ -1683,7 +1683,7 @@ export const ChatHub: React.FC = () => {
                         disabled={
                           !messageInput.trim() ||
                           activeThread.isTerminated ||
-                          currentUser?.chatBlocked ||
+                          (currentUser?.chatBlocked && !activeThread.isAppealThread) ||
                           isSending
                         }
                         className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-all active:scale-95 shadow-md shadow-blue-600/20 shrink-0"
