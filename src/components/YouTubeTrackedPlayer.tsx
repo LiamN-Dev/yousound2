@@ -102,7 +102,11 @@ export const YouTubeTrackedPlayer: React.FC<{
     setAccessError('');
     fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), {
       credentials: 'same-origin', cache: 'no-store',
-    }).then(response => response.json()).then(data => {
+    }).then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not verify video access.');
+      return data;
+    }).then(data => {
       if (active) setBlocked(data?.blocked === true);
     }).catch(() => {
       if (active) setAccessError('YouSound could not verify whether this video is allowed. Reopen the video to try again.');
@@ -116,9 +120,13 @@ export const YouTubeTrackedPlayer: React.FC<{
     if (accessChecking || blocked || accessError) return;
     const timer = window.setInterval(() => {
       fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), { credentials: 'same-origin', cache: 'no-store' })
-        .then(response => response.json())
+        .then(async response => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) throw new Error(data.error || 'Could not verify video access.');
+          return data;
+        })
         .then(data => { if (data?.blocked === true) setBlocked(true); })
-        .catch(() => { /* Keep the current player alive during a transient check failure. */ });
+        .catch(() => setAccessError('YouSound could not verify whether this video is still allowed. Playback has been stopped.'));
     }, 15000);
     return () => window.clearInterval(timer);
   }, [video.videoId, accessChecking, blocked, accessError]);
@@ -212,7 +220,7 @@ export const YouTubeTrackedPlayer: React.FC<{
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [video.videoId, accessChecking, blocked]);
+  }, [video.videoId, accessChecking, blocked, accessError]);
 
   const playerUrl = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(video.videoId) +
     '?autoplay=1&controls=1&rel=0&playsinline=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin);
