@@ -100,6 +100,7 @@ export const YouTubeTrackedPlayer: React.FC<{
     let active = true;
     setAccessChecking(true);
     setBlocked(false);
+    setBlockMessage('');
     setAccessError('');
     fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), {
       credentials: 'same-origin', cache: 'no-store',
