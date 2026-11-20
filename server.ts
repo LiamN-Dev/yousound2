@@ -2629,7 +2629,8 @@ app.post('/api/admin/users/:uid/account-lock', async (req: Request, res: Respons
 app.post('/api/admin/users/periodic-table-only/bulk', async (req: Request, res: Response) => {
   try {
     if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
-    const uids = Array.isArray(req.body?.uids) ? [...new Set(req.body.uids.filter((uid: unknown): uid is string => typeof uid === 'string' && uid.trim().length > 0).map((uid: string) => uid.trim()))].slice(0, 500) : [];
+    const rawUids: unknown[] = Array.isArray(req.body?.uids) ? req.body.uids as unknown[] : [];
+    const uids: string[] = [...new Set<string>(rawUids.filter((uid): uid is string => typeof uid === 'string' && uid.trim().length > 0).map(uid => uid.trim()))].slice(0, 500);
     const enabled = req.body?.enabled;
     if (!uids.length || typeof enabled !== 'boolean') return res.status(400).json({ success: false, error: 'Select at least one member and provide an enabled value.' });
     let updatedCount = 0;
