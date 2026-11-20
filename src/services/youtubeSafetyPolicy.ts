@@ -17,7 +17,7 @@ export function getWeeklyViolationNumber(records: WeeklyViolationLike[], uid: st
 export function hasExplicitUnsafeYouTubeMetadataSignal(video: { title: string; channelTitle: string; description: string; tags: string[] }): boolean {
   const text = [video.title, video.channelTitle, video.description, ...video.tags].join(' ').toLowerCase();
   // Educational, documentary, historical, and safety discussions need contextual AI review rather than a keyword-only block.
-  if (/\\b(?:explained|education(?:al)?|health class|documentary|awareness|history|news report|prevention|safety lesson|classroom|school lesson|academic)\\b/i.test(text)) return false;
+  if (/\b(?:explained|education(?:al)?|health class|documentary|awareness|history|news report|prevention|safety lesson|classroom|school lesson|academic)\b/i.test(text)) return false;
   return [
     /\b(?:porn(?:ography)?|hentai|xxx|sex tape|nude(?:s|ity)?|explicit sexual|uncensored sex|adult video)\b/i,
     /\b(?:graphic gore|real gore|beheading|decapitation|torture footage|graphic dismemberment)\b/i,
