@@ -1111,6 +1111,8 @@ class StorageService {
       colorAccent?: string;
       dailyListenLimit?: number | null;
       isLocked?: boolean;
+      accountLockReason?: string;
+      periodicTableOnly?: boolean;
       christmasMode?: boolean;
       gamesEnabled?: boolean;
       aiBetaEnabled?: boolean;
