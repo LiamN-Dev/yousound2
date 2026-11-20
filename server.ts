@@ -2184,7 +2184,7 @@ app.post('/api/auth/unlock', async (req: Request, res: Response) => {
  const user=getAuthUser(req);if(!user)return res.status(401).json({success:false,error:'Please log in again.'});
  if(user.role==='admin'||!user.isLocked)return res.json({success:true,unlocked:true});
  if(!verifyAccountUnlockCode(user.uid,req.body?.code))return res.status(401).json({success:false,error:'Incorrect or expired seven-digit code.'});
- await updateUserDb(user.uid,{isLocked:false});return res.json({success:true,unlocked:true});
+ await updateUserDb(user.uid,{isLocked:false,accountLockReason:''});return res.json({success:true,unlocked:true});
 });
 
 app.get('/api/auth/me', async (req: Request, res: Response) => {
@@ -2202,6 +2202,8 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
       temporaryPasswordAssigned: user.temporaryPasswordAssigned,
       isSuspended: user.isSuspended || false,
       isLocked: user.isLocked || false,
+      accountLockReason: user.accountLockReason || null,
+      periodicTableOnly: !!user.periodicTableOnly,
       suspendedReason: user.suspendedReason || null,
       lastLoginAt: toIsoString(user.lastLoginAt),
       lastSongListened: user.lastSongListened,
