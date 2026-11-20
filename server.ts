@@ -291,7 +291,7 @@ app.use('/api/games', async (req: Request, res: Response, next) => {
     if (maintenance?.enabled === true) {
       return res.status(503).json({ success: false, maintenance: true, error: maintenance.message || 'The YouSound Arcade is temporarily under maintenance.' });
     }
-    const multiplayerPath = req.path.startsWith('/crossy-road/rooms') || req.path.startsWith('/infinite-craft/rooms');
+    const multiplayerPath = req.path.startsWith('/crossy-road/rooms') || req.path.startsWith('/infinite-craft/rooms') || (req.path === '/infinite-craft/discoveries' && typeof req.body?.roomId === 'string' && req.body.roomId.length > 0);
     if (multiplayerPath) {
       const stopped = await getPersistentSettingDb<{ enabled?: boolean }>('arcade_multiplayer_stop_all_v1');
       if (stopped?.enabled === true) return res.status(503).json({ success: false, multiplayerStopped: true, error: 'The administrator has stopped all Arcade multiplayer games.' });
@@ -8898,7 +8898,23 @@ async function startServer() {
     }
 
     // Serve the built frontend (hashed JS/CSS live in dist/assets)
-    app.use(express.static(distPath, { index: false }));
+    app.use('/games', async (req: Request, res: Response, next) => {
+  try {
+    const maintenance = await getPersistentSettingDb<{ enabled?: boolean; message?: string }>('arcade_maintenance_v1');
+    if (maintenance?.enabled === true && !isAdminReq(req)) {
+      const gameAsset = ['/infinite-craft.html', '/voxel-hopper.html', '/orbitalvision.html'].includes(req.path);
+      if (gameAsset) {
+        return res.status(503).type('text/plain').send(maintenance.message || 'The YouSound Arcade is temporarily under maintenance.');
+      }
+    }
+    return next();
+  } catch (error: any) {
+    console.error('[Arcade] Static maintenance check failed:', error?.message || error);
+    return res.status(503).type('text/plain').send('The Arcade availability could not be checked.');
+  }
+});
+
+app.use(express.static(distPath, { index: false }));
 
     // Unknown API routes should 404 as JSON, not return the HTML shell
     app.use('/api', (_req, res) => {
