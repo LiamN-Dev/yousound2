@@ -502,7 +502,13 @@ app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
       console.warn('[YouSound AI] YouTube code delivery failed:', error?.message || error);
       return false;
     })));
-    return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length, selectedRecipients: recipients.length, notifiedAdmins: adminUids.length });
+    const deliveryByUid = new Map(allRecipients.map((uid, index) => [uid, deliveries[index]]));
+    return res.json({
+      success: true,
+      notifiedRecipients: recipients.filter(uid => deliveryByUid.get(uid)).length,
+      selectedRecipients: recipients.length,
+      notifiedAdmins: adminUids.filter(uid => deliveryByUid.get(uid)).length,
+    });
   } catch (error: any) {
     console.error('[YouTube Mode] Could not save activation code:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not save YouTube activation code.' });
@@ -524,7 +530,12 @@ app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) =
       '[YOUTUBE ACCESS CODE]\n\nThe YouSound YouTube Mode access code has been removed. The previous code no longer works.',
       { replacePreviousCode: true }
     ).catch(() => false)));
-    return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length, notifiedAdmins: adminUids.length });
+    const deliveryByUid = new Map(allRecipients.map((uid, index) => [uid, deliveries[index]]));
+    return res.json({
+      success: true,
+      notifiedRecipients: recipients.filter(uid => deliveryByUid.get(uid)).length,
+      notifiedAdmins: adminUids.filter(uid => deliveryByUid.get(uid)).length,
+    });
   } catch (error: any) {
     console.error('[YouTube Mode] Could not remove activation code:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not remove YouTube activation code.' });
@@ -1021,7 +1032,7 @@ app.post('/api/youtube-mode/watch-event', async (req: Request, res: Response) =>
     if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
       return res.status(400).json({ success: false, error: 'Invalid YouTube video ID.' });
     }
-    if (await isYouTubeVideoBlocked(videoId)) {
+    if ((event === 'open' || event === 'play') && await isYouTubeVideoBlocked(videoId)) {
       return res.status(403).json({ success: false, blocked: true, error: 'This video has been blocked by a YouSound administrator.' });
     }
     const metadata = {
