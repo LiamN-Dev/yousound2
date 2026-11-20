@@ -438,8 +438,9 @@ router.post('/discoveries', async (req, res) => {
       winBonus: result.winBonus || 0,
     });
   } catch (error: any) {
-    const noRecipe = /No known discovery/.test(String(error?.message || ''));
-    return res.status(noRecipe ? 422 : 400).json({ success: false, error: error?.message || 'Could not save that discovery.' });
+    const message = String(error?.message || 'Could not save that discovery.');
+    const unavailable = /AI is not configured|Gemini|discovery AI|temporarily unavailable|timed out/i.test(message);
+    return res.status(unavailable ? 503 : 400).json({ success: false, error: message });
   }
 });
 
@@ -452,7 +453,7 @@ router.get('/leaderboard', async (_req, res) => {
       discoveries: profile.discoveries.length,
       combinations: profile.combinations,
       raceWins: profile.raceWins,
-    }).filter((profile) => profile.score > 0 || profile.combinations > 0)).sort((a, b) =>
+    })).filter((profile) => profile.score > 0 || profile.combinations > 0).sort((a, b) =>
       b.score - a.score ||
       b.discoveries - a.discoveries ||
       b.raceWins - a.raceWins ||
