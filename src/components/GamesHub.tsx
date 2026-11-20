@@ -408,7 +408,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                   </div>
                 ) : game.id === 'infinite-craft' ? (
                   <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
-                    Imported Infinite Craft. Recipes are resolved by YouSound's named recipe database; unknown pairs do not generate random adjective-prefixed items. Rooms and discovery leaderboards are stored on the account backend.
+                    Infinite Craft uses AI to judge each new ingredient pair, returning a recognizable noun and emoji or rejecting the combination. Account discoveries and one-point combines are saved on the YouSound backend.
                   </div>
                 ) : (
                   <div className="mt-4 rounded-xl border border-sky-200/15 bg-sky-300/5 p-3 text-xs leading-5 text-sky-100">
