@@ -9,7 +9,7 @@ export type InfiniteCraftAiDiscovery = {
 
 const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'];
 
-function validateDiscovery(value: unknown): InfiniteCraftAiDiscovery {
+export function validateInfiniteCraftAiDiscovery(value: unknown): InfiniteCraftAiDiscovery {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('The discovery AI returned an invalid response.');
   }
@@ -31,7 +31,7 @@ function validateDiscovery(value: unknown): InfiniteCraftAiDiscovery {
     words.length > 4 ||
     !/^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}'’ -]*$/u.test(noun) ||
     !emoji ||
-    !/\p{Extended_Pictographic}/u.test(emoji)
+    (emoji.match(/\p{Extended_Pictographic}/gu) || []).length !== 1
   ) {
     throw new Error('The discovery AI returned an invalid noun or emoji. Please try that combination again.');
   }
@@ -79,7 +79,7 @@ export async function generateInfiniteCraftDiscovery(ingredientA: string, ingred
         if (!fenced) throw new Error('The discovery AI returned unreadable JSON.');
         parsed = JSON.parse(fenced[0]);
       }
-      return validateDiscovery(parsed);
+      return validateInfiniteCraftAiDiscovery(parsed);
     } catch (error: any) {
       lastError = error;
       const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
