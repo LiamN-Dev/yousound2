@@ -109,19 +109,9 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
         const payload = JSON.parse(event.data || '{}') as { blockedVideoIds?: string[] };
         const blockedIds = new Set(Array.isArray(payload.blockedVideoIds) ? payload.blockedVideoIds : []);
         if (!blockedIds.size) return;
-        let removedCount = 0;
-        setVideos(current => {
-          const next = current.filter(video => {
-            const blocked = blockedIds.has(video.videoId);
-            if (blocked) removedCount++;
-            return !blocked;
-          });
-          return next;
-        });
+        setVideos(current => current.filter(video => !blockedIds.has(video.videoId)));
         setSelected(current => current && blockedIds.has(current.videoId) ? null : current);
-        if (removedCount > 0) {
-          setNotice('A video was blocked by YouSound Safety and removed from your feed.');
-        }
+        setNotice('YouSound Safety blocked a video and updated your feed automatically.');
       } catch {
         // Ignore malformed events; the server will send the next state change.
       }
