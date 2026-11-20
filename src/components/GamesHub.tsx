@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { VoxelHopperGame } from './VoxelHopperGame';
 import { InfiniteCraftGame } from './InfiniteCraftGame';
 import { OrbitalVisionGame } from './OrbitalVisionGame';
+import { YouTubeSafetyReview } from './YouTubeSafetyReview';
 import { Gamepad2, Loader2, Play, RefreshCw, ShieldCheck, Star, Trophy, Users, Wrench, Power, Trash2, Orbit } from 'lucide-react';
 
 type GameId = 'crossy-road' | 'infinite-craft' | 'orbitalvision-3d';
@@ -209,6 +210,7 @@ export const GamesHub: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         </section>
       ) : (
         <section className="space-y-5">
+          <YouTubeSafetyReview />
           <div className="rounded-3xl border border-cyan-200/20 bg-slate-950 p-5">
             <div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-cyan-300" /><h2 className="text-xl font-black text-white">Game Control Room</h2></div>
             <p className="mt-1 text-xs text-slate-400">Publish games, pause every multiplayer room, or take the Arcade offline.</p>

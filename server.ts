@@ -486,15 +486,30 @@ app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
     const hash = await hashPasswordSecure(code);
     await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, hash);
     const recipients = await getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING);
-    const deliveries = await Promise.all(recipients.map(uid => sendYouSoundAiMessage(
+    const users = await getUsersDb();
+    const adminUids = (Array.isArray(users) ? users : [])
+      .filter((user: any) => user?.role === 'admin' && isActiveChatAccount(user))
+      .map((user: any) => String(user.uid));
+    const adminSet = new Set(adminUids);
+    const allRecipients = [...new Set([...recipients, ...adminUids])];
+    const deliveries = await Promise.all(allRecipients.map(uid => sendYouSoundAiMessage(
       uid,
-      '[YOUTUBE ACCESS CODE]\n\nYour YouSound YouTube Mode access code has changed:\n\n' + code + '\n\nEnter this code in the normal YouSound song search field and press Enter. This is a YouSound access code, not your Google password. Keep it private.',
+      adminSet.has(uid)
+        ? '[YOUTUBE ACCESS CODE]\n\nAdministrator copy: the YouSound YouTube Mode access code was changed.\n\n' + code + '\n\nKeep this code private. It can be entered in the normal YouSound song search field.'
+        : '[YOUTUBE ACCESS CODE]\n\nYour YouSound YouTube Mode access code has changed:\n\n' + code + '\n\nEnter this code in the normal YouSound song search field and press Enter. This is a YouSound access code, not your Google password. Keep it private.',
       { replacePreviousCode: true }
     ).catch(error => {
-      console.warn('[YouSound AI] YouTube code delivery failed for a selected account:', error?.message || error);
+      console.warn('[YouSound AI] YouTube code delivery failed:', error?.message || error);
       return false;
     })));
-    return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length, selectedRecipients: recipients.length });
+    const deliveryByUid = new Map<string, boolean>();
+    allRecipients.forEach((uid, index) => deliveryByUid.set(uid, Boolean(deliveries[index])));
+    return res.json({
+      success: true,
+      notifiedRecipients: recipients.filter(uid => deliveryByUid.get(uid)).length,
+      selectedRecipients: recipients.length,
+      notifiedAdmins: adminUids.filter(uid => deliveryByUid.get(uid)).length,
+    });
   } catch (error: any) {
     console.error('[YouTube Mode] Could not save activation code:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not save YouTube activation code.' });
@@ -506,12 +521,23 @@ app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) =
   try {
     await setPersistentSettingDb(YOUTUBE_MODE_CODE_SETTING, null);
     const recipients = await getUidListSetting(YOUTUBE_MODE_CODE_RECIPIENTS_SETTING);
-    const deliveries = await Promise.all(recipients.map(uid => sendYouSoundAiMessage(
+    const users = await getUsersDb();
+    const adminUids = (Array.isArray(users) ? users : [])
+      .filter((user: any) => user?.role === 'admin' && isActiveChatAccount(user))
+      .map((user: any) => String(user.uid));
+    const allRecipients = [...new Set([...recipients, ...adminUids])];
+    const deliveries = await Promise.all(allRecipients.map(uid => sendYouSoundAiMessage(
       uid,
       '[YOUTUBE ACCESS CODE]\n\nThe YouSound YouTube Mode access code has been removed. The previous code no longer works.',
       { replacePreviousCode: true }
     ).catch(() => false)));
-    return res.json({ success: true, notifiedRecipients: deliveries.filter(Boolean).length });
+    const deliveryByUid = new Map<string, boolean>();
+    allRecipients.forEach((uid, index) => deliveryByUid.set(uid, Boolean(deliveries[index])));
+    return res.json({
+      success: true,
+      notifiedRecipients: recipients.filter(uid => deliveryByUid.get(uid)).length,
+      notifiedAdmins: adminUids.filter(uid => deliveryByUid.get(uid)).length,
+    });
   } catch (error: any) {
     console.error('[YouTube Mode] Could not remove activation code:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not remove YouTube activation code.' });
@@ -902,7 +928,19 @@ function scorePersonalizedVideo(video: YouTubeVideoRecord, profile: YouTubeUserP
 
 
 const YOUTUBE_MODE_WATCH_ACTIVITY_SETTING = 'youtube_mode_watch_activity_v1';
+const YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING = 'youtube_mode_blocked_videos_v1';
 type YouTubeWatchSafetyDecision = 'pending' | 'safe' | 'review' | 'high-risk' | 'unavailable';
+async function getBlockedYouTubeVideoIds(): Promise<string[]> {
+  const stored = await getPersistentSettingDb<unknown>(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING);
+  if (!Array.isArray(stored)) return [];
+  return [...new Set(stored.filter((value): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{11}$/.test(value)))].slice(-10000);
+}
+
+async function isYouTubeVideoBlocked(videoId: string): Promise<boolean> {
+  const blocked = await getBlockedYouTubeVideoIds();
+  return blocked.includes(videoId);
+}
+
 type YouTubeWatchActivityRecord = {
   uid: string;
   username: string;
@@ -995,6 +1033,9 @@ app.post('/api/youtube-mode/watch-event', async (req: Request, res: Response) =>
     const videoId = String(supplied.videoId || '').trim();
     if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
       return res.status(400).json({ success: false, error: 'Invalid YouTube video ID.' });
+    }
+    if ((event === 'open' || event === 'play') && await isYouTubeVideoBlocked(videoId)) {
+      return res.status(403).json({ success: false, blocked: true, error: 'This video has been blocked by a YouSound administrator.' });
     }
     const metadata = {
       title: String(supplied.title || 'Untitled video').slice(0, 180),
@@ -1092,13 +1133,87 @@ app.get('/api/admin/youtube-mode/watch-activity', async (req: Request, res: Resp
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
     const stored = await getPersistentSettingDb<YouTubeWatchActivityRecord[]>(YOUTUBE_MODE_WATCH_ACTIVITY_SETTING);
+    const blockedIds = new Set(await getBlockedYouTubeVideoIds());
     const activities = (Array.isArray(stored) ? stored : [])
-      .slice()
+      .map(item => ({ ...item, blocked: blockedIds.has(item.videoId) }))
       .sort((a, b) => String(b.lastWatchedAt || '').localeCompare(String(a.lastWatchedAt || '')));
     return res.setHeader('Cache-Control', 'no-store, private').json({ success: true, activities });
   } catch (error: any) {
     console.error('[YouTube Safety] Admin activity load failed:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not load YouTube viewing activity.' });
+  }
+});
+
+app.get('/api/youtube-mode/video-access/:videoId', async (req: Request, res: Response) => {
+  try {
+    const member = await requireYouTubeMember(req, res);
+    if (!member) return;
+    const videoId = String(req.params.videoId || '').trim();
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return res.status(400).json({ success: false, error: 'Invalid YouTube video ID.' });
+    const blocked = await isYouTubeVideoBlocked(videoId);
+    return res.setHeader('Cache-Control', 'no-store, private').json({ success: true, blocked, allowed: !blocked });
+  } catch (error: any) {
+    console.error('[YouTube Safety] Video access check failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not verify video access.' });
+  }
+});
+
+app.post('/api/admin/youtube-mode/video-moderation', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    const videoId = String(req.body?.videoId || '').trim();
+    const action = String(req.body?.action || '');
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return res.status(400).json({ success: false, error: 'Invalid YouTube video ID.' });
+    if (!['block', 'unblock', 'mark-safe', 'mark-review'].includes(action)) {
+      return res.status(400).json({ success: false, error: 'Choose block, unblock, mark-safe, or mark-review.' });
+    }
+
+    let blocked = await isYouTubeVideoBlocked(videoId);
+    if (action === 'block' || action === 'unblock') {
+      await ensurePersistentSettingDb(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING, []);
+      let saved = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const before = await getPersistentSettingDb<string[]>(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING);
+        const current = Array.isArray(before) ? before.filter(value => typeof value === 'string') : [];
+        const next = action === 'block'
+          ? [...new Set([...current, videoId])].slice(-10000)
+          : current.filter(value => value !== videoId);
+        if (await compareAndSetPersistentSettingDb(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING, before, next)) {
+          blocked = action === 'block';
+          saved = true;
+          break;
+        }
+      }
+      if (!saved) return res.status(409).json({ success: false, error: 'The blocked-video list changed repeatedly. Refresh and try again.' });
+    }
+
+    if (action === 'mark-safe' || action === 'mark-review') {
+      await ensurePersistentSettingDb(YOUTUBE_MODE_WATCH_ACTIVITY_SETTING, []);
+      let saved = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const before = await getPersistentSettingDb<YouTubeWatchActivityRecord[]>(YOUTUBE_MODE_WATCH_ACTIVITY_SETTING);
+        const records = Array.isArray(before) ? before : [];
+        const now = new Date().toISOString();
+        const next = records.map(item => item.videoId === videoId ? {
+          ...item,
+          safetyDecision: action === 'mark-safe' ? 'safe' as YouTubeWatchSafetyDecision : 'review' as YouTubeWatchSafetyDecision,
+          safetyCategory: 'administrator-review',
+          safetyReason: action === 'mark-safe' ? 'Administrator marked this video as safe.' : 'Administrator requested human review.',
+          safetyConfidence: 1,
+          safetyReviewedAt: now,
+        } : item);
+        if (await compareAndSetPersistentSettingDb(YOUTUBE_MODE_WATCH_ACTIVITY_SETTING, before, next)) {
+          saved = true;
+          break;
+        }
+      }
+      if (!saved) return res.status(409).json({ success: false, error: 'Viewing records changed repeatedly. Refresh and try again.' });
+    }
+
+    return res.json({ success: true, videoId, blocked, action });
+  } catch (error: any) {
+    console.error('[YouTube Safety] Video moderation failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not update video moderation.' });
   }
 });
 
@@ -1235,8 +1350,9 @@ app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
       candidates = pools.flat();
     }
 
+    const blockedIds = new Set(await getBlockedYouTubeVideoIds());
     const unique = [...new Map(candidates.map(video => [video.videoId, video])).values()]
-      .filter(video => !profile.hiddenVideoIds.includes(video.videoId));
+      .filter(video => !profile.hiddenVideoIds.includes(video.videoId) && !blockedIds.has(video.videoId));
     const ordered = mode === 'trending'
       ? unique
       : unique.sort((a, b) => scorePersonalizedVideo(b, profile) - scorePersonalizedVideo(a, profile));
@@ -1272,7 +1388,8 @@ app.get('/api/youtube-mode/search', async (req: Request, res: Response) => {
     const profile = await getYouTubeProfile(member.uid);
     profile.recentSearches = [...profile.recentSearches.filter(item => item.toLowerCase() !== query.toLowerCase()), query].slice(-20);
     await saveYouTubeProfile(member.uid, profile);
-    const visible = videos.filter(video => !profile.hiddenVideoIds.includes(video.videoId));
+    const blockedIds = new Set(await getBlockedYouTubeVideoIds());
+    const visible = videos.filter(video => !profile.hiddenVideoIds.includes(video.videoId) && !blockedIds.has(video.videoId));
     return res.json({ success: true, videos: visible });
   } catch (error: any) {
     console.error('[YouTube Mode] Search failed:', error?.message || error);

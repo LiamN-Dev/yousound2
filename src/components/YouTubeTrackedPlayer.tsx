@@ -82,6 +82,9 @@ export const YouTubeTrackedPlayer: React.FC<{
   video: TrackedYouTubeVideo;
   className?: string;
 }> = ({ video, className = 'h-full w-full' }) => {
+  const [accessChecking, setAccessChecking] = React.useState(true);
+  const [blocked, setBlocked] = React.useState(false);
+  const [accessError, setAccessError] = React.useState('');
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const videoRef = useRef(video);
@@ -93,6 +96,43 @@ export const YouTubeTrackedPlayer: React.FC<{
   videoRef.current = video;
 
   useEffect(() => {
+    let active = true;
+    setAccessChecking(true);
+    setBlocked(false);
+    setAccessError('');
+    fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), {
+      credentials: 'same-origin', cache: 'no-store',
+    }).then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not verify video access.');
+      return data;
+    }).then(data => {
+      if (active) setBlocked(data?.blocked === true);
+    }).catch(() => {
+      if (active) setAccessError('YouSound could not verify whether this video is allowed. Reopen the video to try again.');
+    }).finally(() => {
+      if (active) setAccessChecking(false);
+    });
+    return () => { active = false; };
+  }, [video.videoId]);
+
+  useEffect(() => {
+    if (accessChecking || blocked || accessError) return;
+    const timer = window.setInterval(() => {
+      fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), { credentials: 'same-origin', cache: 'no-store' })
+        .then(async response => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) throw new Error(data.error || 'Could not verify video access.');
+          return data;
+        })
+        .then(data => { if (data?.blocked === true) setBlocked(true); })
+        .catch(() => setAccessError('YouSound could not verify whether this video is still allowed. Playback has been stopped.'));
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [video.videoId, accessChecking, blocked, accessError]);
+
+  useEffect(() => {
+    if (accessChecking || blocked || accessError) return;
     let cancelled = false;
     openedRef.current = false;
     playingRef.current = false;
@@ -180,10 +220,14 @@ export const YouTubeTrackedPlayer: React.FC<{
       playerRef.current?.destroy();
       playerRef.current = null;
     };
-  }, [video.videoId]);
+  }, [video.videoId, accessChecking, blocked, accessError]);
 
   const playerUrl = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(video.videoId) +
     '?autoplay=1&controls=1&rel=0&playsinline=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin);
+
+  if (accessChecking) return <div className={className + ' flex items-center justify-center bg-black text-xs text-slate-300'}>Checking video permissions…</div>;
+  if (accessError) return <div className={className + ' flex items-center justify-center bg-[#101827] p-6 text-center text-xs text-amber-100'}>{accessError}</div>;
+  if (blocked) return <div className={className + ' flex flex-col items-center justify-center gap-2 bg-[#101827] p-6 text-center text-white'}><span className="text-sm font-semibold">Video blocked by YouSound</span><span className="max-w-sm text-xs leading-5 text-slate-400">An administrator has blocked this video. It cannot be played in YouSound.</span></div>;
 
   return (
     <iframe

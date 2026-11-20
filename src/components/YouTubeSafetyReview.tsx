@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Clock3, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Ban, Check, CheckCircle2, Clock3, RefreshCw, ShieldAlert, ShieldCheck, Unlock } from 'lucide-react';
 
 type SafetyDecision = 'pending' | 'safe' | 'review' | 'high-risk' | 'unavailable';
 type WatchActivity = {
@@ -20,6 +20,7 @@ type WatchActivity = {
   safetyReason: string;
   safetyConfidence: number;
   safetyReviewedAt?: string;
+  blocked?: boolean;
 };
 
 const formatDuration = (seconds: number) => {
@@ -42,6 +43,8 @@ export const YouTubeSafetyReview: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [actionBusy, setActionBusy] = useState('');
+  const [actionFeedback, setActionFeedback] = useState('');
 
   const loadActivity = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -65,8 +68,35 @@ export const YouTubeSafetyReview: React.FC = () => {
 
   useEffect(() => { void loadActivity(); }, [loadActivity]);
 
+  const moderateVideo = async (videoId: string, action: 'block' | 'unblock' | 'mark-safe' | 'mark-review') => {
+    setActionBusy(videoId + ':' + action);
+    setError('');
+    setActionFeedback('');
+    try {
+      const response = await fetch('/api/admin/youtube-mode/video-moderation', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId, action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not update this video.');
+      const now = new Date().toISOString();
+      setActivities(current => current.map(item => item.videoId !== videoId ? item : {
+        ...item,
+        blocked: action === 'block' ? true : action === 'unblock' ? false : item.blocked,
+        ...(action === 'mark-safe' ? { safetyDecision: 'safe' as SafetyDecision, safetyCategory: 'administrator-review', safetyReason: 'Administrator marked this video as safe.', safetyReviewedAt: now } : {}),
+        ...(action === 'mark-review' ? { safetyDecision: 'review' as SafetyDecision, safetyCategory: 'administrator-review', safetyReason: 'Administrator requested human review.', safetyReviewedAt: now } : {}),
+      }));
+      setActionFeedback(action === 'block' ? 'Video blocked for everyone in YouSound.' : action === 'unblock' ? 'Video unblocked.' : action === 'mark-safe' ? 'Video marked safe.' : 'Video returned to human review.');
+    } catch (actionError: any) {
+      setError(actionError?.message || 'The video moderation action failed.');
+    } finally {
+      setActionBusy('');
+    }
+  };
+
   const visible = filter === 'review'
-    ? activities.filter(item => item.safetyDecision === 'review' || item.safetyDecision === 'high-risk' || item.safetyDecision === 'unavailable' || item.safetyDecision === 'pending')
+    ? activities.filter(item => item.blocked || item.safetyDecision === 'review' || item.safetyDecision === 'high-risk' || item.safetyDecision === 'unavailable' || item.safetyDecision === 'pending')
     : activities;
 
   return (
@@ -92,6 +122,7 @@ export const YouTubeSafetyReview: React.FC = () => {
         <span className="text-[10px] tabular-nums text-slate-500">{visible.length} records shown · latest 250 stored records</span>
       </div>
       {error && <div className="mx-5 mb-4 flex items-start gap-2 rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-xs text-rose-100"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+      {actionFeedback && <div role="status" className="mx-5 mb-4 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-xs text-emerald-100">{actionFeedback}</div>}
       {loading ? (
         <div className="p-10 text-center text-xs text-slate-400">Loading viewing activity…</div>
       ) : visible.length === 0 ? (
@@ -115,11 +146,19 @@ export const YouTubeSafetyReview: React.FC = () => {
                       {decisionLabel[decision]}
                     </span>
                     {item.safetyCategory && <span className="text-[9px] uppercase tracking-wider text-slate-500">{item.safetyCategory}</span>}
+                    {item.blocked && <span className="rounded-md bg-rose-500/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-rose-200">Blocked for everyone</span>}
                   </div>
                   <h3 className="mt-2 line-clamp-2 text-sm font-semibold text-white">{item.videoTitle || 'Untitled video'}</h3>
                   <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle || 'Unknown channel'}</p>
                   {item.safetyReason && <p className="mt-2 text-xs leading-5 text-slate-300">{item.safetyReason}</p>}
                   <p className="mt-2 break-all font-mono text-[9px] text-slate-600">Video ID: {item.videoId}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" disabled={!!actionBusy} onClick={() => void moderateVideo(item.videoId, item.blocked ? 'unblock' : 'block')} className={'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold disabled:opacity-50 ' + (item.blocked ? 'bg-emerald-300/15 text-emerald-100 hover:bg-emerald-300/25' : 'bg-rose-400/15 text-rose-100 hover:bg-rose-400/25')}>
+                      {item.blocked ? <Unlock className="h-3 w-3" /> : <Ban className="h-3 w-3" />}{item.blocked ? 'Unblock video' : 'Block for everyone'}
+                    </button>
+                    <button type="button" disabled={!!actionBusy} onClick={() => void moderateVideo(item.videoId, 'mark-safe')} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300/20 px-3 py-2 text-[10px] font-bold text-emerald-100 hover:bg-emerald-300/10 disabled:opacity-50"><Check className="h-3 w-3" />Mark safe</button>
+                    <button type="button" disabled={!!actionBusy} onClick={() => void moderateVideo(item.videoId, 'mark-review')} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300/20 px-3 py-2 text-[10px] font-bold text-amber-100 hover:bg-amber-300/10 disabled:opacity-50"><ShieldAlert className="h-3 w-3" />Needs review</button>
+                  </div>
                 </div>
                 <div className="rounded-xl border border-white/[.06] bg-white/[.025] p-3">
                   <div className="text-xs font-semibold text-cyan-100">{item.username || 'Unknown account'}</div>

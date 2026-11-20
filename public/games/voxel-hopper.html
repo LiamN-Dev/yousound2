@@ -931,7 +931,9 @@
           }
           const lane = index % 5;
           const column = lane - 2;
-          mesh.position.set(column * TILE, status === 'finished' ? 0.02 : 0, -Math.max(0, row) * TILE);
+          const target = new THREE.Vector3(column * TILE, status === 'finished' ? 0.02 : 0, -Math.max(0, row) * TILE);
+          if (!mesh.userData.targetPosition) mesh.position.copy(target);
+          mesh.userData.targetPosition = target;
           mesh.visible = true;
         });
         for (const [id, mesh] of remoteRaceMeshes.entries()) {
@@ -1329,9 +1331,11 @@
         startRound(true);
       }
 
-      function startSession() {
+      async function startSession() {
         // In a YouSound race, only the parent room service can start or respawn a run.
         if (multiplayerMode) return;
+        await loadAccountStats();
+        await startAccountRun();
         beginMultiplayerRound();
       }
 
@@ -1453,6 +1457,7 @@
           if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_best', String(bestScore)); } catch (e) {} }
         }
         if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_coins', String(totalCoins)); } catch (e) {} }
+        if (!multiplayerMode) void finishAccountRun(score, coins);
 
         document.getElementById('death-reason').textContent = reasonText;
         document.getElementById('final-score').textContent = score;
@@ -1671,6 +1676,13 @@
           }
         }
 
+        // Smooth remote-player updates instead of snapping every time the room poll returns.
+        const remoteBlend = 1 - Math.exp(-dt * 10);
+        for (const mesh of remoteRaceMeshes.values()) {
+          const target = mesh.userData.targetPosition;
+          if (target) mesh.position.lerp(target, remoteBlend);
+        }
+
         // Update Lanes, Vehicles, Logs, & Upgraded Railroad Signals
         for (const lane of lanes.values()) {
           for (const c of lane.coins) {
@@ -1817,11 +1829,11 @@
         renderSelectors();
         mpConfigs = [{ id: 'local', name: 'Player', charId: selectedChar, tagColor: PLAYER_TAG_COLORS[0], bestScore: 0, isBot: false }];
         startRound(false);
+        void loadAccountStats();
         if (multiplayerMode) {
           document.getElementById('hud-menu-btn').classList.add('hidden');
           document.getElementById('menu-btn').classList.add('hidden');
           document.getElementById('restart-btn').classList.add('hidden');
-          void loadAccountStats();
         }
         requestAnimationFrame(animate);
       };
