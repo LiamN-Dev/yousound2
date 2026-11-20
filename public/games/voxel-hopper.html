@@ -761,6 +761,8 @@
             mesh.add(makeRemoteNameTag(id, color));
             scene.add(mesh);
             remoteRaceMeshes.set(id, mesh);
+          } else if (!mesh.parent) {
+            scene.add(mesh);
           }
           mesh.visible = player.status === 'playing' || player.status === 'finished';
           mesh.userData.remoteRow = Number.isFinite(Number(player.row)) ? Number(player.row) : 0;
