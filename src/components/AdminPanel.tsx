@@ -78,6 +78,24 @@ const MAINTENANCE_SECTION_OPTIONS: {
   { id: 'featureRequests', label: 'Feature Requests', description: 'Pause new feature suggestions; bug reports and existing reports stay available.', defaultMessage: 'Feature requests are temporarily paused while we review the request system.' },
 ];
 
+type AccountRestrictionScheduleView = {
+  id: string;
+  uid: string;
+  username: string;
+  restriction: 'periodic-table-only' | 'account-lock' | 'suspension';
+  activateAt: string;
+  deactivateAt: string | null;
+  reason: string;
+  status: 'scheduled' | 'activating' | 'active' | 'deactivating' | 'completed' | 'failed' | 'cancelled';
+  createdBy: string;
+  lastError?: string;
+};
+
+const toLocalDateTimeInput = (date: Date) => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+};
+
 export const AdminPanel: React.FC = () => {
   const {
     currentUser,
@@ -238,6 +256,16 @@ export const AdminPanel: React.FC = () => {
   const [suspendReasonInput, setSuspendReasonInput] = useState('Terms of service violation');
   const [unsuspendingUser, setUnsuspendingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [restrictionScheduleUser, setRestrictionScheduleUser] = useState<User | null>(null);
+  const [restrictionScheduleType, setRestrictionScheduleType] = useState<AccountRestrictionScheduleView['restriction']>('periodic-table-only');
+  const [restrictionActivateAt, setRestrictionActivateAt] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 5 * 60_000)));
+  const [restrictionDeactivateAt, setRestrictionDeactivateAt] = useState('');
+  const [restrictionReason, setRestrictionReason] = useState('');
+  const [restrictionScheduleBusy, setRestrictionScheduleBusy] = useState(false);
+  const [restrictionSchedulesLoading, setRestrictionSchedulesLoading] = useState(false);
+  const [restrictionScheduleFeedback, setRestrictionScheduleFeedback] = useState('');
+  const [restrictionSchedules, setRestrictionSchedules] = useState<AccountRestrictionScheduleView[]>([]);
+
 
   const pendingUsers = allUsers.filter((u) => !u.isApproved);
   const approvedUsers = allUsers.filter((u) => u.isApproved);
@@ -394,6 +422,80 @@ export const AdminPanel: React.FC = () => {
       setUserEditFeedback(error?.message || 'Could not restore site access.');
     }
   };
+
+  const loadRestrictionSchedules = async (uid: string) => {
+    setRestrictionSchedulesLoading(true);
+    try {
+      const response = await fetch('/api/admin/users/restriction-schedules?uid=' + encodeURIComponent(uid), { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load scheduled restrictions.');
+      setRestrictionSchedules(Array.isArray(data.schedules) ? data.schedules : []);
+      setRestrictionScheduleFeedback('');
+    } catch (error: any) {
+      setRestrictionScheduleFeedback(error?.message || 'Could not load scheduled restrictions.');
+    } finally {
+      setRestrictionSchedulesLoading(false);
+    }
+  };
+
+  const handleOpenRestrictionSchedule = (user: User) => {
+    setRestrictionScheduleUser(user);
+    setRestrictionScheduleType('periodic-table-only');
+    setRestrictionActivateAt(toLocalDateTimeInput(new Date(Date.now() + 5 * 60_000)));
+    setRestrictionDeactivateAt('');
+    setRestrictionReason('Scheduled account restriction');
+    setRestrictionScheduleFeedback('');
+    setRestrictionSchedules([]);
+    void loadRestrictionSchedules(user.id);
+  };
+
+  const handleCreateRestrictionSchedule = async () => {
+    if (!restrictionScheduleUser || !restrictionActivateAt || !restrictionReason.trim() || restrictionScheduleBusy) return;
+    if (restrictionDeactivateAt && new Date(restrictionDeactivateAt).getTime() <= new Date(restrictionActivateAt).getTime()) {
+      setRestrictionScheduleFeedback('The end time must be later than the start time.');
+      return;
+    }
+    setRestrictionScheduleBusy(true);
+    setRestrictionScheduleFeedback('');
+    try {
+      const response = await fetch('/api/admin/users/' + encodeURIComponent(restrictionScheduleUser.id) + '/restriction-schedules', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restriction: restrictionScheduleType,
+          activateAt: new Date(restrictionActivateAt).toISOString(),
+          deactivateAt: restrictionDeactivateAt ? new Date(restrictionDeactivateAt).toISOString() : null,
+          reason: restrictionReason.trim(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not schedule this restriction.');
+      setRestrictionScheduleFeedback('Restriction scheduled successfully.');
+      await loadRestrictionSchedules(restrictionScheduleUser.id);
+    } catch (error: any) {
+      setRestrictionScheduleFeedback(error?.message || 'Could not schedule this restriction.');
+    } finally {
+      setRestrictionScheduleBusy(false);
+    }
+  };
+
+  const handleCancelRestrictionSchedule = async (scheduleId: string) => {
+    if (restrictionScheduleBusy) return;
+    setRestrictionScheduleBusy(true);
+    try {
+      const response = await fetch('/api/admin/users/restriction-schedules/' + encodeURIComponent(scheduleId), {
+        method: 'DELETE', credentials: 'same-origin',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not cancel this schedule.');
+      if (restrictionScheduleUser) await loadRestrictionSchedules(restrictionScheduleUser.id);
+      setRestrictionScheduleFeedback('Pending schedule cancelled.');
+    } catch (error: any) {
+      setRestrictionScheduleFeedback(error?.message || 'Could not cancel this schedule.');
+    } finally {
+      setRestrictionScheduleBusy(false);
+    }
+  };
+
 
   const handleConfirmDeleteUser = async () => {
     if (!deletingUser) return;
@@ -1331,6 +1433,7 @@ export const AdminPanel: React.FC = () => {
 
                           {u.role !== 'admin' && <>
                             <button onClick={()=>void handleToggleAccountLock(u)} title={u.isLocked?'Unlock account':'Lock account'} className="p-1.5 rounded-lg border border-amber-400/25 text-amber-200">{u.isLocked?<Unlock className="w-3.5 h-3.5"/>:<Lock className="w-3.5 h-3.5"/>}</button>
+                            <button onClick={() => handleOpenRestrictionSchedule(u)} title="Schedule a timed account restriction" className="p-1.5 rounded-lg border border-cyan-300/25 text-cyan-200 hover:bg-cyan-300/10"><Clock className="w-3.5 h-3.5"/></button>
                             {u.isLocked&&<button onClick={()=>setLockCodeModalUser(u)} title="Show current unlock code" className="p-1.5 rounded-lg border border-amber-400/25 text-amber-200"><KeyRound className="w-3.5 h-3.5"/></button>}
                             <button onClick={()=>void handleLogoutAllSessions(u)} title="Log out all sessions" className="p-1.5 rounded-lg border border-white/10 text-slate-300"><LogOut className="w-3.5 h-3.5"/></button>
                           </>}
@@ -2201,6 +2304,70 @@ export const AdminPanel: React.FC = () => {
               >
                 Restore site access
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Timed Account Restriction Modal */}
+      {restrictionScheduleUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto liquid-glass-surface rounded-3xl p-6 border border-cyan-300/25 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2"><Clock className="h-5 w-5 text-cyan-300"/>Schedule account restriction</h3>
+                <p className="mt-1 text-xs text-slate-400">@{restrictionScheduleUser.username}</p>
+              </div>
+              <button type="button" onClick={() => setRestrictionScheduleUser(null)} className="text-slate-400 hover:text-white"><XCircle className="h-5 w-5"/></button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs text-slate-300 sm:col-span-2">Restriction type
+                <select value={restrictionScheduleType} onChange={e => setRestrictionScheduleType(e.target.value as AccountRestrictionScheduleView['restriction'])} className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/60">
+                  <option value="periodic-table-only">Periodic Table only</option>
+                  <option value="account-lock">Account lock (requires seven-digit code)</option>
+                  <option value="suspension">Suspend account (appeal chat remains available)</option>
+                </select>
+              </label>
+              <label className="block text-xs text-slate-300">Activate at
+                <input type="datetime-local" value={restrictionActivateAt} onChange={e => setRestrictionActivateAt(e.target.value)} className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/60"/>
+              </label>
+              <label className="block text-xs text-slate-300">Deactivate at (optional)
+                <input type="datetime-local" value={restrictionDeactivateAt} min={restrictionActivateAt || undefined} onChange={e => setRestrictionDeactivateAt(e.target.value)} className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/60"/>
+              </label>
+              <label className="block text-xs text-slate-300 sm:col-span-2">Reason shown to the member
+                <input type="text" maxLength={240} value={restrictionReason} onChange={e => setRestrictionReason(e.target.value)} placeholder="Why this restriction is being scheduled" className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/60"/>
+              </label>
+            </div>
+            <p className="rounded-xl border border-cyan-300/15 bg-cyan-300/[.04] p-3 text-[10px] leading-5 text-slate-400">
+              Schedules are saved in the database and checked by the server every 15 seconds. If no end time is set, the restriction stays active until an administrator removes it. Account locks use the existing seven-digit code system.
+            </p>
+            {restrictionScheduleFeedback && <p role="status" className="rounded-lg bg-white/[.04] px-3 py-2 text-xs text-cyan-100">{restrictionScheduleFeedback}</p>}
+            <div className="flex flex-wrap justify-end gap-2 border-t border-white/10 pt-3">
+              <button type="button" onClick={() => setRestrictionScheduleUser(null)} className="rounded-xl px-4 py-2 text-xs text-slate-400 hover:text-white">Close</button>
+              <button type="button" disabled={restrictionScheduleBusy || !restrictionActivateAt || !restrictionReason.trim()} onClick={() => void handleCreateRestrictionSchedule()} className="rounded-xl bg-cyan-400 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-300 disabled:opacity-40">{restrictionScheduleBusy ? 'Saving…' : 'Save schedule'}</button>
+            </div>
+            <div className="border-t border-white/10 pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-bold text-white">Existing schedules</h4>
+                <button type="button" onClick={() => void loadRestrictionSchedules(restrictionScheduleUser.id)} disabled={restrictionSchedulesLoading} className="text-[10px] text-cyan-200 disabled:opacity-40">Refresh</button>
+              </div>
+              {restrictionSchedulesLoading ? <p className="py-4 text-xs text-slate-500">Loading schedules…</p> : restrictionSchedules.length === 0 ? <p className="py-4 text-xs text-slate-500">No schedules for this account.</p> : (
+                <div className="mt-2 space-y-2">
+                  {restrictionSchedules.map(schedule => (
+                    <div key={schedule.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-white">{schedule.restriction === 'periodic-table-only' ? 'Periodic Table only' : schedule.restriction === 'account-lock' ? 'Seven-digit account lock' : 'Account suspension'}</span>
+                        <span className={'rounded-md px-2 py-1 text-[9px] font-bold uppercase ' + (schedule.status === 'failed' ? 'bg-rose-500/15 text-rose-200' : schedule.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : schedule.status === 'completed' || schedule.status === 'cancelled' ? 'bg-slate-500/15 text-slate-300' : 'bg-amber-500/15 text-amber-100')}>{schedule.status}</span>
+                      </div>
+                      <p className="mt-2 text-[10px] text-slate-400">Starts: {new Date(schedule.activateAt).toLocaleString()}</p>
+                      <p className="mt-1 text-[10px] text-slate-400">Ends: {schedule.deactivateAt ? new Date(schedule.deactivateAt).toLocaleString() : 'Manually, no automatic end'}</p>
+                      <p className="mt-1 text-[10px] text-slate-500">Reason: {schedule.reason}</p>
+                      {schedule.lastError && <p className="mt-1 text-[10px] text-rose-300">Error: {schedule.lastError}</p>}
+                      {schedule.status === 'scheduled' && <button type="button" disabled={restrictionScheduleBusy} onClick={() => void handleCancelRestrictionSchedule(schedule.id)} className="mt-2 rounded-lg border border-rose-300/20 px-2.5 py-1.5 text-[10px] font-semibold text-rose-200 disabled:opacity-40">Cancel pending schedule</button>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
