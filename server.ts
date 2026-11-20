@@ -695,7 +695,6 @@ app.get('/api/youtube-mode/events', async (req: Request, res: Response) => {
     res.flushHeaders?.();
 
     let previous = new Set(await getBlockedYouTubeVideoIds());
-    res.write('event: moderation\ndata: ' + JSON.stringify({ blockedVideoIds: [...previous], unblockedVideoIds: [] }) + '\n\n');
 
     let closed = false;
     const heartbeat = setInterval(() => {
