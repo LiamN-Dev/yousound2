@@ -21,6 +21,13 @@ type WatchActivity = {
   safetyConfidence: number;
   safetyReviewedAt?: string;
   blocked?: boolean;
+  autoBlocked?: boolean;
+  autoBlockReason?: string;
+};
+
+type SearchSafetyActivity = {
+  uid: string; username: string; query: string; decision: SafetyDecision;
+  category: string; reason: string; confidence: number; createdAt: string; autoLocked: boolean;
 };
 
 const formatDuration = (seconds: number) => {
@@ -39,6 +46,9 @@ const decisionLabel: Record<SafetyDecision, string> = {
 
 export const YouTubeSafetyReview: React.FC = () => {
   const [activities, setActivities] = useState<WatchActivity[]>([]);
+  const [searchActivities, setSearchActivities] = useState<SearchSafetyActivity[]>([]);
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [filter, setFilter] = useState<'all' | 'review'>('review');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,6 +68,8 @@ export const YouTubeSafetyReview: React.FC = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not load YouTube viewing activity.');
       setActivities(Array.isArray(data.activities) ? data.activities : []);
+      setSearchActivities(Array.isArray(data.searchActivities) ? data.searchActivities : []);
+      setSelectedVideoIds(new Set());
     } catch (loadError: any) {
       setError(loadError?.message || 'Could not load YouTube viewing activity.');
     } finally {
@@ -98,6 +110,22 @@ export const YouTubeSafetyReview: React.FC = () => {
   const visible = filter === 'review'
     ? activities.filter(item => item.blocked || item.safetyDecision === 'review' || item.safetyDecision === 'high-risk' || item.safetyDecision === 'unavailable' || item.safetyDecision === 'pending')
     : activities;
+  const selectableVideoIds = [...new Set(visible.filter(item => !item.blocked).map(item => item.videoId))];
+  const allVisibleSelected = selectableVideoIds.length > 0 && selectableVideoIds.every(id => selectedVideoIds.has(id));
+  const bulkBlockSelected = async () => {
+    const videoIds = [...selectedVideoIds].filter(id => selectableVideoIds.includes(id));
+    if (!videoIds.length || bulkBusy) return;
+    setBulkBusy(true); setError(''); setActionFeedback('');
+    try {
+      const response = await fetch('/api/admin/youtube-mode/video-moderation/bulk', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoIds, action: 'block' }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not block selected videos.');
+      setActivities(current => current.map(item => videoIds.includes(item.videoId) ? { ...item, blocked: true, autoBlocked: false } : item));
+      setSelectedVideoIds(new Set());
+      setActionFeedback(`${Number(data.updatedCount) || videoIds.length} selected video(s) blocked for everyone.`);
+    } catch (bulkError: any) { setError(bulkError?.message || 'Bulk moderation failed.'); }
+    finally { setBulkBusy(false); }
+  };
 
   return (
     <section className="overflow-hidden rounded-3xl border border-cyan-200/15 bg-slate-950/90 text-white shadow-2xl">
@@ -119,7 +147,11 @@ export const YouTubeSafetyReview: React.FC = () => {
           <button type="button" onClick={() => setFilter('review')} className={'rounded-lg px-3 py-2 text-[10px] font-bold ' + (filter === 'review' ? 'bg-amber-300 text-slate-950' : 'border border-white/10 text-slate-300')}>Needs attention</button>
           <button type="button" onClick={() => setFilter('all')} className={'rounded-lg px-3 py-2 text-[10px] font-bold ' + (filter === 'all' ? 'bg-cyan-200 text-slate-950' : 'border border-white/10 text-slate-300')}>All activity</button>
         </div>
-        <span className="text-[10px] tabular-nums text-slate-500">{visible.length} records shown · latest 250 stored records</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-[10px] text-slate-400"><input type="checkbox" checked={allVisibleSelected} onChange={e => setSelectedVideoIds(e.target.checked ? new Set([...selectedVideoIds, ...selectableVideoIds]) : new Set([...selectedVideoIds].filter(id => !selectableVideoIds.includes(id))))} className="h-3.5 w-3.5 accent-cyan-300" />Select all visible</label>
+          <button type="button" disabled={!selectedVideoIds.size || bulkBusy} onClick={() => void bulkBlockSelected()} className="rounded-lg bg-rose-400/15 px-3 py-2 text-[10px] font-bold text-rose-100 disabled:opacity-40">{bulkBusy ? 'Blocking…' : `Block selected (${selectedVideoIds.size})`}</button>
+          <span className="text-[10px] tabular-nums text-slate-500">{visible.length} videos · {searchActivities.length} flagged searches</span>
+        </div>
       </div>
       {error && <div className="mx-5 mb-4 flex items-start gap-2 rounded-xl border border-rose-300/20 bg-rose-400/10 p-3 text-xs text-rose-100"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
       {actionFeedback && <div role="status" className="mx-5 mb-4 rounded-xl border border-emerald-300/20 bg-emerald-400/10 p-3 text-xs text-emerald-100">{actionFeedback}</div>}
@@ -141,12 +173,14 @@ export const YouTubeSafetyReview: React.FC = () => {
               <article key={item.uid + ':' + item.videoId} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_200px]">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
+                    <input type="checkbox" aria-label={`Select video ${item.videoTitle}`} checked={selectedVideoIds.has(item.videoId)} disabled={!!item.blocked} onChange={e => setSelectedVideoIds(current => { const next = new Set(current); if (e.target.checked) next.add(item.videoId); else next.delete(item.videoId); return next; })} className="h-3.5 w-3.5 accent-cyan-300 disabled:opacity-30" />
                     <span className={'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[9px] font-black uppercase tracking-wider ' + (high ? 'bg-rose-500/15 text-rose-200' : attention ? 'bg-amber-400/15 text-amber-100' : decision === 'safe' ? 'bg-emerald-400/10 text-emerald-200' : 'bg-slate-700/70 text-slate-300')}>
                       {high || attention ? <ShieldAlert className="h-3 w-3" /> : decision === 'safe' ? <ShieldCheck className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
                       {decisionLabel[decision]}
                     </span>
                     {item.safetyCategory && <span className="text-[9px] uppercase tracking-wider text-slate-500">{item.safetyCategory}</span>}
                     {item.blocked && <span className="rounded-md bg-rose-500/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-rose-200">Blocked for everyone</span>}
+                    {item.autoBlocked && <span className="rounded-md bg-violet-500/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-violet-200">AI auto-blocked · review</span>}
                   </div>
                   <h3 className="mt-2 line-clamp-2 text-sm font-semibold text-white">{item.videoTitle || 'Untitled video'}</h3>
                   <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle || 'Unknown channel'}</p>
@@ -175,6 +209,10 @@ export const YouTubeSafetyReview: React.FC = () => {
           })}
         </div>
       )}
+      {searchActivities.length > 0 && <div className="border-t border-white/10">
+        <div className="flex items-center justify-between gap-3 px-5 py-4"><div><h3 className="text-sm font-black text-white">Flagged search queries</h3><p className="mt-1 text-[10px] text-slate-500">Queries flagged by AI triage. High-confidence violations automatically lock the account; ambiguous cases stay review-only.</p></div><span className="text-[10px] text-slate-500">{searchActivities.length} records</span></div>
+        <div className="divide-y divide-white/[.06]">{searchActivities.map((item, index) => <article key={item.uid + ':' + item.createdAt + ':' + index} className="grid gap-2 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_180px]"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={'rounded-md px-2 py-1 text-[9px] font-black uppercase ' + (item.decision === 'high-risk' ? 'bg-rose-500/15 text-rose-200' : 'bg-amber-400/15 text-amber-100')}>{item.decision}</span>{item.autoLocked && <span className="rounded-md bg-rose-500/15 px-2 py-1 text-[9px] font-black uppercase text-rose-200">Account auto-locked</span>}<span className="text-[9px] uppercase text-slate-500">{item.category}</span></div><p className="mt-2 break-words text-sm font-semibold text-white">“{item.query}”</p><p className="mt-1 text-xs text-slate-400">{item.reason}</p></div><div className="text-[10px] text-slate-400"><div className="font-semibold text-cyan-100">{item.username}</div><div className="mt-1">Confidence {Math.round(item.confidence * 100)}%</div><div className="mt-1">{item.createdAt ? new Date(item.createdAt).toLocaleString() : 'Unknown time'}</div></div></article>)}</div>
+      </div>}
     </section>
   );
 };
