@@ -499,13 +499,16 @@ const MainAppContent: React.FC = () => {
 };
 
 const AppRouteContent: React.FC = () => {
+  const { currentUser } = useAuth();
+  const periodicTableRestricted = !!currentUser?.periodicTableOnly && currentUser.role !== 'admin';
   const [route, setRoute] = useState<'learn' | 'music'>(() => window.location.pathname === '/music' ? 'music' : 'learn');
 
   useEffect(() => {
-    const syncRoute = () => setRoute(window.location.pathname === '/music' ? 'music' : 'learn');
+    const syncRoute = () => setRoute(periodicTableRestricted ? 'learn' : window.location.pathname === '/music' ? 'music' : 'learn');
+    if (periodicTableRestricted && window.location.pathname !== '/') window.history.replaceState({}, '', '/');
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
-  }, []);
+  }, [periodicTableRestricted]);
 
   const enterYouSound = () => {
     if (window.location.pathname !== '/music') window.history.pushState({}, '', '/music');
@@ -517,8 +520,8 @@ const AppRouteContent: React.FC = () => {
     setRoute('learn');
   };
 
-  return route === 'learn'
-    ? <PeriodicTableGate onEnterYouSound={enterYouSound} />
+  return periodicTableRestricted || route === 'learn'
+    ? <PeriodicTableGate onEnterYouSound={periodicTableRestricted ? () => {} : enterYouSound} />
     : <>
         <MainAppContent />
         <button
