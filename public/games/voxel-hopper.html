@@ -931,7 +931,9 @@
           }
           const lane = index % 5;
           const column = lane - 2;
-          mesh.position.set(column * TILE, status === 'finished' ? 0.02 : 0, -Math.max(0, row) * TILE);
+          const target = new THREE.Vector3(column * TILE, status === 'finished' ? 0.02 : 0, -Math.max(0, row) * TILE);
+          if (!mesh.userData.targetPosition) mesh.position.copy(target);
+          mesh.userData.targetPosition = target;
           mesh.visible = true;
         });
         for (const [id, mesh] of remoteRaceMeshes.entries()) {
@@ -1669,6 +1671,13 @@
               r.hopAnim = null;
             }
           }
+        }
+
+        // Smooth remote-player updates instead of snapping every time the room poll returns.
+        const remoteBlend = 1 - Math.exp(-dt * 10);
+        for (const mesh of remoteRaceMeshes.values()) {
+          const target = mesh.userData.targetPosition;
+          if (target) mesh.position.lerp(target, remoteBlend);
         }
 
         // Update Lanes, Vehicles, Logs, & Upgraded Railroad Signals
