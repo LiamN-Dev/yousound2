@@ -58,7 +58,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
 }
 function publicRoom(room: Room, viewerUid: string) {
   return { id: room.id, code: room.code, isHost: room.hostUid === viewerUid, status: room.status, winnerName: room.players.find(p => p.uid === room.winnerUid)?.username || null,
-    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username + ':' + uid.slice(-6), username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isHost: uid === room.hostUid })),
+    players: room.players.map((player, index) => ({ id: 'player-' + index, username: player.username, checkpoint: player.checkpoint, lives: player.lives, row: player.row, status: player.status, finishedAt: player.finishedAt, isMe: player.uid === viewerUid, isHost: player.uid === room.hostUid })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
 async function addResult(room: Room) {
