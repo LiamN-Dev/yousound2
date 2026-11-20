@@ -2325,7 +2325,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not save the code.');
       setConfigured(true);
       setCode('');
-      setFeedback('YouTube activation code updated. YouSound AI delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts.');
+      setFeedback('YouTube activation code updated. YouSound AI delivered it to ' + Number(data.notifiedRecipients || 0) + ' of ' + Number(data.selectedRecipients || 0) + ' selected accounts and sent an administrator copy to ' + Number(data.notifiedAdmins || 0) + ' admin chat(s).');
     } catch (error: any) {
       setFeedback(error?.message || 'Could not save the code.');
     } finally { setSaving(false); }
@@ -2340,7 +2340,7 @@ const YouTubeAccessSettings: React.FC<{ users: User[] }> = ({ users }) => {
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not remove the code.');
       setConfigured(false);
       setCode('');
-      setFeedback('YouTube activation code removed. ' + Number(data.notifiedRecipients || 0) + ' selected accounts were notified.');
+      setFeedback('YouTube activation code removed. ' + Number(data.notifiedRecipients || 0) + ' selected accounts and ' + Number(data.notifiedAdmins || 0) + ' admin chat(s) were notified.');
     } catch (error: any) { setFeedback(error?.message || 'Could not remove the code.'); }
     finally { setSaving(false); }
   };
