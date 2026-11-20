@@ -123,6 +123,12 @@ export const AdminPanel: React.FC = () => {
   const [massLogoutFeedback, setMassLogoutFeedback] = useState('');
   const [lockCodeModalUser,setLockCodeModalUser]=useState<User|null>(null);
   const [lockCode,setLockCode]=useState('');const [lockCodeExpiresAt,setLockCodeExpiresAt]=useState(0);const [lockCodeNow,setLockCodeNow]=useState(Date.now());
+  const [lockReasonModalUser,setLockReasonModalUser]=useState<User|null>(null);
+  const [lockReasonInput,setLockReasonInput]=useState('');
+  const [lockReasonBusy,setLockReasonBusy]=useState(false);
+  const [periodicTableSelection,setPeriodicTableSelection]=useState<Set<string>>(()=>new Set());
+  const [periodicTableBusy,setPeriodicTableBusy]=useState(false);
+  const [periodicTableFeedback,setPeriodicTableFeedback]=useState('');
 
   // Maintenance State with Countdown
   const [maintEnabled, setMaintEnabled] = useState(maintenanceState.enabled);
@@ -235,6 +241,8 @@ export const AdminPanel: React.FC = () => {
 
   const pendingUsers = allUsers.filter((u) => !u.isApproved);
   const approvedUsers = allUsers.filter((u) => u.isApproved);
+  const eligiblePeriodicUsers = approvedUsers.filter((u) => u.role !== 'admin');
+  const allPeriodicUsersSelected = eligiblePeriodicUsers.length > 0 && eligiblePeriodicUsers.every((u) => periodicTableSelection.has(u.id));
   const pendingRequests = songRequests.filter((r) => r.status === 'pending');
 
   // Dynamic Genres calculation
@@ -280,7 +288,48 @@ export const AdminPanel: React.FC = () => {
     refreshState();
     setUserEditFeedback(blocked ? `Chat access disabled for @${u.username} on all devices.` : `Chat access restored for @${u.username} on all devices.`);
   };
-  const handleToggleAccountLock = async (u:User) => { if(u.role==='admin')return;const result=await adminUpdateUser(u.id,{isLocked:!u.isLocked});if(!result.success){setUserEditFeedback(result.error||'Could not change account lock.');return;}refreshState();setLockCodeModalUser(!u.isLocked?u:null);setUserEditFeedback(!u.isLocked?`Account @${u.username} locked.`:`Account @${u.username} unlocked.`); };
+  const handleToggleAccountLock = async (u:User) => {
+    if (u.role === 'admin') return;
+    if (!u.isLocked) { setLockReasonInput(u.accountLockReason || ''); setLockReasonModalUser(u); return; }
+    try {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/account-lock`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locked: false }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not unlock account.');
+      refreshState(); setLockCodeModalUser(null); setUserEditFeedback(`Account @${u.username} unlocked.`);
+    } catch (error: any) { setUserEditFeedback(error?.message || 'Could not unlock account.'); }
+  };
+  const handleConfirmAccountLock = async () => {
+    if (!lockReasonModalUser || !lockReasonInput.trim() || lockReasonBusy) return;
+    setLockReasonBusy(true);
+    try {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(lockReasonModalUser.id)}/account-lock`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locked: true, reason: lockReasonInput.trim() }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not lock account.');
+      const lockedUser = lockReasonModalUser;
+      setLockReasonModalUser(null); setLockReasonInput(''); refreshState(); setLockCodeModalUser(lockedUser);
+      setUserEditFeedback(`Account @${lockedUser.username} locked. The reason will appear on their unlock screen.`);
+    } catch (error: any) { setUserEditFeedback(error?.message || 'Could not lock account.'); }
+    finally { setLockReasonBusy(false); }
+  };
+  const togglePeriodicTableSelection = (uid: string, checked: boolean) => {
+    setPeriodicTableSelection(current => { const next = new Set(current); if (checked) next.add(uid); else next.delete(uid); return next; });
+  };
+  const handleSelectAllPeriodicTableUsers = (checked: boolean) => {
+    setPeriodicTableSelection(checked ? new Set(eligiblePeriodicUsers.map(u => u.id)) : new Set());
+  };
+  const handleBulkPeriodicTableOnly = async (enabled: boolean) => {
+    const uids = [...periodicTableSelection];
+    if (!uids.length || periodicTableBusy) return;
+    setPeriodicTableBusy(true); setPeriodicTableFeedback('Updating selected accounts…');
+    try {
+      const response = await fetch('/api/admin/users/periodic-table-only/bulk', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uids, enabled }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not update periodic-table access.');
+      setPeriodicTableFeedback(`${Number(data.updatedCount) || 0} account(s) ${enabled ? 'restricted to the periodic table' : 'restored to normal site access'}.`);
+      setPeriodicTableSelection(new Set()); refreshState();
+    } catch (error: any) { setPeriodicTableFeedback(error?.message || 'Could not update periodic-table access.'); }
+    finally { setPeriodicTableBusy(false); }
+  };
   const handleLogoutAllSessions = async (u:User) => {if(!confirm(`Log out every active session for @${u.username}?`))return;try{const response=await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/logout-all`,{method:'POST',credentials:'same-origin'});const data=await response.json().catch(()=>({}));if(!response.ok||!data.success)throw new Error(data.error||'Could not revoke sessions.');setUserEditFeedback(`All sessions for @${u.username} have been revoked.`);}catch(e:any){setUserEditFeedback(e?.message||'Could not revoke sessions.');}};
 
   const handleLogoutAllNonAdminUsers = async () => {
@@ -1124,13 +1173,26 @@ export const AdminPanel: React.FC = () => {
               </button>
             </div>
             {massLogoutFeedback && <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[10px] text-slate-200">{massLogoutFeedback}</div>}
+            <div className="mb-4 rounded-2xl border border-cyan-300/15 bg-cyan-300/[.04] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-xs font-semibold text-white"><input type="checkbox" checked={allPeriodicUsersSelected} onChange={e => handleSelectAllPeriodicTableUsers(e.target.checked)} className="h-4 w-4 accent-cyan-400" />Select all non-admin accounts ({eligiblePeriodicUsers.length})</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] text-slate-400">{periodicTableSelection.size} selected</span>
+                  <button type="button" disabled={!periodicTableSelection.size || periodicTableBusy} onClick={() => void handleBulkPeriodicTableOnly(true)} className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-[10px] font-bold text-amber-100 disabled:opacity-40">Lock to Periodic Table</button>
+                  <button type="button" disabled={!periodicTableSelection.size || periodicTableBusy} onClick={() => void handleBulkPeriodicTableOnly(false)} className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-[10px] font-bold text-emerald-100 disabled:opacity-40">Restore site access</button>
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] leading-4 text-slate-400">Restricted accounts can only use the Periodic Table. Direct /music links are blocked. Admin accounts are excluded.</p>
+              {periodicTableFeedback && <p role="status" className="mt-2 text-[10px] text-cyan-100">{periodicTableFeedback}</p>}
+            </div>
             {userEditFeedback && <div className="mb-4 rounded-xl border border-cyan-400/20 bg-cyan-500/[0.06] px-3 py-2 text-[10px] text-cyan-100">{userEditFeedback}</div>}
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead>
                   <tr className="border-b border-white/10 text-slate-400 uppercase text-[10px] tracking-wider">
-                    <th className="pb-3 pl-2">Username</th>
+                    <th className="pb-3 pl-2">Select</th>
+                    <th className="pb-3">Username</th>
                     <th className="pb-3">Role</th>
                     <th className="pb-3">Last Logged In</th>
                     <th className="pb-3">Last Song Listened</th>
@@ -1151,7 +1213,8 @@ export const AdminPanel: React.FC = () => {
                           : 'hover:bg-white/[0.02]'
                       }`}
                     >
-                      <td className="py-3 pl-2">
+                      <td className="py-3 pl-2"><input type="checkbox" aria-label={`Select ${u.username} for periodic-table access`} disabled={u.role === 'admin'} checked={periodicTableSelection.has(u.id)} onChange={e => togglePeriodicTableSelection(u.id, e.target.checked)} className="h-4 w-4 accent-cyan-400 disabled:opacity-20" /></td>
+                      <td className="py-3">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-white">{u.username}</span>
                           {u.chatTrusted && <span className="inline-flex items-center rounded-full border border-cyan-400/25 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-bold text-cyan-200">TRUSTED</span>}
@@ -1169,6 +1232,7 @@ export const AdminPanel: React.FC = () => {
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">Suspended</span>
                           )}
                           {u.isLocked && <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 font-bold">Locked</span>}
+                          {u.periodicTableOnly && <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-bold">Periodic Table Only</span>}
                         </div>
                       </td>
                       <td className="py-3">
@@ -1292,6 +1356,7 @@ export const AdminPanel: React.FC = () => {
             </div>
           </div>
 
+          {lockReasonModalUser && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4"><div className="w-full max-w-md rounded-3xl border border-amber-400/25 bg-slate-950 p-6 text-white"><div className="flex items-center justify-between"><h3 className="font-bold">Lock @{lockReasonModalUser.username}</h3><button type="button" onClick={() => setLockReasonModalUser(null)}><XCircle/></button></div><p className="mt-2 text-xs leading-5 text-slate-400">This message will be shown to the user on the account-locked screen while they request the current seven-digit unlock code.</p><label className="mt-4 block text-xs font-semibold text-slate-300">Reason shown to the user</label><textarea value={lockReasonInput} onChange={e => setLockReasonInput(e.target.value.slice(0,240))} rows={4} placeholder="Explain why this account was locked…" className="mt-2 w-full rounded-xl border border-white/10 bg-white/[.05] p-3 text-sm text-white outline-none focus:border-amber-300/50"/><div className="mt-1 text-right text-[10px] text-slate-500">{lockReasonInput.length}/240</div><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setLockReasonModalUser(null)} className="rounded-xl border border-white/10 px-4 py-2 text-xs text-slate-300">Cancel</button><button type="button" disabled={!lockReasonInput.trim() || lockReasonBusy} onClick={() => void handleConfirmAccountLock()} className="rounded-xl bg-amber-300 px-4 py-2 text-xs font-bold text-slate-950 disabled:opacity-40">{lockReasonBusy ? 'Locking…' : 'Lock account'}</button></div></div></div>}
           {lockCodeModalUser&&<div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4"><div className="w-full max-w-sm rounded-3xl border border-amber-400/25 bg-slate-950 p-6 text-white"><div className="flex justify-between"><h3 className="font-bold">Unlock code · @{lockCodeModalUser.username}</h3><button onClick={()=>setLockCodeModalUser(null)}><XCircle/></button></div><div className="py-6 text-center font-mono text-4xl tracking-widest">{lockCode||'•••••••'}</div><p className="text-center text-xs text-slate-400">Refreshes in {Math.max(0,Math.ceil((lockCodeExpiresAt-lockCodeNow)/1000))} seconds</p></div></div>}
           {/* Edit User Modal */}
           {editingUser && (
