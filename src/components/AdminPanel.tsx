@@ -1233,6 +1233,7 @@ export const AdminPanel: React.FC = () => {
                           )}
                           {u.isLocked && <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 font-bold">Locked</span>}
                           {u.periodicTableOnly && <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-bold">Periodic Table Only</span>}
+                          {u.isLocked && u.accountLockReason && <span className="w-full pl-1 text-[9px] leading-4 text-amber-200/80">Lock reason: {u.accountLockReason}</span>}
                         </div>
                       </td>
                       <td className="py-3">
