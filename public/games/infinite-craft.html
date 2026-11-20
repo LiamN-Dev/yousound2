@@ -273,6 +273,7 @@
         players: [{ id: 'local', name: 'Liam', color: PLAYER_COLORS[0], score: 0 }],
         raceTarget: 'Robot',
         discovered: [],
+        savedDiscoveries: [],
         discoveredSet: new Set(),
         canvasItems: [],
         nextId: 1,
@@ -433,10 +434,22 @@
       async function loadCraftProfile() {
         try {
           const data = await craftApi('/profile');
-          state.myName = data.profile.username;
-          state.myId = data.profile.username;
-          document.getElementById('my-name-input').value = data.profile.username;
-          state.players = [{ id: state.myId, name: state.myName, color: PLAYER_COLORS[0], score: data.profile.score || 0 }];
+          const profile = data.profile || {};
+          state.myName = profile.username || state.myName;
+          state.myId = state.myName;
+          state.savedDiscoveries = Array.isArray(profile.discoveryItems) && profile.discoveryItems.length
+            ? profile.discoveryItems
+            : (Array.isArray(profile.discoveries) ? profile.discoveries.map((name) => ({ name, emoji: '✨' })) : []);
+          document.getElementById('my-name-input').value = state.myName;
+          state.players = [{ id: state.myId, name: state.myName, color: PLAYER_COLORS[0], score: Number(profile.score || 0) }];
+          if (state.gameStarted) {
+            for (const item of state.savedDiscoveries) {
+              if (!item || !item.name || state.discoveredSet.has(item.name)) continue;
+              state.discoveredSet.add(item.name);
+              state.discovered.push({ name: item.name, emoji: item.emoji || '✨', isFirst: false, by: 'Your collection' });
+            }
+            renderInventory();
+          }
           renderPlayersBar();
         } catch (error) {
           showToast(error.message || 'Your profile could not be loaded.');
@@ -465,6 +478,11 @@
         for (const st of STARTERS) {
           state.discovered.push({ name: st.name, emoji: st.emoji, isFirst: false, by: 'Starter' });
           state.discoveredSet.add(st.name);
+        }
+        for (const item of state.savedDiscoveries) {
+          if (!item || !item.name || state.discoveredSet.has(item.name)) continue;
+          state.discovered.push({ name: item.name, emoji: item.emoji || '✨', isFirst: false, by: 'Your collection' });
+          state.discoveredSet.add(item.name);
         }
         clearWorkspace();
         if (state.mode === 'race') {
@@ -647,6 +665,11 @@
           });
           const resName = result.item.name;
           const resEmoji = result.item.emoji;
+          if (result.profile) {
+            const myPlayer = state.players.find((player) => player.isMe || player.id === state.myId) || state.players[0];
+            if (myPlayer) myPlayer.score = Number(result.profile.score || myPlayer.score || 0);
+            if (Array.isArray(result.profile.discoveryItems)) state.savedDiscoveries = result.profile.discoveryItems;
+          }
           removeChip(a.id);
           removeChip(b.id);
           spawnChip(resName, resEmoji, mx, my, true);
