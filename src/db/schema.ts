@@ -21,6 +21,8 @@ export const users = pgTable('users', {
   colorAccent: text('color_accent'),
   dailyListenLimit: integer('daily_listen_limit'), // null = unlimited; 0 = no listens allowed
   isLocked: boolean('is_locked').notNull().default(false),
+  accountLockReason: text('account_lock_reason'),
+  periodicTableOnly: boolean('periodic_table_only').notNull().default(false),
   sessionVersion: integer('session_version').notNull().default(0),
   christmasMode: boolean('christmas_mode').notNull().default(false),
   gamesEnabled: boolean('games_enabled').notNull().default(false),

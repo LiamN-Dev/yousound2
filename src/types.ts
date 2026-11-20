@@ -22,6 +22,8 @@ export interface User {
   colorAccent?: UserAccentColor;
   dailyListenLimit?: number | null; // null/undefined = unlimited; 0 = blocked from listening
   isLocked?: boolean;
+  accountLockReason?: string;
+  periodicTableOnly?: boolean;
   dailyListensToday?: number; // Admin-only usage displayed in the user table
   /** Enabled only by an administrator for this account. */
   christmasMode?: boolean;

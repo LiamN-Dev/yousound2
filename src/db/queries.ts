@@ -115,6 +115,8 @@ export async function updateUserDb(
     colorAccent?: string;
     dailyListenLimit?: number | null;
     isLocked?: boolean;
+    accountLockReason?: string;
+    periodicTableOnly?: boolean;
     sessionVersion?: number;
     christmasMode?: boolean;
     gamesEnabled?: boolean;

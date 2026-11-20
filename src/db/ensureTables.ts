@@ -85,6 +85,8 @@ export async function ensureTables(): Promise<void> {
     ['users', 'is_suspended BOOLEAN DEFAULT false'],
     ['users', 'daily_listen_limit INTEGER'],
     ['users', 'is_locked BOOLEAN NOT NULL DEFAULT false'],
+    ['users', 'account_lock_reason TEXT'],
+    ['users', 'periodic_table_only BOOLEAN NOT NULL DEFAULT false'],
     ['users', 'session_version INTEGER NOT NULL DEFAULT 0'],
     ['users', 'christmas_mode BOOLEAN NOT NULL DEFAULT false'],
     ['users', 'games_enabled BOOLEAN NOT NULL DEFAULT false'],
