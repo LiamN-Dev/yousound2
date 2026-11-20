@@ -116,12 +116,25 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
         // Ignore malformed events; the server will send the next state change.
       }
     };
+    const handleSnapshot = (rawEvent: Event) => {
+      try {
+        const event = rawEvent as MessageEvent<string>;
+        const payload = JSON.parse(event.data || '{}') as { blockedVideoIds?: string[] };
+        const blockedIds = new Set(Array.isArray(payload.blockedVideoIds) ? payload.blockedVideoIds : []);
+        if (!blockedIds.size) return;
+        setVideos(current => current.filter(video => !blockedIds.has(video.videoId)));
+        setSelected(current => current && blockedIds.has(current.videoId) ? null : current);
+      } catch {
+        // Ignore malformed snapshots; the next reconnect will send another.
+      }
+    };
+    stream.addEventListener('snapshot', handleSnapshot);
     stream.addEventListener('moderation', handleModeration);
     stream.onerror = () => {
       // EventSource automatically reconnects. Do not disturb the user's session.
     };
     return () => {
-      stream.removeEventListener('moderation', handleModeration);
+      stream.removeEventListener('snapshot', handleSnapshot);\n      stream.removeEventListener('moderation', handleModeration);
       stream.close();
     };
   }, []);
