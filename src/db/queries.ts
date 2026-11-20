@@ -1869,7 +1869,12 @@ export async function hideChatThreadForUserDb(threadId: string, userId: string) 
 }
 
 export async function createOrGetAppealThreadDb(userId: string, username: string) {
-  return createOrForceChatThreadDb(userId, username, 'admin', 'Administrator', true);
+  const thread = await createOrForceChatThreadDb(userId, username, 'admin', 'Administrator', true);
+  // Appeal channels must remain usable even if a prior moderation action closed the thread.
+  if (thread?.id && thread.isAppealThread) {
+    return setChatThreadTerminatedDb(thread.id, false, undefined);
+  }
+  return thread;
 }
 
 export async function getChatThreadByIdDb(threadId: string) {
