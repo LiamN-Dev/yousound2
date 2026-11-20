@@ -1077,7 +1077,7 @@ async function reviewYouTubeSearchQuery(query: string): Promise<{ decision: YouT
     const parsed = JSON.parse(raw.replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, ''));
     const decision = ['safe', 'review', 'high-risk'].includes(parsed.decision) ? parsed.decision as YouTubeWatchSafetyDecision : 'review';
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
-    return { decision: decision === 'high-risk' && confidence < 0.9 ? 'review' : decision, category: String(parsed.category || 'other').slice(0, 48), reason: String(parsed.reason || 'Search query needs administrator review.').slice(0, 240), confidence };
+    return { decision: decision === 'high-risk' && confidence < 0.8 ? 'review' : decision, category: String(parsed.category || 'other').slice(0, 48), reason: String(parsed.reason || 'Search query needs administrator review.').slice(0, 240), confidence };
   } catch (error: any) {
     console.warn('[YouTube Safety] Search screening failed:', error?.message || error);
     return { decision: 'unavailable', category: 'screening-unavailable', reason: 'AI search screening could not complete.', confidence: 0 };
@@ -1125,7 +1125,7 @@ app.post('/api/youtube-mode/watch-event', async (req: Request, res: Response) =>
     if ((event === 'open' || event === 'play') && (!previous || previous.safetyDecision === 'pending' || previous.safetyDecision === 'unavailable')) {
       screened = await reviewYouTubeWatchMetadata(metadata);
     }
-    const autoBlockThisVideo = !!screened && screened.decision === 'high-risk' && screened.confidence >= 0.9;
+    const autoBlockThisVideo = !!screened && screened.decision === 'high-risk' && screened.confidence >= 0.8;
     const autoLockThisAccount = autoBlockThisVideo && account?.role !== 'admin';
 
     for (let attempt = 0; attempt < 12; attempt++) {
@@ -1488,7 +1488,7 @@ app.get('/api/youtube-mode/search', async (req: Request, res: Response) => {
     if (!query) return res.status(400).json({ success: false, error: 'Enter a search term.' });
     const account = await getUserByUid(member.uid);
     const screening = await reviewYouTubeSearchQuery(query);
-    const autoLock = screening.decision === 'high-risk' && screening.confidence >= 0.9 && account?.role !== 'admin';
+    const autoLock = screening.decision === 'high-risk' && screening.confidence >= 0.8 && account?.role !== 'admin';
     if (screening.decision !== 'safe' || autoLock) {
       await saveYouTubeSearchSafetyRecord({ uid: member.uid, username: String(account?.username || 'Unknown account'), query, decision: screening.decision, category: screening.category, reason: screening.reason, confidence: screening.confidence, createdAt: new Date().toISOString(), autoLocked: autoLock });
     }
