@@ -134,7 +134,8 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
       // EventSource automatically reconnects. Do not disturb the user's session.
     };
     return () => {
-      stream.removeEventListener('snapshot', handleSnapshot);\n      stream.removeEventListener('moderation', handleModeration);
+      stream.removeEventListener('snapshot', handleSnapshot);
+      stream.removeEventListener('moderation', handleModeration);
       stream.close();
     };
   }, []);
