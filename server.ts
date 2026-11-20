@@ -502,7 +502,8 @@ app.put('/api/admin/youtube-mode/code', async (req: Request, res: Response) => {
       console.warn('[YouSound AI] YouTube code delivery failed:', error?.message || error);
       return false;
     })));
-    const deliveryByUid = new Map(allRecipients.map((uid, index) => [uid, deliveries[index]]));
+    const deliveryByUid = new Map<string, boolean>();
+    allRecipients.forEach((uid, index) => deliveryByUid.set(uid, Boolean(deliveries[index])));
     return res.json({
       success: true,
       notifiedRecipients: recipients.filter(uid => deliveryByUid.get(uid)).length,
@@ -530,7 +531,8 @@ app.delete('/api/admin/youtube-mode/code', async (req: Request, res: Response) =
       '[YOUTUBE ACCESS CODE]\n\nThe YouSound YouTube Mode access code has been removed. The previous code no longer works.',
       { replacePreviousCode: true }
     ).catch(() => false)));
-    const deliveryByUid = new Map(allRecipients.map((uid, index) => [uid, deliveries[index]]));
+    const deliveryByUid = new Map<string, boolean>();
+    allRecipients.forEach((uid, index) => deliveryByUid.set(uid, Boolean(deliveries[index])));
     return res.json({
       success: true,
       notifiedRecipients: recipients.filter(uid => deliveryByUid.get(uid)).length,
