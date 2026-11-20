@@ -87,15 +87,15 @@ export const YouTubeSafetyReview: React.FC = () => {
     return true;
   }), [activities, tab]);
   const searchableVideos = useMemo(() => {
-    const q = (globalSearch + ' ' + tabSearch).trim().toLowerCase();
-    if (!q) return categoryVideos;
-    return categoryVideos.filter(item => [item.videoTitle, item.channelTitle, item.videoId, item.username, item.uid, item.safetyReason, item.safetyCategory].join(' ').toLowerCase().includes(q));
+    const queries = [globalSearch, tabSearch].map(value => value.trim().toLowerCase()).filter(Boolean);
+    if (!queries.length) return categoryVideos;
+    return categoryVideos.filter(item => { const haystack = [item.videoTitle, item.channelTitle, item.videoId, item.username, item.uid, item.safetyReason, item.safetyCategory].join(' ').toLowerCase(); return queries.every(query => haystack.includes(query)); });
   }, [categoryVideos, globalSearch, tabSearch]);
   const categorySearches = useMemo(() => searchActivities.filter(item => tab === 'all' || tab === 'review'), [searchActivities, tab]);
   const searchableSearches = useMemo(() => {
-    const q = (globalSearch + ' ' + tabSearch).trim().toLowerCase();
-    if (!q) return categorySearches;
-    return categorySearches.filter(item => [item.query, item.username, item.uid, item.reason, item.category].join(' ').toLowerCase().includes(q));
+    const queries = [globalSearch, tabSearch].map(value => value.trim().toLowerCase()).filter(Boolean);
+    if (!queries.length) return categorySearches;
+    return categorySearches.filter(item => { const haystack = [item.query, item.username, item.uid, item.reason, item.category].join(' ').toLowerCase(); return queries.every(query => haystack.includes(query)); });
   }, [categorySearches, globalSearch, tabSearch]);
 
   const selectableVideoIds = [...new Set(searchableVideos.filter(item => !item.blocked).map(item => item.videoId))];
