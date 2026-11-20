@@ -146,6 +146,7 @@ export const YouTubeSafetyReview: React.FC = () => {
                       {decisionLabel[decision]}
                     </span>
                     {item.safetyCategory && <span className="text-[9px] uppercase tracking-wider text-slate-500">{item.safetyCategory}</span>}
+                    {item.blocked && <span className="rounded-md bg-rose-500/15 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-rose-200">Blocked for everyone</span>}
                   </div>
                   <h3 className="mt-2 line-clamp-2 text-sm font-semibold text-white">{item.videoTitle || 'Untitled video'}</h3>
                   <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle || 'Unknown channel'}</p>
