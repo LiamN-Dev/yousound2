@@ -429,6 +429,20 @@ router.post('/discoveries', async (req, res) => {
     if (cached) {
       proposedRecipe = { inputA: a, inputB: b, result: cached.result, emoji: cached.emoji, key: recipeKey };
     } else {
+      const now = Date.now();
+      const recentAttempts = (attempts.get(account.uid) || []).filter((timestamp) => now - timestamp < 60_000);
+      if (recentAttempts.length >= 30) {
+        attempts.set(account.uid, recentAttempts);
+        return res.status(429).json({ success: false, error: 'You have reached the new-discovery limit. Try again in a minute.' });
+      }
+      recentAttempts.push(now);
+      attempts.set(account.uid, recentAttempts);
+      if (attempts.size > 5000) {
+        for (const [uid, timestamps] of attempts.entries()) {
+          const recent = timestamps.filter((timestamp) => now - timestamp < 60_000);
+          if (recent.length) attempts.set(uid, recent); else attempts.delete(uid);
+        }
+      }
       const generated = await generateInfiniteCraftDiscovery(a, b);
       if (!generated.accepted || !generated.noun || !generated.emoji) {
         return res.status(422).json({ success: false, rejected: true, error: generated.reason || 'Those ingredients do not make a meaningful discovery.' });
