@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { YouTubeTrackedPlayer } from './YouTubeTrackedPlayer';
 import { AlertCircle, Check, Clapperboard, Compass, Heart, Loader2, Play, Search, Settings2, ThumbsDown, TrendingUp, UserRound, Users, Youtube, X } from 'lucide-react';
 
@@ -70,7 +70,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
   },[]);
 
   const loadFeed = useCallback(async (mode:Section, searchTerm?:string, sortOrder?:string) => {
-    setLoading(true); setError(''); setNotice('');
+    setLoading(true); setError(''); setNotice(''); setNextPageToken(null); shortsLoadingRef.current = false; setLoadingMore(false);
     try {
       const url = mode === 'search'
         ? '/api/youtube-mode/search?q='+encodeURIComponent(searchTerm || '')+'&order='+encodeURIComponent(sortOrder || 'relevance')
