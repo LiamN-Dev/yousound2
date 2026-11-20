@@ -237,6 +237,19 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
     });
   }
 
+  // Periodic-table-only accounts are restricted to the chemistry gate and account
+  // session endpoints. This also blocks direct API calls, not just the React UI.
+  const safePeriodicTableRoute =
+    (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
+    (req.method === 'POST' && ['/api/auth/logout', '/api/auth/login'].includes(url));
+  if (user.role !== 'admin' && user.periodicTableOnly && !safePeriodicTableRoute) {
+    return res.status(403).json({
+      success: false,
+      error: 'This account is restricted to the Periodic Table.',
+      code: 'PERIODIC_TABLE_ONLY',
+    });
+  }
+
   if (level === 'public') return next();
 
   const safeLockRoute = (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) || (req.method === 'POST' && url === '/api/auth/unlock');
