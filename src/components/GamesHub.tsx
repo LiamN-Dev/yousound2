@@ -519,32 +519,17 @@ iv>
                   Feature this game in the Arcade
                   <Star className="h-3.5 w-3.5 text-amber-300" />
                 </label>
-                {game.id === 'youcraft' ? (
-                  <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
-                    Native YouSound game. Drag elements together to discover combinations instantly. Your collection and Craft Wars matches are saved to your account.
-                  </div>
-                ) : game.id === 'crossy-road' ? (
+                {game.id === 'crossy-road' ? (
                   <div className="mt-4 rounded-xl border border-emerald-200/15 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-100">
-                    Native 3D Crossy Road. Multiplayer races use six-character room codes, five checkpoints, and three lives per checkpoint.
+                    Native 3D Crossy Road with account-backed solo high scores and live multiplayer races. The room host can end a race.
                   </div>
                 ) : game.id === 'infinite-craft' ? (
                   <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
-                    Imported Infinite Craft. Recipes are resolved by YouSound's named recipe database; unknown pairs do not generate random adjective-prefixed items. Rooms and discovery leaderboards are stored on the account backend.
+                    AI evaluates ingredient pairs and either returns a validated noun with an emoji or rejects the pair. Accepted discoveries and one-point combinations are saved to accounts.
                   </div>
                 ) : (
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <label className="space-y-1 text-xs font-semibold text-slate-300">
-                      OpenFront game URL
-                      <input value={game.launchUrl} onChange={(event) => updateGame(game.id, { launchUrl: event.target.value })} type="url" maxLength={500} placeholder="https://your-openfront-host.example" className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/50" />
-                    </label>
-                    <label className="space-y-1 text-xs font-semibold text-slate-300">
-                      How it opens
-                      <select value={game.launchMode} onChange={(event) => updateGame(game.id, { launchMode: event.target.value as LaunchMode })} className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/50">
-                        <option value="new-tab">Open separately</option>
-                        <option value="embedded">Embed self-hosted instance</option>
-                      </select>
-                    </label>
-                    <p className="md:col-span-2 text-[11px] leading-5 text-slate-500">For an in-YouSound embed, use a separately hosted OpenFront instance whose own frame policy permits YouSound. The official OpenFront host cannot be forced into an iframe. A URL change does not deploy or create that server.</p>
+                  <div className="mt-4 rounded-xl border border-sky-200/15 bg-sky-300/5 p-3 text-xs leading-5 text-sky-100">
+                    OrbitalVision 3D is served directly from YouSound. It includes the uploaded live 3D Earth, satellite catalogs, orbit propagation, observer controls and telemetry interface.
                   </div>
                 )}
               </div>
@@ -565,45 +550,15 @@ iv>
               <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{recentLaunches.length} RECENT</span>
             </div>
             <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.filter((event) => event.gameId !== 'infinite-craft').map((event) => (
+              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
                 <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
-                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{event.gameId === 'youcraft' ? 'YouCraft' : 'OpenFront'}</strong></div>
+                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{games.find((game) => game.id === event.gameId)?.title || event.gameId}</strong></div>
                   <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
                 </div>
               ))}
             </div>
           </div>
-          <div className="border-t border-white/10 pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-black text-white">YouCraft community overview</h3>
-                <p className="mt-1 text-[11px] text-slate-500">Account-level discovery totals and the latest multiplayer arenas. No private chat content is exposed here.</p>
-              </div>
-              <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{youCraftOverview?.players.length || 0} PLAYERS · {youCraftOverview?.matches.length || 0} MATCHES</span>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="overflow-hidden rounded-xl border border-white/10">
-                <div className="border-b border-white/10 bg-white/[.03] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Most recent player activity</div>
-                {(youCraftOverview?.players || []).slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,12).map((player) => (
-                  <div key={player.uid} className="flex items-center justify-between gap-2 border-b border-white/5 px-3 py-2.5 last:border-0">
-                    <span className="truncate text-xs text-slate-200">{player.username || player.uid}</span>
-                    <span className="shrink-0 text-[10px] tabular-nums text-cyan-200">{player.discoveryCount} discoveries</span>
-                  </div>
-                ))}
-                {!youCraftOverview?.players.length && <p className="p-4 text-center text-xs text-slate-500">No YouCraft players yet.</p>}
-              </div>
-              <div className="overflow-hidden rounded-xl border border-white/10">
-                <div className="border-b border-white/10 bg-white/[.03] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Recent strategy matches</div>
-                {(youCraftOverview?.matches || []).slice(0,12).map((match) => (
-                  <div key={match.id} className="border-b border-white/5 px-3 py-2.5 last:border-0">
-                    <div className="flex items-center justify-between gap-2"><span className="font-mono text-xs font-bold text-white">{match.code}</span><span className="text-[10px] uppercase text-cyan-200">{match.status}</span></div>
-                    <div className="mt-1 truncate text-[10px] text-slate-400">{match.players.join(' vs ') || 'Waiting'} · turn {match.turnNumber}</div>
-                  </div>
-                ))}
-                {!youCraftOverview?.matches.length && <p className="p-4 text-center text-xs text-slate-500">No strategy matches yet.</p>}
-              </div>
-            </div>
-          </div>
+iv>
         </section>
       )}
     </div>
