@@ -18,6 +18,7 @@ test('only distinct videos increment the weekly offense count', () => {
 
 test('clear unsafe metadata signals are auto-classified instead of sent to review', () => {
   assert.equal(hasExplicitUnsafeYouTubeMetadataSignal({ title: 'Inappropriate TV fails you have not seen', channelTitle: '', description: '', tags: [] }), true);
-  assert.equal(hasExplicitUnsafeYouTubeMetadataSignal({ title: 'Pornography explained in a health class', channelTitle: '', description: '', tags: [] }), true);
+  assert.equal(hasExplicitUnsafeYouTubeMetadataSignal({ title: 'Pornography explained in a health class', channelTitle: '', description: '', tags: [] }), false);
   assert.equal(hasExplicitUnsafeYouTubeMetadataSignal({ title: 'How television editing works', channelTitle: '', description: '', tags: [] }), false);
+  assert.equal(hasExplicitUnsafeYouTubeMetadataSignal({ title: 'Graphic gore documentary history', channelTitle: '', description: '', tags: [] }), false);
 });
