@@ -7,18 +7,15 @@ import {
   getUserByUid,
 } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
-import {
-  findInfiniteCraftRecipe,
-  infiniteCraftRecipeKey,
-  listInfiniteCraftRecipes,
-  normalizeCraftName,
-} from '../services/infiniteCraft.ts';
+import { infiniteCraftRecipeKey, listInfiniteCraftRecipes, normalizeCraftName } from '../services/infiniteCraft.ts';
+import { generateInfiniteCraftDiscovery } from '../services/infiniteCraftAI.ts';
 
 type CraftProfile = {
   uid: string;
   username: string;
   score: number;
   discoveries: string[];
+  discoveryItems: Array<{ name: string; emoji: string }>;
   recipes: string[];
   combinations: number;
   raceWins: number;
@@ -117,11 +114,30 @@ async function mutateStore(update: (current: CraftStore) => CraftStore): Promise
 }
 
 function getProfile(store: CraftStore, account: Account): CraftProfile {
-  return store.profiles[account.uid] || {
+  const saved = store.profiles[account.uid];
+  if (saved) {
+    const discoveries = Array.isArray(saved.discoveries) ? saved.discoveries : [];
+    const discoveryItems = Array.isArray(saved.discoveryItems)
+      ? saved.discoveryItems.filter((item) => item && typeof item.name === 'string' && typeof item.emoji === 'string')
+      : discoveries.map((name) => ({ name, emoji: '✨' }));
+    return {
+      ...saved,
+      username: account.username,
+      discoveries,
+      discoveryItems,
+      recipes: Array.isArray(saved.recipes) ? saved.recipes : [],
+      score: Number(saved.score || 0),
+      combinations: Number(saved.combinations || 0),
+      raceWins: Number(saved.raceWins || 0),
+      updatedAt: saved.updatedAt || new Date().toISOString(),
+    };
+  }
+  return {
     uid: account.uid,
     username: account.username,
     score: 0,
     discoveries: [],
+    discoveryItems: [],
     recipes: [],
     combinations: 0,
     raceWins: 0,
@@ -168,13 +184,16 @@ function recordCombination(
   ingredientB: string,
   roomId: string | null,
   soloRaceTarget: string,
+  proposedRecipe: { inputA: string; inputB: string; result: string; emoji: string; key: string },
 ) {
-  const recipe = findInfiniteCraftRecipe(ingredientA, ingredientB);
-  if (!recipe) throw new Error('No known discovery for ' + ingredientA + ' + ' + ingredientB + ' yet. Try another combination.');
+  const cached = store.seenRecipes[proposedRecipe.key];
+  const recipe = cached
+    ? { inputA: ingredientA, inputB: ingredientB, result: cached.result, emoji: cached.emoji, key: proposedRecipe.key }
+    : proposedRecipe;
   const profile = getProfile(store, account);
   const alreadyUsedRecipe = profile.recipes.includes(recipe.key);
   const firstDiscovery = !store.seenRecipes[recipe.key];
-  const points = alreadyUsedRecipe ? 0 : firstDiscovery ? 25 : 10;
+  const points = 1;
   const now = new Date().toISOString();
 
   if (!store.seenRecipes[recipe.key]) {
@@ -190,10 +209,15 @@ function recordCombination(
   const nextProfile: CraftProfile = {
     ...profile,
     username: account.username,
-    score: profile.score + points,
-    discoveries: profile.discoveries.includes(recipe.result) ? profile.discoveries : [...profile.discoveries, recipe.result],
+    score: profile.score + 1,
+    discoveries: profile.discoveries.some((name) => name.toLocaleLowerCase() === recipe.result.toLocaleLowerCase())
+      ? profile.discoveries
+      : [...profile.discoveries, recipe.result],
+    discoveryItems: profile.discoveryItems.some((item) => item.name.toLocaleLowerCase() === recipe.result.toLocaleLowerCase())
+      ? profile.discoveryItems
+      : [...profile.discoveryItems, { name: recipe.result, emoji: recipe.emoji }],
     recipes: alreadyUsedRecipe ? profile.recipes : [...profile.recipes, recipe.key],
-    combinations: profile.combinations + (alreadyUsedRecipe ? 0 : 1),
+    combinations: profile.combinations + 1,
     updatedAt: now,
   };
 
@@ -208,40 +232,34 @@ function recordCombination(
     const playerIndex = room.players.findIndex((player) => player.uid === account.uid);
     if (playerIndex < 0) throw new Error('You are not a member of this room.');
     const roomPlayer = room.players[playerIndex];
-    if (roomPlayer.recipes.includes(recipe.key)) {
-      return { recipe, points: 0, firstDiscovery: false, won: false, room, profile, alreadyDiscovered: true };
-    }
-
-    roomDiscovery = {
+    const itemIsNewInRoom = !room.discoveries.some((entry) => entry.name.toLocaleLowerCase() === recipe.result.toLocaleLowerCase());
+    roomDiscovery = itemIsNewInRoom ? {
       id: room.id + ':' + recipe.key,
       recipeKey: recipe.key,
       name: recipe.result,
       emoji: recipe.emoji,
       by: account.username,
-      points,
+      points: 1,
       firstDiscovery,
       createdAt: now,
-    };
+    } : null;
     const players = [...room.players];
     players[playerIndex] = {
       ...roomPlayer,
-      score: roomPlayer.score + points,
+      score: roomPlayer.score + 1,
       discoveries: roomPlayer.discoveries.includes(recipe.result) ? roomPlayer.discoveries : [...roomPlayer.discoveries, recipe.result],
-      recipes: [...roomPlayer.recipes, recipe.key],
+      recipes: roomPlayer.recipes.includes(recipe.key) ? roomPlayer.recipes : [...roomPlayer.recipes, recipe.key],
     };
 
     if (room.mode === 'race' && recipe.result.toLocaleLowerCase() === room.raceTarget.toLocaleLowerCase() && !room.winnerUid) {
       won = true;
-      winBonus = 100;
-      players[playerIndex] = { ...players[playerIndex], score: players[playerIndex].score + winBonus };
-      nextProfile.score += winBonus;
       nextProfile.raceWins += 1;
     }
 
     room = {
       ...room,
       players,
-      discoveries: [...room.discoveries, roomDiscovery],
+      discoveries: roomDiscovery ? [...room.discoveries, roomDiscovery] : room.discoveries,
       winnerUid: won ? account.uid : room.winnerUid,
       winnerName: won ? account.username : room.winnerName,
       status: won ? 'finished' : room.status,
@@ -250,13 +268,11 @@ function recordCombination(
     store.rooms[roomId] = room;
   } else if (soloRaceTarget && recipe.result.toLocaleLowerCase() === soloRaceTarget.toLocaleLowerCase()) {
     won = true;
-    winBonus = 100;
-    nextProfile.score += winBonus;
     nextProfile.raceWins += 1;
   }
 
   store.profiles[account.uid] = nextProfile;
-  return { recipe, points, firstDiscovery, won, winBonus, room, profile: nextProfile, discovery: roomDiscovery, alreadyDiscovered: alreadyUsedRecipe };
+  return { recipe, points: 1, firstDiscovery, won, winBonus: 0, room, profile: nextProfile, discovery: roomDiscovery, alreadyDiscovered: profile.discoveries.includes(recipe.result) };
 }
 
 router.get('/recipes', (_req, res) => {
@@ -363,6 +379,25 @@ router.post('/rooms/:id/start', async (req, res) => {
   }
 });
 
+router.post('/rooms/:id/end', async (req, res) => {
+  try {
+    const account = await getAccount(req, res);
+    if (!account) return;
+    let endedRoom: CraftRoom | null = null;
+    const store = await mutateStore((current) => {
+      const room = current.rooms[req.params.id];
+      if (!room || !room.players.some((player) => player.uid === account.uid)) throw new Error('Room not found.');
+      if (room.hostUid !== account.uid) throw new Error('Only the room host can end this game.');
+      if (room.status === 'finished') { endedRoom = room; return current; }
+      endedRoom = { ...room, status: 'finished', updatedAt: new Date().toISOString() };
+      return { ...current, rooms: { ...current.rooms, [room.id]: endedRoom } };
+    });
+    return res.json({ success: true, room: publicRoom(endedRoom || store.rooms[req.params.id], account.uid) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, error: error?.message || 'Could not end this room.' });
+  }
+});
+
 router.get('/rooms/:id', async (req, res) => {
   try {
     const account = await getAccount(req, res);
@@ -387,6 +422,33 @@ router.post('/discoveries', async (req, res) => {
     if (!a || !b) return res.status(400).json({ success: false, error: 'Choose two ingredients.' });
     const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId.slice(0, 48) : null;
     const soloRaceTarget = roomId ? '' : normalizeCraftName(req.body?.raceTarget);
+    const recipeKey = infiniteCraftRecipeKey(a, b);
+    const existingStore = await getPersistentSettingDb<CraftStore>(STORE_KEY) || emptyStore();
+    const cached = existingStore.seenRecipes?.[recipeKey];
+    let proposedRecipe: { inputA: string; inputB: string; result: string; emoji: string; key: string };
+    if (cached) {
+      proposedRecipe = { inputA: a, inputB: b, result: cached.result, emoji: cached.emoji, key: recipeKey };
+    } else {
+      const now = Date.now();
+      const recentAttempts = (attempts.get(account.uid) || []).filter((timestamp) => now - timestamp < 60_000);
+      if (recentAttempts.length >= 30) {
+        attempts.set(account.uid, recentAttempts);
+        return res.status(429).json({ success: false, error: 'You have reached the new-discovery limit. Try again in a minute.' });
+      }
+      recentAttempts.push(now);
+      attempts.set(account.uid, recentAttempts);
+      if (attempts.size > 5000) {
+        for (const [uid, timestamps] of attempts.entries()) {
+          const recent = timestamps.filter((timestamp) => now - timestamp < 60_000);
+          if (recent.length) attempts.set(uid, recent); else attempts.delete(uid);
+        }
+      }
+      const generated = await generateInfiniteCraftDiscovery(a, b);
+      if (!generated.accepted || !generated.noun || !generated.emoji) {
+        return res.status(422).json({ success: false, rejected: true, error: generated.reason || 'Those ingredients do not make a meaningful discovery.' });
+      }
+      proposedRecipe = { inputA: a, inputB: b, result: generated.noun, emoji: generated.emoji, key: recipeKey };
+    }
     const outcome: { value: ReturnType<typeof recordCombination> | null } = { value: null };
     const store = await mutateStore((current) => {
       const next: CraftStore = {
@@ -394,12 +456,12 @@ router.post('/discoveries', async (req, res) => {
         profiles: { ...current.profiles },
         seenRecipes: { ...current.seenRecipes },
       };
-      outcome.value = recordCombination(next, account, a, b, roomId, soloRaceTarget);
+      outcome.value = recordCombination(next, account, a, b, roomId, soloRaceTarget, proposedRecipe);
       return next;
     });
-    const recipe = findInfiniteCraftRecipe(a, b);
-    if (!recipe || !outcome.value) return res.status(422).json({ success: false, error: 'No known recipe for those ingredients yet.' });
+    if (!outcome.value) return res.status(500).json({ success: false, error: 'The discovery could not be saved.' });
     const result = outcome.value;
+    const recipe = result.recipe;
     const profile = store.profiles[account.uid] || getProfile(store, account);
     const room = roomId ? store.rooms[roomId] : null;
     return res.json({
@@ -415,8 +477,9 @@ router.post('/discoveries', async (req, res) => {
       winBonus: result.winBonus || 0,
     });
   } catch (error: any) {
-    const noRecipe = /No known discovery/.test(String(error?.message || ''));
-    return res.status(noRecipe ? 422 : 400).json({ success: false, error: error?.message || 'Could not save that discovery.' });
+    const message = String(error?.message || 'Could not save that discovery.');
+    const unavailable = /AI is not configured|Gemini|discovery AI|temporarily unavailable|timed out/i.test(message);
+    return res.status(unavailable ? 503 : 400).json({ success: false, error: message });
   }
 });
 
@@ -429,7 +492,7 @@ router.get('/leaderboard', async (_req, res) => {
       discoveries: profile.discoveries.length,
       combinations: profile.combinations,
       raceWins: profile.raceWins,
-    })).sort((a, b) =>
+    })).filter((profile) => profile.score > 0 || profile.combinations > 0).sort((a, b) =>
       b.score - a.score ||
       b.discoveries - a.discoveries ||
       b.raceWins - a.raceWins ||

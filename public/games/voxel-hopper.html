@@ -515,6 +515,8 @@
       let cupTurnIdx = 0;
       let mpConfigs = [];
       let racers = [];
+      let remoteRacePlayers = [];
+      const remoteRaceMeshes = new Map();
 
       let score = 0;
       let maxRow = 0;
@@ -719,6 +721,81 @@
         return group;
       }
 
+      function makeRemoteNameTag(name, color) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(8, 8, 496, 112, 24);
+        else ctx.rect(8, 8, 496, 112);
+        ctx.fill(); ctx.stroke();
+        ctx.font = 'bold 48px Inter, Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(String(name || 'Player').slice(0, 20), 256, 66, 460);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+        sprite.position.set(0, 3.1, 0);
+        sprite.scale.set(4.3, 1.08, 1);
+        return sprite;
+      }
+
+      function syncRemoteRacePlayers(players) {
+        if (!Array.isArray(players)) return;
+        remoteRacePlayers = players.filter((player) => player && typeof player.username === 'string').slice(0, 8);
+        const liveIds = new Set();
+        remoteRacePlayers.forEach((player, index) => {
+          const id = player.username.slice(0, 24);
+          liveIds.add(id);
+          let mesh = remoteRaceMeshes.get(id);
+          if (!mesh) {
+            const color = PLAYER_TAG_COLORS[(index + 1) % PLAYER_TAG_COLORS.length];
+            mesh = buildCharacter('bot', color);
+            mesh.add(makeRemoteNameTag(id, color));
+            scene.add(mesh);
+            remoteRaceMeshes.set(id, mesh);
+          } else if (!mesh.parent) {
+            scene.add(mesh);
+          }
+          mesh.visible = player.status === 'playing' || player.status === 'finished';
+          mesh.userData.remoteRow = Number.isFinite(Number(player.row)) ? Number(player.row) : 0;
+          mesh.userData.remoteCol = Number.isFinite(Number(player.col)) ? Number(player.col) : 0;
+          mesh.userData.remoteStatus = player.status;
+        });
+        for (const [id, mesh] of remoteRaceMeshes.entries()) {
+          if (!liveIds.has(id)) {
+            scene.remove(mesh);
+            remoteRaceMeshes.delete(id);
+          }
+        }
+      }
+
+      function updateRemoteRaceMeshes() {
+        const local = racers.find((r) => r.cfg && r.cfg.id === localPlayerId) || racers[0];
+        const localRow = local ? local.row : maxRow;
+        const localCol = local ? local.col : 0;
+        remoteRacePlayers.forEach((player, index) => {
+          const mesh = remoteRaceMeshes.get(String(player.username || '').slice(0, 24));
+          if (!mesh || !mesh.visible) return;
+          const rowGap = Number(player.row || 0) - localRow;
+          const visibleGap = Math.max(-6, Math.min(6, rowGap));
+          let col = Number(player.col || 0);
+          if (Math.abs(col - localCol) < 1) col = Math.min(MAX_COL, col + (index % 2 === 0 ? 1 : -1));
+          const targetX = Math.max(MIN_COL, Math.min(MAX_COL, col)) * TILE;
+          const targetZ = -(localRow + visibleGap) * TILE;
+          mesh.position.x += (targetX - mesh.position.x) * 0.2;
+          mesh.position.z += (targetZ - mesh.position.z) * 0.2;
+          mesh.position.y = 0;
+        });
+      }
+
       function buildTree(heightTier) {
         const g = new THREE.Group();
         const trunkH = 0.9 + heightTier * 0.35;
@@ -915,13 +992,15 @@
         if (!multiplayerMode || event.source !== window.parent || event.origin !== window.location.origin) return;
         const message = event.data;
         if (!message || typeof message !== 'object') return;
+        if (message.type === 'crossy-race-players') {
+          syncRemoteRacePlayers(message.players);
+        }
         if (message.type === 'crossy-race-init') {
           raceRoomId = typeof message.roomId === 'string' ? message.roomId : null;
           racePlayerName = String(message.username || 'Player').slice(0, 24);
           raceCheckpointRow = 0;
           raceRunFinished = false;
           await loadAccountStats();
-          void startAccountRun();
           startYouSoundRace(0, false);
         }
         if (message.type === 'crossy-death-result') {
@@ -932,7 +1011,6 @@
           } else {
             gameState = 'gameover';
             dpadEl.classList.add('hidden');
-            void finishAccountRun(score, coins);
             document.getElementById('death-reason').textContent = 'Out of lives at checkpoint ' + Math.floor(raceCheckpointRow / 25) + '.';
             document.getElementById('final-score').textContent = String(score);
             document.getElementById('final-best').textContent = String(bestScore);
@@ -945,7 +1023,6 @@
           if (gameState === 'playing' || gameState === 'waiting') {
             gameState = 'gameover';
             dpadEl.classList.add('hidden');
-            void finishAccountRun(score, coins);
             showToast('Race finished!');
             document.getElementById('death-reason').textContent = 'Race complete!';
             document.getElementById('final-score').textContent = String(score);
@@ -1298,6 +1375,7 @@
       function startSession() {
         // In a YouSound race, only the parent room service can start or respawn a run.
         if (multiplayerMode) return;
+        void startAccountRun();
         beginMultiplayerRound();
       }
 
@@ -1375,12 +1453,13 @@
           score = maxRow;
           scoreEl.textContent = score;
           ensureLanesAround(maxRow);
-          if (multiplayerMode && window.parent !== window) window.parent.postMessage({ type: 'crossy-progress', row: maxRow }, window.location.origin);
+          if (multiplayerMode && window.parent !== window) window.parent.postMessage({ type: 'crossy-progress', row: maxRow, col: r.col }, window.location.origin);
           if (score > 0 && score % 25 === 0) {
             SoundFX.playMilestone();
             showToast(`${score} Hops! Keep going!`);
           }
         }
+        if (multiplayerMode && window.parent !== window) window.parent.postMessage({ type: 'crossy-progress', row: r.maxRow, col: r.col }, window.location.origin);
         updateMpHUD();
       }
 
@@ -1412,6 +1491,7 @@
           return;
         }
 
+        if (!multiplayerMode && playerCount === 1) void finishAccountRun(score, coins);
         const isNewBest = score > bestScore;
         if (isNewBest) {
           bestScore = score;
@@ -1758,6 +1838,7 @@
           }
         }
 
+        updateRemoteRaceMeshes();
         const focusX = leadRacer ? leadRacer.mesh.position.x : 0;
         const targetCamX = focusX * 0.45 + camOffset.x;
         const targetCamY = camOffset.y;
@@ -1787,8 +1868,8 @@
           document.getElementById('hud-menu-btn').classList.add('hidden');
           document.getElementById('menu-btn').classList.add('hidden');
           document.getElementById('restart-btn').classList.add('hidden');
-          void loadAccountStats();
         }
+        void loadAccountStats();
         requestAnimationFrame(animate);
       };
     })();

@@ -5,7 +5,7 @@ import { getPersistentSettingDb, ensurePersistentSettingDb, compareAndSetPersist
 import { getUserByUid } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
 
-type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; finishedAt?: string | null };
+type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; col: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; finishedAt?: string | null };
 type Room = { id: string; code: string; hostUid: string; status: 'waiting' | 'active' | 'finished'; createdAt: string; updatedAt: string; players: Player[]; winnerUid: string | null };
 type RaceResult = { id: string; userId: string; username: string; checkpoint: number; completed: boolean; playedAt: string; roomCode: string };
 const ROOM_KEY = 'crossy_road_race_rooms_v1';
@@ -53,7 +53,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
 }
 function publicRoom(room: Room, viewerUid: string) {
   return { id: room.id, code: room.code, isHost: room.hostUid === viewerUid, status: room.status, winnerName: room.players.find(p => p.uid === room.winnerUid)?.username || null,
-    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username, username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isHost: uid === room.hostUid })),
+    players: room.players.map(({ uid, username, checkpoint, lives, row, col, status, finishedAt }) => ({ id: username, username, checkpoint, lives, row, col, status, finishedAt, isMe: uid === viewerUid, isHost: uid === room.hostUid })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
 async function addResult(room: Room) {
@@ -81,7 +81,7 @@ router.post('/rooms', async (req, res) => {
       const code = makeUniqueRoomCode(rooms);
       const now = new Date().toISOString();
       const room: Room = { id, code, hostUid: player.uid, status: 'waiting', createdAt: now, updatedAt: now, winnerUid: null,
-        players: [{ ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: now }] };
+        players: [{ ...player, checkpoint: 0, lives: 3, row: 0, col: 0, status: 'playing', joinedAt: now }] };
       createdRoom = room;
       return { ...rooms, [id]: room };
     });
@@ -100,7 +100,7 @@ router.post('/rooms/join', async (req, res) => {
       if (!room) throw new Error('No waiting race was found for that code.');
       if (room.players.some(p => p.uid === player.uid)) { joined = room; return rooms; }
       if (room.players.length >= 8) throw new Error('This race is full (maximum 8 players).');
-      joined = { ...room, players: [...room.players, { ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: new Date().toISOString() }], updatedAt: new Date().toISOString() };
+      joined = { ...room, players: [...room.players, { ...player, checkpoint: 0, lives: 3, row: 0, col: 0, status: 'playing', joinedAt: new Date().toISOString() }], updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: joined };
     });
     return res.json({ success: true, room: publicRoom(joined!, player.uid) });
@@ -120,6 +120,22 @@ router.post('/rooms/:id/start', async (req, res) => {
     return res.json({ success: true, room: publicRoom(updated!, player.uid) });
   } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not start the race.' }); }
 });
+router.post('/rooms/:id/end', async (req, res) => {
+  try {
+    const player = await account(req, res); if (!player) return;
+    let ended: Room | null = null;
+    await mutate<Room>(ROOM_KEY, rooms => {
+      const room = rooms[req.params.id];
+      if (!room || !room.players.some(p => p.uid === player.uid)) throw new Error('Race not found.');
+      if (room.hostUid !== player.uid) throw new Error('Only the race host can end this game.');
+      if (room.status === 'finished') { ended = room; return rooms; }
+      ended = { ...room, status: 'finished', updatedAt: new Date().toISOString() };
+      return { ...rooms, [room.id]: ended };
+    });
+    if (ended) await addResult(ended);
+    return res.json({ success: true, room: publicRoom(ended!, player.uid) });
+  } catch (e: any) { return res.status(400).json({ success: false, error: e.message || 'Could not end this race.' }); }
+});
 router.get('/rooms/:id', async (req, res) => {
   try {
     const player = await account(req, res); if (!player) return;
@@ -133,7 +149,10 @@ router.post('/rooms/:id/progress', async (req, res) => {
   try {
     const player = await account(req, res); if (!player) return;
     const row = Number(req.body?.row);
+    const rawCol = req.body?.col;
+    const col = rawCol === undefined ? null : Number(rawCol);
     if (!Number.isSafeInteger(row) || row < 0 || row > 10000) return res.status(400).json({ success: false, error: 'Invalid race progress.' });
+    if (col !== null && (!Number.isSafeInteger(col) || col < -7 || col > 7)) return res.status(400).json({ success: false, error: 'Invalid racer lane.' });
     const savedRooms = await mutate<Room>(ROOM_KEY, rooms => {
       const room = rooms[req.params.id];
       if (!room || room.status !== 'active') throw new Error('This race is not active.');
@@ -144,7 +163,7 @@ router.post('/rooms/:id/progress', async (req, res) => {
       // One legitimate forward hop is recorded per event; the iframe sends every row change.
       const acceptedRow = Math.min(Math.max(current.row, row), current.row + 1);
       const checkpoint = Math.max(current.checkpoint, Math.min(5, Math.floor(acceptedRow / 25)));
-      players[idx] = { ...current, row: acceptedRow, checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
+      players[idx] = { ...current, row: acceptedRow, ...(col !== null ? { col } : {}), checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
       const winnerUid = checkpoint >= 5 && !room.winnerUid ? player.uid : room.winnerUid;
       const updatedRoom: Room = { ...room, players, winnerUid, status: winnerUid ? 'finished' : room.status, updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: updatedRoom };
