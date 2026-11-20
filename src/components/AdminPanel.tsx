@@ -295,7 +295,7 @@ export const AdminPanel: React.FC = () => {
       const response = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}/account-lock`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locked: false }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not unlock account.');
-      refreshState(); setLockCodeModalUser(null); setUserEditFeedback(`Account @${u.username} unlocked.`);
+      await storage.syncWithServer(); refreshState(); setLockCodeModalUser(null); setUserEditFeedback(`Account @${u.username} unlocked.`);
     } catch (error: any) { setUserEditFeedback(error?.message || 'Could not unlock account.'); }
   };
   const handleConfirmAccountLock = async () => {
@@ -306,7 +306,7 @@ export const AdminPanel: React.FC = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not lock account.');
       const lockedUser = lockReasonModalUser;
-      setLockReasonModalUser(null); setLockReasonInput(''); refreshState(); setLockCodeModalUser(lockedUser);
+      setLockReasonModalUser(null); setLockReasonInput(''); await storage.syncWithServer(); refreshState(); setLockCodeModalUser(lockedUser);
       setUserEditFeedback(`Account @${lockedUser.username} locked. The reason will appear on their unlock screen.`);
     } catch (error: any) { setUserEditFeedback(error?.message || 'Could not lock account.'); }
     finally { setLockReasonBusy(false); }
@@ -326,7 +326,7 @@ export const AdminPanel: React.FC = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Could not update periodic-table access.');
       setPeriodicTableFeedback(`${Number(data.updatedCount) || 0} account(s) ${enabled ? 'restricted to the periodic table' : 'restored to normal site access'}.`);
-      setPeriodicTableSelection(new Set()); refreshState();
+      setPeriodicTableSelection(new Set()); await storage.syncWithServer(); refreshState();
     } catch (error: any) { setPeriodicTableFeedback(error?.message || 'Could not update periodic-table access.'); }
     finally { setPeriodicTableBusy(false); }
   };
