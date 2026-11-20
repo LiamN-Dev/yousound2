@@ -84,6 +84,7 @@ export const YouTubeTrackedPlayer: React.FC<{
 }> = ({ video, className = 'h-full w-full' }) => {
   const [accessChecking, setAccessChecking] = React.useState(true);
   const [blocked, setBlocked] = React.useState(false);
+  const [accessError, setAccessError] = React.useState('');
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const videoRef = useRef(video);
@@ -98,13 +99,13 @@ export const YouTubeTrackedPlayer: React.FC<{
     let active = true;
     setAccessChecking(true);
     setBlocked(false);
+    setAccessError('');
     fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), {
       credentials: 'same-origin', cache: 'no-store',
     }).then(response => response.json()).then(data => {
       if (active) setBlocked(data?.blocked === true);
     }).catch(() => {
-      // A temporary access-check failure does not strand the player; the server
-      // still rejects blocked videos when the watch event is submitted.
+      if (active) setAccessError('YouSound could not verify whether this video is allowed. Reopen the video to try again.');
     }).finally(() => {
       if (active) setAccessChecking(false);
     });
@@ -206,6 +207,7 @@ export const YouTubeTrackedPlayer: React.FC<{
     '?autoplay=1&controls=1&rel=0&playsinline=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin);
 
   if (accessChecking) return <div className={className + ' flex items-center justify-center bg-black text-xs text-slate-300'}>Checking video permissions…</div>;
+  if (accessError) return <div className={className + ' flex items-center justify-center bg-[#101827] p-6 text-center text-xs text-amber-100'}>{accessError}</div>;
   if (blocked) return <div className={className + ' flex flex-col items-center justify-center gap-2 bg-[#101827] p-6 text-center text-white'}><span className="text-sm font-semibold">Video blocked by YouSound</span><span className="max-w-sm text-xs leading-5 text-slate-400">An administrator has blocked this video. It cannot be played in YouSound.</span></div>;
 
   return (
