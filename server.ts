@@ -2648,6 +2648,203 @@ app.post('/api/admin/users/periodic-table-only/bulk', async (req: Request, res: 
   }
 });
 
+
+type AccountRestrictionType = 'periodic-table-only' | 'account-lock' | 'suspension';
+type AccountRestrictionScheduleStatus = 'scheduled' | 'activating' | 'active' | 'deactivating' | 'completed' | 'failed' | 'cancelled';
+type AccountRestrictionSchedule = {
+  id: string;
+  uid: string;
+  username: string;
+  restriction: AccountRestrictionType;
+  activateAt: string;
+  deactivateAt: string | null;
+  reason: string;
+  status: AccountRestrictionScheduleStatus;
+  createdAt: string;
+  createdBy: string;
+  activatedAt?: string;
+  deactivatedAt?: string;
+  processingStartedAt?: string;
+  lastError?: string;
+};
+const ACCOUNT_RESTRICTION_SCHEDULES_KEY = 'account_restriction_schedules_v1';
+let processingAccountRestrictionSchedules = false;
+
+async function readAccountRestrictionSchedules(): Promise<AccountRestrictionSchedule[]> {
+  await ensurePersistentSettingDb(ACCOUNT_RESTRICTION_SCHEDULES_KEY, []);
+  const value = await getPersistentSettingDb<AccountRestrictionSchedule[]>(ACCOUNT_RESTRICTION_SCHEDULES_KEY);
+  return Array.isArray(value) ? value : [];
+}
+
+async function mutateAccountRestrictionSchedules(
+  mutate: (items: AccountRestrictionSchedule[]) => AccountRestrictionSchedule[]
+): Promise<AccountRestrictionSchedule[]> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const before = await readAccountRestrictionSchedules();
+    const after = mutate(before);
+    if (await compareAndSetPersistentSettingDb(ACCOUNT_RESTRICTION_SCHEDULES_KEY, before, after)) return after;
+  }
+  throw new Error('The schedule list changed repeatedly. Refresh and try again.');
+}
+
+async function applyAccountRestriction(schedule: AccountRestrictionSchedule, enabled: boolean): Promise<void> {
+  const user = await getUserByUid(schedule.uid);
+  if (!user || user.role === 'admin') throw new Error('The target member account no longer exists or is an administrator.');
+  let patch: Record<string, unknown>;
+  if (schedule.restriction === 'periodic-table-only') {
+    patch = { periodicTableOnly: enabled };
+  } else if (schedule.restriction === 'account-lock') {
+    patch = { isLocked: enabled, accountLockReason: enabled ? schedule.reason : '' };
+  } else {
+    patch = { isSuspended: enabled, suspendedReason: enabled ? schedule.reason : '' };
+  }
+  const updated = await updateUserDb(user.uid, patch as any);
+  const confirmed = schedule.restriction === 'periodic-table-only'
+    ? Boolean(updated.periodicTableOnly) === enabled
+    : schedule.restriction === 'account-lock'
+      ? Boolean(updated.isLocked) === enabled
+      : Boolean(updated.isSuspended) === enabled;
+  if (!confirmed) throw new Error('The database did not confirm the account restriction change.');
+}
+
+async function claimAccountRestrictionSchedule(
+  id: string,
+  expectedStatus: 'scheduled' | 'active' | 'activating' | 'deactivating',
+  nextStatus: 'activating' | 'deactivating'
+): Promise<boolean> {
+  let claimed = false;
+  await mutateAccountRestrictionSchedules(items => items.map(item => {
+    if (item.id !== id || item.status !== expectedStatus) return item;
+    if ((expectedStatus === 'activating' || expectedStatus === 'deactivating') &&
+        Date.now() - Date.parse(item.processingStartedAt || '') < 60_000) return item;
+    claimed = true;
+    return { ...item, status: nextStatus, processingStartedAt: new Date().toISOString(), lastError: undefined };
+  }));
+  return claimed;
+}
+
+async function finishAccountRestrictionSchedule(
+  id: string,
+  status: AccountRestrictionScheduleStatus,
+  extra: Partial<AccountRestrictionSchedule> = {}
+): Promise<void> {
+  await mutateAccountRestrictionSchedules(items => items.map(item =>
+    item.id === id ? { ...item, status, processingStartedAt: undefined, ...extra } : item
+  ));
+}
+
+async function processDueAccountRestrictionSchedules(): Promise<void> {
+  if (processingAccountRestrictionSchedules) return;
+  processingAccountRestrictionSchedules = true;
+  try {
+    const now = Date.now();
+    const schedules = await readAccountRestrictionSchedules();
+    for (const schedule of schedules) {
+      const activateMs = Date.parse(schedule.activateAt);
+      if ((schedule.status === 'scheduled' && Number.isFinite(activateMs) && activateMs <= now) ||
+          (schedule.status === 'activating' && now - Date.parse(schedule.processingStartedAt || '') >= 60_000)) {
+        const claimed = await claimAccountRestrictionSchedule(schedule.id, schedule.status as any, 'activating');
+        if (!claimed) continue;
+        try {
+          await applyAccountRestriction(schedule, true);
+          await finishAccountRestrictionSchedule(schedule.id, 'active', { activatedAt: new Date().toISOString() });
+        } catch (error: any) {
+          await finishAccountRestrictionSchedule(schedule.id, 'failed', { lastError: String(error?.message || error).slice(0, 240) });
+        }
+        continue;
+      }
+      const deactivateMs = schedule.deactivateAt ? Date.parse(schedule.deactivateAt) : Number.NaN;
+      if ((schedule.status === 'active' && Number.isFinite(deactivateMs) && deactivateMs <= now) ||
+          (schedule.status === 'deactivating' && now - Date.parse(schedule.processingStartedAt || '') >= 60_000)) {
+        const claimed = await claimAccountRestrictionSchedule(schedule.id, schedule.status as any, 'deactivating');
+        if (!claimed) continue;
+        try {
+          await applyAccountRestriction(schedule, false);
+          await finishAccountRestrictionSchedule(schedule.id, 'completed', { deactivatedAt: new Date().toISOString() });
+        } catch (error: any) {
+          await finishAccountRestrictionSchedule(schedule.id, 'failed', { lastError: String(error?.message || error).slice(0, 240) });
+        }
+      }
+    }
+  } catch (error: any) {
+    console.warn('[AccountRestrictionSchedules] Processing failed; the next interval will retry:', error?.message || error);
+  } finally {
+    processingAccountRestrictionSchedules = false;
+  }
+}
+
+app.get('/api/admin/users/restriction-schedules', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const uid = typeof req.query.uid === 'string' ? req.query.uid.trim() : '';
+    const schedules = await readAccountRestrictionSchedules();
+    return res.json({ success: true, schedules: schedules.filter(item => !uid || item.uid === uid).slice().reverse() });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, error: error?.message || 'Could not load scheduled restrictions.' });
+  }
+});
+
+app.post('/api/admin/users/:uid/restriction-schedules', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    const target = await getUserByUid(String(req.params.uid || '').trim());
+    if (!target || target.role === 'admin') return res.status(404).json({ success: false, error: 'Eligible member account not found.' });
+    const restriction = req.body?.restriction as AccountRestrictionType;
+    if (!['periodic-table-only', 'account-lock', 'suspension'].includes(restriction)) {
+      return res.status(400).json({ success: false, error: 'Choose a valid account restriction.' });
+    }
+    const activateDate = new Date(String(req.body?.activateAt || ''));
+    if (!Number.isFinite(activateDate.getTime()) || activateDate.getTime() < Date.now() - 60_000 || activateDate.getTime() > Date.now() + 366 * 24 * 60 * 60 * 1000) {
+      return res.status(400).json({ success: false, error: 'Choose an activation time between now and one year from now.' });
+    }
+    const deactivateRaw = String(req.body?.deactivateAt || '').trim();
+    const deactivateDate = deactivateRaw ? new Date(deactivateRaw) : null;
+    if (deactivateRaw && (!deactivateDate || !Number.isFinite(deactivateDate.getTime()) || deactivateDate.getTime() <= activateDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'The deactivation time must be later than activation.' });
+    }
+    const reason = String(req.body?.reason || '').trim().slice(0, 240);
+    if (!reason) return res.status(400).json({ success: false, error: 'Enter a reason for this scheduled restriction.' });
+    const schedules = await readAccountRestrictionSchedules();
+    if (schedules.some(item => item.uid === target.uid && item.restriction === restriction && ['scheduled', 'activating', 'active', 'deactivating'].includes(item.status))) {
+      return res.status(409).json({ success: false, error: 'This account already has an active or pending schedule for that restriction.' });
+    }
+    const schedule: AccountRestrictionSchedule = {
+      id: 'ars_' + randomBytes(12).toString('hex'),
+      uid: target.uid,
+      username: target.username,
+      restriction,
+      activateAt: activateDate.toISOString(),
+      deactivateAt: deactivateDate?.toISOString() || null,
+      reason,
+      status: 'scheduled',
+      createdAt: new Date().toISOString(),
+      createdBy: String(getAuthUser(req)?.username || 'Administrator').slice(0, 80),
+    };
+    await mutateAccountRestrictionSchedules(items => [...items, schedule].slice(-500));
+    void processDueAccountRestrictionSchedules();
+    return res.json({ success: true, schedule });
+  } catch (error: any) {
+    console.error('[AccountRestrictionSchedules] Could not create schedule:', error?.message || error);
+    return res.status(500).json({ success: false, error: error?.message || 'Could not schedule this restriction.' });
+  }
+});
+
+app.delete('/api/admin/users/restriction-schedules/:id', async (req: Request, res: Response) => {
+  try {
+    if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+    let cancelled = false;
+    await mutateAccountRestrictionSchedules(items => items.map(item => {
+      if (item.id !== req.params.id || item.status !== 'scheduled') return item;
+      cancelled = true;
+      return { ...item, status: 'cancelled' };
+    }));
+    if (!cancelled) return res.status(409).json({ success: false, error: 'Only a pending schedule can be cancelled.' });
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || 'Could not cancel schedule.' });
+  }
+});
+
 app.get('/api/admin/users/:uid/lock-code', async (req: Request, res: Response) => {
  if(!isAdminReq(req))return res.status(403).json({success:false,error:'Administrators only.'});const user=await getUserByUid(String(req.params.uid||''));
  if(!user||user.role==='admin'||!user.isLocked)return res.status(404).json({success:false,error:'Locked member account not found.'});const current=createAccountUnlockCode(user.uid);res.setHeader('Cache-Control','no-store, private');return res.json({success:true,username:user.username,code:current.code,expiresAt:current.expiresAt});
@@ -8219,6 +8416,9 @@ app.post('/api/chat/appeal', async (req: Request, res: Response) => {
     if (!user) {
       return res.status(404).json({ error: 'User account not found' });
     }
+    if (user.role !== 'admin' && !user.isSuspended) {
+      return res.status(403).json({ error: 'The appeal desk is available only while your account is suspended.' });
+    }
     const thread = await createOrGetAppealThreadDb(userId, username);
     res.json({ success: true, thread });
   } catch (error: any) {
@@ -8237,6 +8437,9 @@ app.get('/api/chat/messages/:threadId', async (req: Request, res: Response) => {
       const thread: any = await getChatThreadByIdDb(threadId);
       if (!thread || (thread.user1Id !== me.uid && thread.user2Id !== me.uid)) {
         return res.status(403).json({ error: 'You are not part of this conversation' });
+      }
+      if ((!me.isApproved || me.isSuspended) && !thread.isAppealThread) {
+        return res.status(403).json({ error: 'This account may only read its own suspension appeal.' });
       }
       if (me.chatBlocked && !thread.isAppealThread) {
         return res.status(403).json({ error: 'Your account is blocked from chat.' });
@@ -9171,6 +9374,8 @@ async function startServer() {
 }
 
 startServer();
+setInterval(() => { void processDueAccountRestrictionSchedules(); }, 15_000);
+setTimeout(() => { void processDueAccountRestrictionSchedules(); }, 3_000);
 async function assertDriveFilesAreNotAlreadyLinked(audioFileId?: string | null, artworkFileId?: string | null): Promise<void> {
   if (!audioFileId && !artworkFileId) return;
   const [registry, songs] = await Promise.all([getMediaIdsDb(), getSongsDb()]);
