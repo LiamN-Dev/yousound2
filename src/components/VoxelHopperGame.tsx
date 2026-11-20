@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeCrossyRoadRoomCode } from '../services/crossyRoadRoomCode';
+import { CrossyRoadGame } from './CrossyRoadGame';
 import { ArrowLeft, Copy, Crown, Gamepad2, Maximize2, Play, RefreshCw, Users } from 'lucide-react';
 
 type RacePlayer = { id: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; finishedAt?: string | null; isMe: boolean; isHost: boolean };
@@ -25,6 +26,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
   const [error, setError] = useState('');
   const [leaderboard, setLeaderboard] = useState<RaceRank[]>([]);
   const [copied, setCopied] = useState(false);
+  const [soloMode, setSoloMode] = useState(false);
 
   const loadLeaderboard = useCallback(async () => {
     try {
@@ -38,6 +40,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
     try {
       const data = await raceRequest('/rooms/' + room.id);
       setRoom(data.room);
+      frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-opponents', players: data.room.players.filter((player: RacePlayer) => !player.isMe).map((player: RacePlayer) => ({ id: player.id, username: player.username, row: player.row, status: player.status })) }, window.location.origin);
       if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
     } catch (e: any) { setError(e.message || 'Could not refresh race status.'); }
   }, [room?.id]);
@@ -66,6 +69,18 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
     setBusy(true); setError('');
     try { const data = await raceRequest('/rooms/' + room.id + '/start', { method: 'POST', body: '{}' }); setRoom(data.room); }
     catch (e: any) { setError(e.message || 'Could not start the race.'); }
+    finally { setBusy(false); }
+  };
+
+  const endRace = async () => {
+    if (!room?.id || !isHost) return;
+    if (!window.confirm('End this race for everyone in the room?')) return;
+    setBusy(true); setError('');
+    try {
+      const data = await raceRequest('/rooms/' + room.id + '/end', { method: 'POST', body: '{}' });
+      setRoom(data.room);
+      frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
+    } catch (e: any) { setError(e.message || 'Could not end the race.'); }
     finally { setBusy(false); }
   };
 
@@ -112,6 +127,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
       type: 'crossy-race-init', roomId: room.id, code: room.code,
       username: me?.username || 'Player',
     }, window.location.origin);
+    frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-opponents', players: room.players.filter(player => !player.isMe).map(player => ({ id: player.id, username: player.username, row: player.row, status: player.status })) }, window.location.origin);
   };
 
   const copyCode = async () => {
@@ -123,6 +139,8 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
   const isHost = Boolean(room?.isHost);
   const winnerName = room?.winnerName;
   const raceActive = room?.status === 'active' || room?.status === 'finished';
+
+  if (soloMode) return <CrossyRoadGame onBack={() => setSoloMode(false)} />;
 
   return (
     <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 pb-24">
@@ -144,6 +162,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
               <div className="rounded-2xl border border-white/10 bg-white/[.04] p-4"><div className="text-2xl font-black text-amber-300">3</div><div className="mt-1 text-xs text-slate-300">Lives at each checkpoint</div></div>
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
+              <button type="button" onClick={() => setSoloMode(true)} className="rounded-xl border border-emerald-300/35 bg-emerald-300/10 px-5 py-3 text-sm font-bold text-emerald-100 hover:bg-emerald-300/20">Play solo</button>
               <button type="button" onClick={() => void createRoom()} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-black text-slate-950 hover:bg-emerald-200 disabled:opacity-50"><Users className="h-4 w-4" /> Create race</button>
               <button type="button" onClick={() => setJoining(value => !value)} className="rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-bold text-white hover:bg-white/10">Join with code</button>
             </div>
@@ -164,6 +183,7 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><div className="text-[10px] font-black uppercase tracking-[.2em] text-emerald-300">{room.status === 'waiting' ? 'Waiting room' : room.status === 'finished' ? 'Race finished' : 'Race in progress'}</div><div className="mt-1 flex items-center gap-2 text-xl font-black">Room {room.code}<button type="button" onClick={() => void copyCode()} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white" title="Copy game code"><Copy className="h-4 w-4" /></button>{copied && <span className="text-xs font-semibold text-emerald-300">Copied</span>}</div></div>
               {room.status === 'waiting' && isHost && <button type="button" onClick={() => void startRace()} disabled={busy || room.players.length < 2} className="inline-flex items-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-black text-slate-950 disabled:opacity-40"><Play className="h-4 w-4" /> Start race</button>}
+              {room.status !== 'finished' && isHost && <button type="button" onClick={() => void endRace()} disabled={busy} className="rounded-xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-xs font-black text-rose-200 hover:bg-rose-400/20 disabled:opacity-50">End race for everyone</button>}
               {room.status === 'waiting' && <span className="text-xs text-slate-400">At least 2 players required</span>}
             </div>
             {error && <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p>}
@@ -171,7 +191,20 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
             {room.status === 'finished' && <p className="mt-3 rounded-xl bg-amber-300/10 p-3 text-sm font-bold text-amber-200">{winnerName ? winnerName + ' won the race!' : 'Race complete.'}</p>}
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{room.players.map(player => <div key={player.id} className="rounded-xl border border-white/10 bg-white/[.04] p-3"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-bold">{player.username}</span>{player.isHost && <Crown className="h-3.5 w-3.5 text-amber-300" />}</div><div className="mt-2 text-xs text-slate-400">Checkpoint {player.checkpoint}/5 · Row {player.row} · {player.lives} lives</div><div className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{player.status}</div></div>)}</div>
           </div>
-          {raceActive && <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-white"><span className="text-sm font-bold">Your race</span><button type="button" onClick={() => void frameRef.current?.requestFullscreen?.()} className="inline-flex items-center gap-2 text-xs font-bold text-slate-300 hover:text-white"><Maximize2 className="h-4 w-4" /> Fullscreen</button></div><iframe ref={frameRef} title="Voxel Hopper 3D Crossy Road Multiplayer" src="/games/voxel-hopper.html?multiplayer=1" onLoad={startGameFrame} className="block h-[calc(100vh-250px)] min-h-[600px] w-full bg-sky-300" allow="autoplay; fullscreen" allowFullScreen /></div>}
+          {raceActive && <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-white"><span className="text-sm font-bold">Live race · all players</span><button type="button" onClick={() => void frameRef.current?.requestFullscreen?.()} className="inline-flex items-center gap-2 text-xs font-bold text-slate-300 hover:text-white"><Maximize2 className="h-4 w-4" /> Fullscreen</button></div>
+            <div className="grid gap-2 border-b border-white/10 bg-slate-950/95 p-3 sm:grid-cols-2 lg:grid-cols-4">
+              {room.players.map((player, index) => {
+                const progress = Math.min(100, Math.max(0, player.row / 125 * 100));
+                return <div key={player.id} className="rounded-lg border border-white/10 bg-white/[.03] p-2.5">
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-white"><span className="truncate">{player.isMe ? 'You' : player.username}</span><span className="text-slate-400">Row {player.row}</span></div>
+                  <div className="relative mt-2 h-3 rounded-full bg-slate-800"><div className="absolute inset-y-0 left-0 rounded-full bg-emerald-400/40" style={{ width: progress + '%' }} /><span className="absolute top-1/2 -translate-y-1/2 text-sm transition-all" style={{ left: 'calc(' + progress + '% - 8px)' }}>🐔</span></div>
+                  <div className="mt-1 text-[9px] uppercase tracking-wider text-slate-500">{player.status} · checkpoint {player.checkpoint}/5 · {player.lives} lives</div>
+                </div>;
+              })}
+            </div>
+            <iframe ref={frameRef} title="Voxel Hopper 3D Crossy Road Multiplayer" src="/games/voxel-hopper.html?multiplayer=1" onLoad={startGameFrame} className="block h-[calc(100vh-310px)] min-h-[540px] w-full bg-sky-300" allow="autoplay; fullscreen" allowFullScreen />
+          </div>}
         </>
       )}
     </section>

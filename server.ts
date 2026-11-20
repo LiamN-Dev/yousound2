@@ -127,7 +127,6 @@ import {
 } from './src/db/feedback.ts';
 import { uploadMp3ToGoogleDrive, uploadImageToGoogleDrive, deleteGoogleDriveFile, getDriveLibraryFolderId } from './src/services/audioPipeline.ts';
 import { isAdminAiActionExplicitlyRequested } from './src/services/adminAiPolicy.ts';
-import youCraftRouter from './src/routes/youcraft.ts';
 import crossyRoadRouter from './src/routes/crossyRoad.ts';
 import crossyRoadMultiplayerRouter from './src/routes/crossyRoadMultiplayer.ts';
 import infiniteCraftRouter from './src/routes/infiniteCraft.ts';
@@ -285,7 +284,6 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Every /api request: authenticate the caller (from the signed cookie), then apply route rules.
 app.use('/api', attachUser, enforcePolicy);
-app.use('/api/youcraft', youCraftRouter);
 app.use('/api/games/infinite-craft', infiniteCraftRouter);
 app.use('/api/games/crossy-road', crossyRoadMultiplayerRouter);
 app.use('/api/games/crossy-road', crossyRoadRouter);
@@ -3438,9 +3436,9 @@ app.get('/api/admin/ai/diagnostics/:id', async (req: Request, res: Response) => 
 });
 
 // ----------------- YOUSOUND ARCADE CATALOG -----------------
-type ArcadeLaunchMode = 'new-tab' | 'embedded' | 'native';
+type ArcadeLaunchMode = 'embedded' | 'native';
 type ArcadeGameConfig = {
-  id: 'openfront' | 'youcraft' | 'crossy-road' | 'infinite-craft';
+  id: 'crossy-road' | 'infinite-craft' | 'orbitalvision-3d';
   title: string;
   description: string;
   enabled: boolean;
@@ -3450,61 +3448,30 @@ type ArcadeGameConfig = {
   playerMode: 'solo' | 'multiplayer';
   providerLabel: string;
 };
-
-type ArcadeLaunchEvent = {
-  id: string;
-  gameId: string;
-  username: string;
-  userId: string;
-  launchedAt: string;
-};
+type ArcadeLaunchEvent = { id: string; gameId: string; username: string; userId: string; launchedAt: string };
 
 const ARCADE_CATALOG_SETTING = 'arcade_game_catalog_v1';
 const ARCADE_LAUNCHES_SETTING = 'arcade_game_launches_v1';
+const ARCADE_MAINTENANCE_SETTING = 'arcade_maintenance_v1';
+const ARCADE_MULTIPLAYER_STOPPED_SETTING = 'arcade_multiplayer_stopped_v1';
 const DEFAULT_ARCADE_GAMES: ArcadeGameConfig[] = [
   {
-    id: 'openfront',
-    title: 'OpenFront',
-    description: 'The original real-time multiplayer world-conquest strategy game.',
-    enabled: true,
-    featured: true,
-    launchUrl: 'https://openfront.io/',
-    launchMode: 'new-tab',
-    playerMode: 'multiplayer',
-    providerLabel: 'Official OpenFront game',
+    id: 'crossy-road', title: 'Crossy Road',
+    description: 'A 3D endless hopper with solo high scores and private multiplayer races.',
+    enabled: true, featured: true, launchUrl: '/games/voxel-hopper.html',
+    launchMode: 'native', playerMode: 'multiplayer', providerLabel: 'YouSound 3D Arcade',
   },
   {
-    id: 'youcraft',
-    title: 'YouCraft',
-    description: 'Drag elements together to discover combinations instantly, build a collection, and challenge friends in Craft Wars.',
-    enabled: true,
-    featured: true,
-    launchUrl: '/youcraft',
-    launchMode: 'native',
-    playerMode: 'multiplayer',
-    providerLabel: 'Original YouSound game',
+    id: 'infinite-craft', title: 'Infinite Craft',
+    description: 'Combine two words. Gemini returns a meaningful noun and emoji, or rejects the pair. Every successful combination earns one point.',
+    enabled: true, featured: true, launchUrl: '/games/infinite-craft.html',
+    launchMode: 'native', playerMode: 'multiplayer', providerLabel: 'YouSound AI Discovery Lab',
   },
   {
-    id: 'crossy-road',
-    title: 'Crossy Road',
-    description: 'Race friends through five checkpoints. Share a game code, survive three lives at each checkpoint, and reach the finish first.',
-    enabled: true,
-    featured: true,
-    launchUrl: '/games/voxel-hopper.html',
-    launchMode: 'native',
-    playerMode: 'multiplayer',
-    providerLabel: 'YouSound 3D Arcade',
-  },
-  {
-    id: 'infinite-craft',
-    title: 'Infinite Craft',
-    description: 'Combine elements to discover real places, people, pop-culture icons, and surprising things. Create rooms and compete with friends.',
-    enabled: true,
-    featured: true,
-    launchUrl: '/games/infinite-craft.html',
-    launchMode: 'native',
-    playerMode: 'multiplayer',
-    providerLabel: 'YouSound Discovery Lab',
+    id: 'orbitalvision-3d', title: 'OrbitalVision 3D',
+    description: 'Explore a live 3D Earth, satellite catalogs, orbital tracks, observer telemetry, and pass predictions.',
+    enabled: true, featured: true, launchUrl: '/games/orbitalvision-3d.html',
+    launchMode: 'embedded', playerMode: 'solo', providerLabel: 'OrbitalVision Mission Control',
   },
 ];
 
@@ -3517,9 +3484,7 @@ async function getArcadeCatalog(): Promise<ArcadeGameConfig[]> {
     return {
       ...defaults,
       enabled: saved.enabled === true,
-      featured: saved.featured === true,
-      launchUrl: (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') ? defaults.launchUrl : String(saved.launchUrl || defaults.launchUrl),
-      launchMode: (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') ? 'native' : (saved.launchMode === 'embedded' ? 'embedded' : 'new-tab'),
+      featured: saved.enabled === true && saved.featured === true,
     };
   });
 }
@@ -3542,9 +3507,19 @@ app.get('/api/games/catalog', async (req: Request, res: Response) => {
   try {
     const account = await getArcadeAccount(req, res);
     if (!account) return;
-    const games = await getArcadeCatalog();
+    const [games, arcadeMaintenance, multiplayerStopped] = await Promise.all([
+      getArcadeCatalog(),
+      getPersistentSettingDb<boolean>(ARCADE_MAINTENANCE_SETTING),
+      getPersistentSettingDb<boolean>(ARCADE_MULTIPLAYER_STOPPED_SETTING),
+    ]);
     res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, games: account.isAdmin ? games : games.filter((game) => game.enabled) });
+    return res.json({
+      success: true,
+      games: account.isAdmin ? games : arcadeMaintenance ? [] : games.filter((game) => game.enabled),
+      arcadeMaintenance: arcadeMaintenance === true,
+      multiplayerStopped: multiplayerStopped === true,
+      maintenanceMessage: 'The Arcade is temporarily offline for maintenance. Please check back later.',
+    });
   } catch (error: any) {
     console.error('[Arcade] Catalog load failed:', error);
     return res.status(500).json({ success: false, error: 'The Arcade catalog could not be loaded.' });
@@ -3564,29 +3539,7 @@ app.put('/api/admin/games/catalog', async (req: Request, res: Response) => {
       if (!item || typeof item.enabled !== 'boolean' || typeof item.featured !== 'boolean') {
         return res.status(400).json({ success: false, error: 'A game entry is missing a valid activation or featured setting.' });
       }
-      if (defaults.id === 'youcraft' || defaults.id === 'crossy-road' || defaults.id === 'infinite-craft') {
-        normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured, launchMode: 'native' });
-        continue;
-      }
-      const rawUrl = String(item.launchUrl || '').trim();
-      let parsedUrl: URL;
-      try { parsedUrl = new URL(rawUrl); }
-      catch { return res.status(400).json({ success: false, error: 'OpenFront needs a valid HTTPS game URL.' }); }
-      if (parsedUrl.protocol !== 'https:' || !parsedUrl.hostname || parsedUrl.username || parsedUrl.password || rawUrl.length > 500) {
-        return res.status(400).json({ success: false, error: 'OpenFront URL must be a public HTTPS address without embedded credentials.' });
-      }
-      const launchMode: ArcadeLaunchMode = item.launchMode === 'embedded' ? 'embedded' : 'new-tab';
-      const officialOpenFrontHost = parsedUrl.hostname === 'openfront.io' || parsedUrl.hostname.endsWith('.openfront.io');
-      if (launchMode === 'embedded' && officialOpenFrontHost) {
-        return res.status(400).json({ success: false, error: 'The official OpenFront site is not configured as a YouSound embed. Use a separately hosted instance whose frame policy permits YouSound.' });
-      }
-      normalized.push({
-        ...defaults,
-        enabled: item.enabled,
-        featured: item.enabled && item.featured,
-        launchUrl: parsedUrl.toString(),
-        launchMode,
-      });
+      normalized.push({ ...defaults, enabled: item.enabled, featured: item.enabled && item.featured });
     }
     if (new Set(submitted.map((item: any) => item?.id)).size !== DEFAULT_ARCADE_GAMES.length) {
       return res.status(400).json({ success: false, error: 'Duplicate game entries are not allowed.' });
@@ -3604,10 +3557,12 @@ app.post('/api/games/launch', async (req: Request, res: Response) => {
   try {
     const account = await getArcadeAccount(req, res);
     if (!account) return;
+    if (await getPersistentSettingDb<boolean>(ARCADE_MAINTENANCE_SETTING)) {
+      return res.status(503).json({ success: false, error: 'The Arcade is under maintenance.' });
+    }
     const gameId = String(req.body?.gameId || '');
     const game = (await getArcadeCatalog()).find((item) => item.id === gameId && item.enabled);
     if (!game) return res.status(403).json({ success: false, error: 'This game is not currently activated.' });
-
     await ensurePersistentSettingDb(ARCADE_LAUNCHES_SETTING, []);
     const event: ArcadeLaunchEvent = {
       id: randomBytes(10).toString('hex'),
@@ -3620,7 +3575,7 @@ app.post('/api/games/launch', async (req: Request, res: Response) => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const previous = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
       const entries = Array.isArray(previous) ? previous : [];
-      if (await compareAndSetPersistentSettingDb(ARCADE_LAUNCHES_SETTING, previous, [...entries, event].slice(-200))) {
+      if (await compareAndSetPersistentSettingDb(ARCADE_LAUNCHES_SETTING, previous, [...entries, event].slice(-500))) {
         saved = true;
         break;
       }
@@ -3633,63 +3588,142 @@ app.post('/api/games/launch', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/games/openfront/leaderboard', async (req: Request, res: Response) => {
-  try {
-    const account = await getArcadeAccount(req, res);
-    if (!account) return;
-    const game = (await getArcadeCatalog()).find((item) => item.id === 'openfront' && item.enabled);
-    if (!game) return res.status(403).json({ success: false, error: 'OpenFront is currently unavailable in the Arcade.' });
-    const stored = await getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING);
-    const totals = new Map<string, { username: string; plays: number; lastPlayedAt: string }>();
-    for (const event of Array.isArray(stored) ? stored : []) {
-      if (event.gameId !== 'openfront') continue;
-      const current = totals.get(event.userId) || { username: event.username, plays: 0, lastPlayedAt: event.launchedAt };
-      current.username = event.username;
-      current.plays += 1;
-      if (event.launchedAt > current.lastPlayedAt) current.lastPlayedAt = event.launchedAt;
-      totals.set(event.userId, current);
-    }
-    const leaderboard = [...totals.values()]
-      .sort((a, b) => b.plays - a.plays || b.lastPlayedAt.localeCompare(a.lastPlayedAt) || a.username.localeCompare(b.username))
-      .slice(0, 25)
-      .map((entry, index) => ({ rank: index + 1, ...entry }));
-    res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, leaderboard, metric: 'launches', window: 'latest 200 Arcade launch events' });
-  } catch (error: any) {
-    console.error('[Arcade] OpenFront leaderboard failed:', error?.message || error);
-    return res.status(500).json({ success: false, error: 'The OpenFront activity leaderboard could not be loaded.' });
-  }
-});
-
-app.get('/api/admin/games/overview', async (_req: Request, res: Response) => {
-  if (!isAdminReq(_req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+app.get('/api/admin/games/overview', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
   try {
     const [games, storedLaunches] = await Promise.all([
       getArcadeCatalog(),
       getPersistentSettingDb<ArcadeLaunchEvent[]>(ARCADE_LAUNCHES_SETTING),
     ]);
-    const recentLaunches = Array.isArray(storedLaunches) ? storedLaunches.slice(-50).reverse() : [];
-    const launchCounts = recentLaunches.reduce((counts: Record<string, number>, event) => {
-      counts[event.gameId] = (counts[event.gameId] || 0) + 1;
-      return counts;
-    }, {});
+    const validIds = new Set(DEFAULT_ARCADE_GAMES.map((game) => game.id));
+    const recentLaunches = (Array.isArray(storedLaunches) ? storedLaunches : [])
+      .filter((event) => validIds.has(event.gameId as ArcadeGameConfig['id']))
+      .slice(-50).reverse();
     res.setHeader('Cache-Control', 'no-store, private');
-    return res.json({ success: true, games, recentLaunches, launchCounts, retentionWindow: 'latest 50 launches' });
+    return res.json({ success: true, games, recentLaunches, retentionWindow: 'latest 50 active Arcade launches' });
   } catch (error: any) {
     console.error('[Arcade] Admin overview failed:', error);
     return res.status(500).json({ success: false, error: 'The Arcade oversight panel could not be loaded.' });
   }
 });
 
-// The retired games are deliberately inaccessible through their former API routes.
-// A hidden card or removed button alone would not be an access-control boundary.
-app.use('/api/games/guess-track', (_req: Request, res: Response) => {
-  return res.status(410).json({ success: false, error: 'Guess the Track has been retired from the YouSound Arcade.' });
-});
-app.use('/api/games/rhythm', (_req: Request, res: Response) => {
-  return res.status(410).json({ success: false, error: 'Rhythm Battle has been retired from the YouSound Arcade.' });
+app.get('/api/admin/arcade/control', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const [arcadeMaintenance, multiplayerStopped] = await Promise.all([
+      getPersistentSettingDb<boolean>(ARCADE_MAINTENANCE_SETTING),
+      getPersistentSettingDb<boolean>(ARCADE_MULTIPLAYER_STOPPED_SETTING),
+    ]);
+    return res.json({ success: true, arcadeMaintenance: arcadeMaintenance === true, multiplayerStopped: multiplayerStopped === true });
+  } catch {
+    return res.status(503).json({ success: false, error: 'The Arcade controls could not be loaded.' });
+  }
 });
 
+app.post('/api/admin/arcade/control', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    if (typeof req.body?.arcadeMaintenance === 'boolean') {
+      await setPersistentSettingDb(ARCADE_MAINTENANCE_SETTING, req.body.arcadeMaintenance);
+    }
+    if (typeof req.body?.multiplayerStopped === 'boolean') {
+      await setPersistentSettingDb(ARCADE_MULTIPLAYER_STOPPED_SETTING, req.body.multiplayerStopped);
+      if (req.body.multiplayerStopped) {
+        const now = new Date().toISOString();
+        const crossyRooms = await getPersistentSettingDb<Record<string, any>>('crossy_road_race_rooms_v1') || {};
+        let crossyChanged = false;
+        for (const [id, room] of Object.entries(crossyRooms)) {
+          if (room && (room.status === 'waiting' || room.status === 'active')) {
+            crossyRooms[id] = {
+              ...room,
+              status: 'finished',
+              updatedAt: now,
+              players: Array.isArray(room.players)
+                ? room.players.map((player: any) => player.status === 'playing' ? { ...player, status: 'eliminated', finishedAt: now } : player)
+                : [],
+            };
+            crossyChanged = true;
+          }
+        }
+        if (crossyChanged) await setPersistentSettingDb('crossy_road_race_rooms_v1', crossyRooms);
+
+        const craftStore = await getPersistentSettingDb<any>('infinite_craft_store_v1');
+        if (craftStore?.rooms && typeof craftStore.rooms === 'object') {
+          let craftChanged = false;
+          const rooms = { ...craftStore.rooms };
+          for (const [id, room] of Object.entries<any>(rooms)) {
+            if (room && (room.status === 'waiting' || room.status === 'active')) {
+              rooms[id] = { ...room, status: 'finished', updatedAt: now };
+              craftChanged = true;
+            }
+          }
+          if (craftChanged) await setPersistentSettingDb('infinite_craft_store_v1', { ...craftStore, rooms });
+        }
+      }
+    }
+    const [arcadeMaintenance, multiplayerStopped] = await Promise.all([
+      getPersistentSettingDb<boolean>(ARCADE_MAINTENANCE_SETTING),
+      getPersistentSettingDb<boolean>(ARCADE_MULTIPLAYER_STOPPED_SETTING),
+    ]);
+    return res.json({ success: true, arcadeMaintenance: arcadeMaintenance === true, multiplayerStopped: multiplayerStopped === true });
+  } catch (error: any) {
+    console.error('[Arcade] Control update failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'The Arcade controls could not be updated.' });
+  }
+});
+
+app.post('/api/admin/arcade/leaderboards/clear', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrators only.' });
+  try {
+    const target = String(req.body?.gameId || '');
+    if (!['crossy-race', 'crossy-solo', 'infinite-craft', 'all'].includes(target)) {
+      return res.status(400).json({ success: false, error: 'Choose a valid leaderboard.' });
+    }
+    const clearRace = target === 'crossy-race' || target === 'all';
+    const clearSolo = target === 'crossy-solo' || target === 'all';
+    const clearCraft = target === 'infinite-craft' || target === 'all';
+    if (clearSolo && !(await checkSqlAvailability())) {
+      return res.status(503).json({ success: false, error: 'The persistent game database is unavailable, so no leaderboard was cleared.' });
+    }
+    if (clearRace) await setPersistentSettingDb('crossy_road_race_leaderboard_v1', []);
+    if (clearCraft) {
+      const store = await getPersistentSettingDb<any>('infinite_craft_store_v1');
+      if (store?.profiles && typeof store.profiles === 'object') {
+        const profiles = { ...store.profiles };
+        for (const [uid, profile] of Object.entries<any>(profiles)) {
+          profiles[uid] = {
+            ...profile,
+            score: 0,
+            combinations: 0,
+            raceWins: 0,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        await setPersistentSettingDb('infinite_craft_store_v1', { ...store, profiles });
+      }
+    }
+    if (clearSolo) {
+      const pool = createPool();
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS crossy_road_stats (
+          user_id TEXT PRIMARY KEY,
+          username TEXT NOT NULL,
+          coins BIGINT NOT NULL DEFAULT 0,
+          high_score INTEGER NOT NULL DEFAULT 0,
+          total_games INTEGER NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query('UPDATE crossy_road_stats SET high_score = 0, total_games = 0, updated_at = NOW()');
+    }
+    return res.json({ success: true, cleared: target });
+  } catch (error: any) {
+    console.error('[Arcade] Leaderboard reset failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'The selected leaderboard could not be cleared.' });
+  }
+});
+
+// ----------------- END YOUSOUND ARCADE -----------------
 // ----------------- GAMES: GUESS THE TRACK -----------------
 const SONG_GUESS_CLIP_SECONDS = [1, 2, 4, 7, 12, 20];
 const SONG_GUESS_POINTS = [1000, 800, 600, 400, 250, 100];
@@ -8775,6 +8809,18 @@ async function startServer() {
       console.error('Request cleanup interval error:', err);
     }
   }, 10 * 60 * 1000);
+
+  // Keep direct /games/*.html URLs subject to the same Arcade maintenance switch as the hub.
+  app.use('/games', async (_req, res, next) => {
+    try {
+      if (await getPersistentSettingDb<boolean>('arcade_maintenance_v1')) {
+        return res.status(503).type('text').send('YouSound Arcade is temporarily offline for maintenance.');
+      }
+      next();
+    } catch {
+      return res.status(503).type('text').send('Arcade availability could not be checked.');
+    }
+  });
 
   // Render sets RENDER=true; treat it as production even if NODE_ENV isn't set,
   // otherwise the server falls into Vite dev mode and the page can render blank.
