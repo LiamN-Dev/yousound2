@@ -246,7 +246,7 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
   const safePeriodicTableRoute =
     (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
     (req.method === 'POST' && ['/api/auth/logout', '/api/auth/login'].includes(url));
-  if (user.role !== 'admin' && user.periodicTableOnly && !safePeriodicTableRoute) {
+  if (user.role !== 'admin' && user.periodicTableOnly && !safePeriodicTableRoute && !(user.isSuspended && safeSuspendedRoute)) {
     return res.status(403).json({
       success: false,
       error: 'This account is restricted to the Periodic Table.',
