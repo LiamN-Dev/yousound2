@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { YouCraftGame } from './YouCraftGame';
 import { VoxelHopperGame } from './VoxelHopperGame';
 import { InfiniteCraftGame } from './InfiniteCraftGame';
 import { ArrowLeft, ArrowUpRight, ExternalLink, Gamepad2, Globe2, Loader2, Play, RefreshCw, ShieldCheck, Star, Users } from 'lucide-react';
 
 type LaunchMode = 'new-tab' | 'embedded' | 'native';
 type ArcadeGame = {
-  id: 'openfront' | 'youcraft' | 'crossy-road' | 'infinite-craft';
+  id: 'crossy-road' | 'infinite-craft' | 'orbitalvision';
   title: string;
   description: string;
   enabled: boolean;
@@ -27,15 +26,12 @@ type LaunchEvent = {
 type Props = { isAdmin: boolean };
 type CrossyRank = { username: string; wins: number; bestCheckpoint: number; races: number };
 type CraftRank = { rank: number; username: string; score: number; discoveries: number; combinations: number; raceWins: number };
-type OpenFrontRank = { rank: number; username: string; plays: number; lastPlayedAt: string };
 type CrossyHighScoreRank = { rank: number; username: string; highScore: number; totalGames: number };
-type YouCraftRank = { rank: number; username: string; discoveries: number; combinations: number };
 
 const gameArtwork: Record<string, string> = {
-  openfront: 'from-emerald-950 via-teal-900 to-slate-950',
-  youcraft: 'from-violet-950 via-fuchsia-950 to-slate-950',
   'crossy-road': 'from-emerald-950 via-green-900 to-slate-950',
   'infinite-craft': 'from-indigo-950 via-violet-900 to-slate-950',
+  orbitalvision: 'from-slate-950 via-sky-950 to-indigo-950',
 };
 
 async function readJson(response: Response) {
@@ -53,21 +49,20 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [embeddedGame, setEmbeddedGame] = useState<ArcadeGame | null>(null);
-  const [youCraftOpen, setYouCraftOpen] = useState(false);
   const [crossyRoadOpen, setCrossyRoadOpen] = useState(false);
   const [infiniteCraftOpen, setInfiniteCraftOpen] = useState(false);
   const [crossyLeaderboard, setCrossyLeaderboard] = useState<CrossyRank[]>([]);
   const [craftLeaderboard, setCraftLeaderboard] = useState<CraftRank[]>([]);
-  const [openFrontLeaderboard, setOpenFrontLeaderboard] = useState<OpenFrontRank[]>([]);
   const [crossyHighScoreLeaderboard, setCrossyHighScoreLeaderboard] = useState<CrossyHighScoreRank[]>([]);
-  const [youCraftLeaderboard, setYouCraftLeaderboard] = useState<YouCraftRank[]>([]);
   const [crossyLeaderboardError, setCrossyLeaderboardError] = useState('');
   const [craftLeaderboardError, setCraftLeaderboardError] = useState('');
-  const [openFrontLeaderboardError, setOpenFrontLeaderboardError] = useState('');
   const [crossyHighScoreError, setCrossyHighScoreError] = useState('');
-  const [youCraftLeaderboardError, setYouCraftLeaderboardError] = useState('');
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [youCraftOverview, setYouCraftOverview] = useState<{ players: any[]; matches: any[] } | null>(null);
+  const [maintenance, setMaintenance] = useState<{ enabled: boolean; message: string }>({ enabled: false, message: '' });
+  const [stopAllMultiplayer, setStopAllMultiplayer] = useState(false);
+  const [maintenanceDraft, setMaintenanceDraft] = useState('The YouSound Arcade is temporarily under maintenance. Please check back soon.');
+  const [operationsSaving, setOperationsSaving] = useState(false);
+  const [leaderboardClearBusy, setLeaderboardClearBusy] = useState('');
 
   const loadCatalog = async () => {
     setLoading(true);
@@ -75,12 +70,15 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
     try {
       const catalog = await readJson(await fetch('/api/games/catalog', { credentials: 'same-origin', cache: 'no-store' }));
       setGames(Array.isArray(catalog.games) ? catalog.games : []);
+      setMaintenance(catalog.maintenance || { enabled: false, message: '' });
       if (isAdmin) {
         const overview = await readJson(await fetch('/api/admin/games/overview', { credentials: 'same-origin', cache: 'no-store' }));
         setGames(Array.isArray(overview.games) ? overview.games : []);
         setRecentLaunches(Array.isArray(overview.recentLaunches) ? overview.recentLaunches : []);
-        const youCraft = await readJson(await fetch('/api/youcraft/admin/overview', { credentials: 'same-origin', cache: 'no-store' }));
-        setYouCraftOverview({ players: Array.isArray(youCraft.players) ? youCraft.players : [], matches: Array.isArray(youCraft.matches) ? youCraft.matches : [] });
+        const operations = await readJson(await fetch('/api/admin/games/operations', { credentials: 'same-origin', cache: 'no-store' }));
+        setStopAllMultiplayer(operations.stopAllMultiplayer === true);
+        setMaintenance(operations.maintenance || { enabled: false, message: '' });
+        setMaintenanceDraft(operations.maintenance?.message || 'The YouSound Arcade is temporarily under maintenance. Please check back soon.');
       }
     } catch (loadError: any) {
       setError(loadError?.message || 'The Arcade could not be loaded.');
@@ -95,19 +93,17 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   const loadLeaderboards = useCallback(async () => {
     setLeaderboardLoading(true);
-    const [crossyResult, crossyHighScoreResult, craftResult, youCraftResult, openFrontResult] = await Promise.allSettled([
+    const [crossyResult, crossyHighScoreResult, craftResult] = await Promise.allSettled([
       fetch('/api/games/crossy-road/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
       fetch('/api/games/crossy-road/high-score-leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
       fetch('/api/games/infinite-craft/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
-      fetch('/api/youcraft/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
-      fetch('/api/games/openfront/leaderboard', { credentials: 'same-origin', cache: 'no-store' }).then(readJson),
     ]);
     if (crossyResult.status === 'fulfilled') {
       setCrossyLeaderboard(Array.isArray(crossyResult.value.leaderboard) ? crossyResult.value.leaderboard : []);
       setCrossyLeaderboardError('');
     } else {
       setCrossyLeaderboard([]);
-      setCrossyLeaderboardError(crossyResult.reason?.message || 'Crossy Road leaderboard is unavailable.');
+      setCrossyLeaderboardError(crossyResult.reason?.message || 'Crossy Road race leaderboard is unavailable.');
     }
     if (crossyHighScoreResult.status === 'fulfilled') {
       setCrossyHighScoreLeaderboard(Array.isArray(crossyHighScoreResult.value.leaderboard) ? crossyHighScoreResult.value.leaderboard : []);
@@ -122,20 +118,6 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
     } else {
       setCraftLeaderboard([]);
       setCraftLeaderboardError(craftResult.reason?.message || 'Infinite Craft leaderboard is unavailable.');
-    }
-    if (youCraftResult.status === 'fulfilled') {
-      setYouCraftLeaderboard(Array.isArray(youCraftResult.value.leaderboard) ? youCraftResult.value.leaderboard : []);
-      setYouCraftLeaderboardError('');
-    } else {
-      setYouCraftLeaderboard([]);
-      setYouCraftLeaderboardError(youCraftResult.reason?.message || 'YouCraft leaderboard is unavailable.');
-    }
-    if (openFrontResult.status === 'fulfilled') {
-      setOpenFrontLeaderboard(Array.isArray(openFrontResult.value.leaderboard) ? openFrontResult.value.leaderboard : []);
-      setOpenFrontLeaderboardError('');
-    } else {
-      setOpenFrontLeaderboard([]);
-      setOpenFrontLeaderboardError(openFrontResult.reason?.message || 'OpenFront leaderboard is unavailable.');
     }
     setLeaderboardLoading(false);
   }, []);
@@ -155,7 +137,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
   };
 
   const playGame = (game: ArcadeGame) => {
-    if (!game.enabled || embeddedGame) return;
+    if (!game.enabled || embeddedGame || maintenance.enabled) return;
     recordLaunch(game.id);
     if (game.id === 'crossy-road') {
       setCrossyRoadOpen(true);
@@ -165,8 +147,8 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
       setInfiniteCraftOpen(true);
       return;
     }
-    if (game.id === 'youcraft') {
-      setYouCraftOpen(true);
+    if (game.id === 'orbitalvision') {
+      setEmbeddedGame(game);
       return;
     }
     if (game.launchMode === 'embedded') {
@@ -175,6 +157,37 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
     }
     window.open(game.launchUrl, '_blank', 'noopener,noreferrer');
     setNotice('Requested a new tab for ' + game.title + '. If it did not open, allow pop-ups for YouSound. The game is hosted by its original provider.');
+  };
+
+  const saveOperations = async (patch: Record<string, unknown>) => {
+    setOperationsSaving(true);
+    setError('');
+    try {
+      const data = await readJson(await fetch('/api/admin/games/operations', {
+        method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      }));
+      setStopAllMultiplayer(data.stopAllMultiplayer === true);
+      setMaintenance(data.maintenance || { enabled: false, message: '' });
+      setMaintenanceDraft(data.maintenance?.message || maintenanceDraft);
+      setNotice(patch.stopAllMultiplayer === true ? 'All active Arcade multiplayer rooms have been ended.' : patch.maintenanceEnabled === true ? 'Arcade maintenance is now enabled.' : 'Arcade operations settings saved.');
+    } catch (saveError: any) {
+      setError(saveError?.message || 'Arcade operations could not be saved.');
+    } finally { setOperationsSaving(false); }
+  };
+
+  const clearLeaderboard = async (target: string) => {
+    const labels: Record<string, string> = { 'crossy-races': 'Crossy Road race', 'crossy-solo': 'Crossy Road solo high-score', 'infinite-craft': 'Infinite Craft', all: 'all Arcade' };
+    const label = labels[target] || 'selected';
+    if (!window.confirm('Clear the ' + label + ' leaderboard? This cannot be undone. Account discovery collections will be retained.')) return;
+    setLeaderboardClearBusy(target); setError('');
+    try {
+      await readJson(await fetch('/api/admin/games/leaderboards/clear', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target }),
+      }));
+      setNotice('Cleared ' + label + ' leaderboard.');
+      await loadLeaderboards();
+    } catch (clearError: any) { setError(clearError?.message || 'Could not clear that leaderboard.'); }
+    finally { setLeaderboardClearBusy(''); }
   };
 
   const updateGame = (id: ArcadeGame['id'], patch: Partial<ArcadeGame>) => {
@@ -207,7 +220,6 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
   if (infiniteCraftOpen) return <InfiniteCraftGame onBack={() => setInfiniteCraftOpen(false)} />;
 
-  if (youCraftOpen) return <YouCraftGame onBack={() => setYouCraftOpen(false)} />;
 
   if (embeddedGame) {
     return (
@@ -244,7 +256,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
             <Gamepad2 className="h-4 w-4" /> YouSound Arcade
           </div>
           <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">Play together. <span className="text-cyan-200">Discover more.</span></h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Only games activated by the YouSound administrator appear here. The Arcade launches real games from their official providers or from a separately hosted game service.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Play Crossy Road solo or with friends, discover combinations with AI in Infinite Craft, or explore live Earth and orbital data in OrbitalVision 3D.</p>
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-200">{activeGames.length} ACTIVATED GAME{activeGames.length === 1 ? '' : 'S'}</span>
             <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-200">CHROME BROWSER</span>
@@ -260,6 +272,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
 
       {error && <div role="alert" className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>}
       {notice && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm text-cyan-100">{notice}</div>}
+      {maintenance.enabled && <div role="status" className="rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100"><strong>Arcade maintenance</strong>{maintenance.message ? ' — ' + maintenance.message : ' — games are temporarily unavailable.'}</div>}
 
       {tab === 'arcade' && (
         <>
@@ -291,7 +304,7 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                       </span>
                       <span className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-2 text-slate-200"><Globe2 className="h-3.5 w-3.5" /> Browser game</span>
                     </div>
-                    <button type="button" onClick={() => playGame(game)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-200">
+                    <button type="button" onClick={() => playGame(game)} disabled={maintenance.enabled} className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 text-sm font-black text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40">
                       <Play className="h-4 w-4 fill-current" /> Play {game.title}
                       {game.launchMode === 'new-tab' && <ArrowUpRight className="h-4 w-4" />}
                     </button>
@@ -355,35 +368,126 @@ export const GamesHub: React.FC<Props> = ({ isAdmin }) => {
                 )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No Infinite Craft discoveries yet.</p>}
               </div>
             </section>
-            <section className="rounded-3xl border border-fuchsia-300/20 bg-slate-950 p-5 text-white shadow-xl">
-              <h3 className="text-lg font-black text-fuchsia-300">YouCraft Discoveries</h3>
-              <p className="mt-1 text-xs text-slate-400">Ranked by unique discoveries, then combinations.</p>
-              {youCraftLeaderboardError && <p className="mt-3 text-xs text-amber-300">{youCraftLeaderboardError}</p>}
-              <div className="mt-4 space-y-2">
-                {youCraftLeaderboard.length ? youCraftLeaderboard.map((entry, index) => (
-                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
-                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
-                    <div className="shrink-0 text-right text-xs"><span className="font-black text-fuchsia-300">{entry.discoveries} discoveries</span><div className="text-slate-400">{entry.combinations} combinations</div></div>
-                  </div>
-                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No YouCraft discoveries yet.</p>}
-              </div>
-            </section>
-            <section className="rounded-3xl border border-teal-300/20 bg-slate-950 p-5 text-white shadow-xl">
-              <h3 className="text-lg font-black text-teal-300">OpenFront · Most Played</h3>
-              <p className="mt-1 text-xs text-slate-400">Ranked by YouSound launch activity. OpenFront hosts its own in-game scores separately.</p>
-              {openFrontLeaderboardError && <p className="mt-3 text-xs text-amber-300">{openFrontLeaderboardError}</p>}
-              <div className="mt-4 space-y-2">
-                {openFrontLeaderboard.length ? openFrontLeaderboard.map((entry, index) => (
-                  <div key={entry.username + index} className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-white/[.03] px-3 py-3">
-                    <div className="flex min-w-0 items-center gap-3"><span className="w-6 text-xs font-black text-slate-500">{index + 1}</span><span className="truncate text-sm font-bold">{entry.username}</span></div>
-                    <div className="shrink-0 text-right text-xs"><span className="font-black text-teal-300">{entry.plays} plays</span><div className="text-slate-400">Last: {new Date(entry.lastPlayedAt).toLocaleDateString()}</div></div>
-                  </div>
-                )) : <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-slate-500">No OpenFront launches recorded yet.</p>}
-              </div>
-            </section>
           </div>
         </section>
       )}
+
+      {tab === 'control' && isAdmin && (
+        <section className="space-y-5 rounded-3xl border border-cyan-200/20 bg-slate-950/80 p-5 shadow-xl sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-white">Game Control Room</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-400">Publish or unpublish each game. Unpublished games are hidden from members and rejected by the game-launch API.</p>
+            </div>
+            <button type="button" onClick={() => void loadCatalog()} disabled={loading || saving} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-white/5 disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
+          </div>
+          <div className="space-y-4">
+            {games.map((game) => (
+              <div key={game.id} className="rounded-2xl border border-white/10 bg-white/[.03] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-black text-white">{game.title}</h3>
+                      <span className="rounded-md border border-white/10 px-2 py-1 text-[9px] font-bold uppercase text-slate-400">{game.playerMode}</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">{game.description}</p>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white">
+                    <input type="checkbox" checked={game.enabled} onChange={(event) => updateGame(game.id, { enabled: event.target.checked, featured: event.target.checked && game.featured })} className="h-4 w-4 accent-cyan-300" />
+                    {game.enabled ? 'Activated' : 'Inactive'}
+                  </label>
+                </div>
+                <label className="mt-4 flex items-center gap-2 text-xs font-semibold text-slate-300">
+                  <input type="checkbox" checked={game.featured} disabled={!game.enabled} onChange={(event) => updateGame(game.id, { featured: event.target.checked })} className="h-4 w-4 accent-cyan-300" />
+                  Feature this game in the Arcade
+                  <Star className="h-3.5 w-3.5 text-amber-300" />
+                </label>
+                {game.id === 'crossy-road' ? (
+                  <div className="mt-4 rounded-xl border border-emerald-200/15 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-100">
+                    Native 3D Crossy Road. Multiplayer races use six-character room codes, five checkpoints, and three lives per checkpoint.
+                  </div>
+                ) : game.id === 'infinite-craft' ? (
+                  <div className="mt-4 rounded-xl border border-violet-200/15 bg-violet-300/5 p-3 text-xs leading-5 text-violet-100">
+                    Imported Infinite Craft. Recipes are resolved by YouSound's named recipe database; unknown pairs do not generate random adjective-prefixed items. Rooms and discovery leaderboards are stored on the account backend.
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-sky-200/15 bg-sky-300/5 p-3 text-xs leading-5 text-sky-100">
+                    OrbitalVision 3D is served directly from YouSound. It includes the uploaded live 3D Earth, satellite catalogs, orbit propagation, observer controls and telemetry interface.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+            <p className="text-[11px] text-slate-500">Only activated games can be launched, including by administrators.</p>
+            <button type="button" onClick={() => void saveCatalog()} disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-5 py-3 text-xs font-black text-slate-950 hover:bg-cyan-200 disabled:opacity-50">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save game settings
+            </button>
+          </div>
+          <div className="border-t border-white/10 pt-5 space-y-4">
+            <div>
+              <h3 className="text-base font-black text-white">Multiplayer & Maintenance</h3>
+              <p className="mt-1 text-[11px] text-slate-500">These controls affect everyone using the Arcade. Ending multiplayer rooms does not delete players’ saved accounts or discoveries.</p>
+            </div>
+            <label className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[.03] p-3 text-sm text-white">
+              <span><span className="block font-bold">Stop all multiplayer games</span><span className="block text-[11px] text-slate-400">Ends all active Crossy Road and Infinite Craft rooms and blocks new rooms.</span></span>
+              <input type="checkbox" checked={stopAllMultiplayer} onChange={(event) => {
+                const enabled = event.target.checked;
+                if (enabled && !window.confirm('End every active multiplayer room and block new multiplayer games?')) return;
+                void saveOperations({ stopAllMultiplayer: enabled });
+              }} className="h-5 w-5 accent-rose-400" />
+            </label>
+            <label className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[.03] p-3 text-sm text-white">
+              <span><span className="block font-bold">Arcade maintenance mode</span><span className="block text-[11px] text-slate-400">Stops game launches and multiplayer APIs for all members until switched off.</span></span>
+              <input type="checkbox" checked={maintenance.enabled} onChange={(event) => {
+                const enabled = event.target.checked;
+                if (enabled && !window.confirm('Put the entire Arcade under maintenance for everyone?')) return;
+                void saveOperations({ maintenanceEnabled: enabled, maintenanceMessage: maintenanceDraft });
+              }} className="h-5 w-5 accent-amber-300" />
+            </label>
+            <label className="block space-y-1 text-xs font-semibold text-slate-300">
+              Maintenance message
+              <input value={maintenanceDraft} onChange={(event) => setMaintenanceDraft(event.target.value)} maxLength={240} className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-300/50" />
+            </label>
+            <button type="button" onClick={() => void saveOperations({ maintenanceEnabled: maintenance.enabled, maintenanceMessage: maintenanceDraft })} disabled={operationsSaving} className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-white hover:bg-white/10 disabled:opacity-50">
+              {operationsSaving ? 'Saving…' : 'Save maintenance message'}
+            </button>
+          </div>
+          <div className="border-t border-white/10 pt-5 space-y-3">
+            <div>
+              <h3 className="text-base font-black text-white">Leaderboard management</h3>
+              <p className="mt-1 text-[11px] text-slate-500">Clearing Infinite Craft resets leaderboard points and combination counts but keeps each user’s saved discovery collection. Crossy Road account coins are not removed.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => void clearLeaderboard('crossy-races')} disabled={Boolean(leaderboardClearBusy)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10 disabled:opacity-50">{leaderboardClearBusy === 'crossy-races' ? 'Clearing…' : 'Clear Crossy Road races'}</button>
+              <button type="button" onClick={() => void clearLeaderboard('crossy-solo')} disabled={Boolean(leaderboardClearBusy)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10 disabled:opacity-50">{leaderboardClearBusy === 'crossy-solo' ? 'Clearing…' : 'Clear Crossy Road solo'}</button>
+              <button type="button" onClick={() => void clearLeaderboard('infinite-craft')} disabled={Boolean(leaderboardClearBusy)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10 disabled:opacity-50">{leaderboardClearBusy === 'infinite-craft' ? 'Clearing…' : 'Clear Infinite Craft'}</button>
+              <button type="button" onClick={() => void clearLeaderboard('all')} disabled={Boolean(leaderboardClearBusy)} className="rounded-lg border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-xs font-black text-rose-200 hover:bg-rose-500/20 disabled:opacity-50">{leaderboardClearBusy === 'all' ? 'Clearing…' : 'Clear All Leaderboards'}</button>
+            </div>
+          </div>
+          <div className="border-t border-white/10 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-black text-white">Recent community launches</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Latest 50 launch events recorded by YouSound. These are launch records, not proof that the external game finished loading or that a player remains online.</p>
+              </div>
+              <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-bold text-slate-300">{recentLaunches.length} RECENT</span>
+            </div>
+            <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
+              {recentLaunches.length === 0 ? <p className="p-5 text-center text-xs text-slate-500">No game launches have been recorded yet.</p> : recentLaunches.map((event) => (
+                <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-3 last:border-0">
+                  <div className="flex items-center gap-2 text-xs text-white"><ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />{event.username}<span className="text-slate-500">played launch request for</span><strong>{games.find((game) => game.id === event.gameId)?.title || event.gameId}</strong></div>
+                  <time className="text-[10px] tabular-nums text-slate-500">{new Date(event.launchedAt).toLocaleString()}</time>
+                </div>
+              ))}
+            </div>
+          </div>
+iv>
+        </section>
+      )}
+    </div>
+  );
+};
 
       {tab === 'control' && isAdmin && (
         <section className="space-y-5 rounded-3xl border border-cyan-200/20 bg-slate-950/80 p-5 shadow-xl sm:p-6">
