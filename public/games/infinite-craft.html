@@ -103,7 +103,7 @@
           </div>
           <div id="room-status" class="text-[11px] font-medium text-emerald-600">Connecting…</div>
           <div id="lobby-players" class="flex flex-wrap gap-1.5"></div>
-          <button id="btn-host-start" type="button" class="hidden w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Start Room Game →</button>
+          <div class="grid grid-cols-2 gap-2"><button id="btn-host-start" type="button" class="hidden w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Start Room Game →</button><button id="btn-host-end" type="button" class="hidden w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold">End Game</button></div>
         </div>
       </div>
     </div>
@@ -339,6 +339,7 @@
           room.status === 'waiting' ? 'Waiting for friends to join…' :
           room.status === 'active' ? 'Game in progress · room synced' : 'Room finished';
         document.getElementById('btn-host-start').classList.toggle('hidden', !state.isHost || room.status !== 'waiting');
+        document.getElementById('btn-host-end').classList.toggle('hidden', !state.isHost || room.status === 'finished');
         renderLobbyPlayers();
         renderPlayersBar();
 
@@ -346,8 +347,15 @@
 
         const discoveries = Array.isArray(room.discoveries) ? room.discoveries : [];
         for (const item of discoveries.slice(state.lastRoomDiscoveryCount)) {
-          const player = state.players.find((p) => p.name === item.by);
-          applyDiscovery(item.name, item.emoji, item.firstDiscovery, player ? player.id : item.by, item.by, item.points, false);
+          const isLocalDiscovery = item.by === state.myName;
+          if (isLocalDiscovery) continue;
+          if (!state.discoveredSet.has(item.name)) {
+            state.discoveredSet.add(item.name);
+            state.discovered.push({ name: item.name, emoji: item.emoji, isFirst: item.firstDiscovery, by: item.by });
+            spawnChip(item.name, item.emoji, 120 + Math.random() * 180, 140 + Math.random() * 140, false);
+            renderInventory();
+          }
+          showToast(item.by + ' discovered ' + item.emoji + ' ' + item.name + '!');
         }
         state.lastRoomDiscoveryCount = discoveries.length;
 
@@ -690,6 +698,19 @@
         try { navigator.clipboard.writeText(state.roomCode); } catch (_) {}
         showToast(`Copied room code: ${state.roomCode}`);
       });
+      document.getElementById('btn-host-end').addEventListener('click', async () => {
+        if (!state.roomId || !state.isHost || state.roomStatus === 'finished') return;
+        if (!confirm('End this multiplayer game for everyone in the room?')) return;
+        try {
+          const data = await craftApi('/rooms/' + state.roomId + '/end', { method: 'POST', body: '{}' });
+          syncRoomSnapshot(data.room);
+          showToast('The host ended this game.');
+          if (state.roomPollTimer) clearInterval(state.roomPollTimer);
+        } catch (error) {
+          showToast(error.message || 'Could not end the room.');
+        }
+      });
+
       document.getElementById('btn-host-start').addEventListener('click', async () => {
         if (!state.roomId || !state.isHost) return;
         state.raceTarget = RACE_TARGETS[Math.floor(Math.random() * RACE_TARGETS.length)];
