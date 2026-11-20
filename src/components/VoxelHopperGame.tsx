@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeCrossyRoadRoomCode } from '../services/crossyRoadRoomCode';
-import { CrossyRoadGame } from './CrossyRoadGame';
 import { ArrowLeft, Copy, Crown, Gamepad2, Maximize2, Play, RefreshCw, Users } from 'lucide-react';
 
 type RacePlayer = { id: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; finishedAt?: string | null; isMe: boolean; isHost: boolean };
@@ -19,6 +18,10 @@ async function raceRequest(path: string, options: RequestInit = {}) {
 
 export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const roomRefreshBusyRef = useRef(false);
+  const progressSyncBusyRef = useRef(false);
+  const pendingProgressRowRef = useRef<number | null>(null);
+  const progressSyncPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const [room, setRoom] = useState<RaceRoom | null>(null);
   const [code, setCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -36,21 +39,35 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
   }, []);
 
   const refreshRoom = useCallback(async () => {
-    if (!room?.id) return;
+    if (!room?.id || roomRefreshBusyRef.current) return;
+    roomRefreshBusyRef.current = true;
     try {
       const data = await raceRequest('/rooms/' + room.id);
-      setRoom(data.room);
+      setRoom(current => {
+        if (!current || current.id !== data.room.id) return data.room;
+        const unchanged = current.status === data.room.status && current.winnerName === data.room.winnerName &&
+          current.players.length === data.room.players.length && current.players.every((player, index) => {
+            const next = data.room.players[index];
+            return player.id === next.id && player.row === next.row && player.lives === next.lives && player.status === next.status && player.checkpoint === next.checkpoint;
+          });
+        return unchanged ? current : data.room;
+      });
       frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-opponents', players: data.room.players.filter((player: RacePlayer) => !player.isMe).map((player: RacePlayer) => ({ id: player.id, username: player.username, row: player.row, status: player.status })) }, window.location.origin);
       if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
     } catch (e: any) { setError(e.message || 'Could not refresh race status.'); }
+    finally { roomRefreshBusyRef.current = false; }
   }, [room?.id]);
 
   useEffect(() => { void loadLeaderboard(); }, [loadLeaderboard]);
   useEffect(() => {
     if (!room?.id) return;
-    const timer = window.setInterval(() => { void refreshRoom(); void loadLeaderboard(); }, 1100);
+    const timer = window.setInterval(() => { void refreshRoom(); }, 850);
     return () => window.clearInterval(timer);
-  }, [room?.id, refreshRoom, loadLeaderboard]);
+  }, [room?.id, refreshRoom]);
+
+  useEffect(() => {
+    if (room?.status === 'finished') void loadLeaderboard();
+  }, [room?.status, loadLeaderboard]);
 
   const createRoom = async () => {
     setBusy(true); setError('');
@@ -84,33 +101,63 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
     finally { setBusy(false); }
   };
 
+  const syncProgress = useCallback((roomId: string, row: number): Promise<void> => {
+    pendingProgressRowRef.current = Math.max(pendingProgressRowRef.current ?? 0, row);
+    if (progressSyncBusyRef.current) return progressSyncPromiseRef.current;
+    progressSyncBusyRef.current = true;
+    const task = (async () => {
+      try {
+        while (pendingProgressRowRef.current !== null) {
+          const targetRow = pendingProgressRowRef.current;
+          pendingProgressRowRef.current = null;
+          const data = await raceRequest('/rooms/' + roomId + '/progress', { method: 'POST', body: JSON.stringify({ row: targetRow }) });
+          setRoom(data.room);
+          const me = data.room.players.find((player: RacePlayer) => player.isMe);
+          if (me && me.row < targetRow) {
+            pendingProgressRowRef.current = Math.max(pendingProgressRowRef.current ?? 0, targetRow);
+          }
+          if (data.room.status === 'finished') {
+            frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
+            pendingProgressRowRef.current = null;
+          }
+        }
+      } catch (e: any) {
+        pendingProgressRowRef.current = null;
+        if (!/race is not active/i.test(String(e?.message || ''))) setError(e.message || 'Race progress could not be synchronized.');
+      } finally {
+        progressSyncBusyRef.current = false;
+      }
+    })();
+    progressSyncPromiseRef.current = task;
+    return task;
+  }, []);
+
   const raceMessageQueue = useRef<Promise<void>>(Promise.resolve());
   const handleGameMessage = useCallback((event: MessageEvent) => {
     if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow || !room?.id) return;
     const message = event.data;
     if (!message || typeof message !== 'object') return;
     const roomId = room.id;
+    if (message.type === 'crossy-progress' && Number.isSafeInteger(message.row)) {
+      void syncProgress(roomId, message.row);
+      return;
+    }
+    if (message.type !== 'crossy-death') return;
     raceMessageQueue.current = raceMessageQueue.current.then(async () => {
       try {
-        if (message.type === 'crossy-progress' && Number.isSafeInteger(message.row)) {
-          const data = await raceRequest('/rooms/' + roomId + '/progress', { method: 'POST', body: JSON.stringify({ row: message.row }) });
-          setRoom(data.room);
-          if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
-        }
-        if (message.type === 'crossy-death') {
-          const data = await raceRequest('/rooms/' + roomId + '/death', { method: 'POST', body: '{}' });
-          setRoom(data.room);
-          if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
-          frameRef.current?.contentWindow?.postMessage({
-            type: 'crossy-death-result', respawn: data.respawn, eliminated: data.eliminated,
-            lives: data.lives, checkpointRow: data.checkpointRow,
-          }, window.location.origin);
-        }
+        await progressSyncPromiseRef.current;
+        const data = await raceRequest('/rooms/' + roomId + '/death', { method: 'POST', body: '{}' });
+        setRoom(data.room);
+        if (data.room.status === 'finished') frameRef.current?.contentWindow?.postMessage({ type: 'crossy-race-finished' }, window.location.origin);
+        frameRef.current?.contentWindow?.postMessage({
+          type: 'crossy-death-result', respawn: data.respawn, eliminated: data.eliminated,
+          lives: data.lives, checkpointRow: data.checkpointRow,
+        }, window.location.origin);
       } catch (e: any) {
         if (!/race is not active/i.test(String(e?.message || ''))) setError(e.message || 'Race progress could not be synchronized.');
       }
     });
-  }, [room?.id]);
+  }, [room?.id, syncProgress]);
 
   useEffect(() => {
     window.addEventListener('message', handleGameMessage);
@@ -140,7 +187,15 @@ export const VoxelHopperGame: React.FC<{ onBack: () => void }> = ({ onBack }) =>
   const winnerName = room?.winnerName;
   const raceActive = room?.status === 'active' || room?.status === 'finished';
 
-  if (soloMode) return <CrossyRoadGame onBack={() => setSoloMode(false)} />;
+  if (soloMode) return (
+    <section className="mx-auto flex min-h-[85vh] w-full max-w-[1600px] flex-col gap-3 pb-10">
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950 px-4 py-3">
+        <button type="button" onClick={() => setSoloMode(false)} className="rounded-xl border border-white/10 bg-white/[.05] px-4 py-2 text-xs font-bold text-white hover:bg-white/10">← Back to Crossy Road</button>
+        <span className="text-xs font-black text-emerald-200">Crossy Road · Solo 3D</span>
+      </div>
+      <iframe title="Crossy Road 3D Solo" src="/games/voxel-hopper.html" className="block min-h-[720px] w-full flex-1 rounded-2xl border border-white/10 bg-sky-300" allow="autoplay; fullscreen" allowFullScreen />
+    </section>
+  );
 
   return (
     <section className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 pb-24">
