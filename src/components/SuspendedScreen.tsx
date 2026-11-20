@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { storage } from '../services/storage';
 import { ChatThread, ChatMessage } from '../types';
-import { ShieldAlert, Send, LogOut, Sun, Moon, MessageSquare, AlertCircle, Trash2, RotateCcw } from 'lucide-react';
+import { ShieldAlert, Send, LogOut, Sun, Moon, MessageSquare, AlertCircle } from 'lucide-react';
 
 export const SuspendedScreen: React.FC = () => {
   const { currentUser, logout, checkUserApproval, refreshState } = useAuth();
@@ -111,25 +111,6 @@ export const SuspendedScreen: React.FC = () => {
     }
   };
 
-  const handleDeleteOwnMessage = async (msgId: string) => {
-    try {
-      await storage.deleteChatMessage(msgId);
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
-    } catch (e) {
-      console.error('Failed to delete message:', e);
-    }
-  };
-
-  const handleClearChatHistory = async () => {
-    if (!appealThread) return;
-    try {
-      await storage.clearChatThreadMessages(appealThread.id);
-      setMessages([]);
-    } catch (e) {
-      console.error('Failed to clear messages:', e);
-    }
-  };
-
   const formatMessageTime = (dateStr?: string) => {
     if (!dateStr) return '';
     try {
@@ -193,17 +174,6 @@ export const SuspendedScreen: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              {messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleClearChatHistory}
-                  className="text-[10px] text-slate-400 hover:text-rose-500 px-2 py-0.5 rounded transition-colors flex items-center gap-1"
-                  title="Clear chat history"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Clear History</span>
-                </button>
-              )}
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                 Direct Desk
               </span>
@@ -244,16 +214,6 @@ export const SuspendedScreen: React.FC = () => {
                     >
                       <div className="text-[10px] font-bold opacity-75 mb-0.5 flex items-center justify-between gap-3">
                         <span>{isMe ? 'You' : 'Administrator'}</span>
-                        {isMe && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteOwnMessage(m.id)}
-                            className="opacity-0 group-hover/msg:opacity-100 hover:text-rose-300 transition-opacity"
-                            title="Delete this message"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
                       </div>
                       <p className="break-words">{m.content}</p>
                     </div>
