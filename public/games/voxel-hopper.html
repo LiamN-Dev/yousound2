@@ -1331,9 +1331,11 @@
         startRound(true);
       }
 
-      function startSession() {
+      async function startSession() {
         // In a YouSound race, only the parent room service can start or respawn a run.
         if (multiplayerMode) return;
+        await loadAccountStats();
+        await startAccountRun();
         beginMultiplayerRound();
       }
 
@@ -1455,6 +1457,7 @@
           if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_best', String(bestScore)); } catch (e) {} }
         }
         if (!multiplayerMode) { try { localStorage.setItem('voxel_hopper_coins', String(totalCoins)); } catch (e) {} }
+        if (!multiplayerMode) void finishAccountRun(score, coins);
 
         document.getElementById('death-reason').textContent = reasonText;
         document.getElementById('final-score').textContent = score;
@@ -1826,11 +1829,11 @@
         renderSelectors();
         mpConfigs = [{ id: 'local', name: 'Player', charId: selectedChar, tagColor: PLAYER_TAG_COLORS[0], bestScore: 0, isBot: false }];
         startRound(false);
+        void loadAccountStats();
         if (multiplayerMode) {
           document.getElementById('hud-menu-btn').classList.add('hidden');
           document.getElementById('menu-btn').classList.add('hidden');
           document.getElementById('restart-btn').classList.add('hidden');
-          void loadAccountStats();
         }
         requestAnimationFrame(animate);
       };
