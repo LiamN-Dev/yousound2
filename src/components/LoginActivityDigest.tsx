@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Check, MessageCircle, Music2, Sparkles, X } from 'lucide-react';
+import { Bell, Check, MessageCircle, Music2, ShieldAlert, Sparkles, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 type DigestItem = {
   id: string;
-  kind: 'song' | 'feedback' | 'chat';
+  kind: 'song' | 'feedback' | 'chat' | 'safety';
   title: string;
   detail: string;
   createdAt: string;
@@ -19,6 +19,7 @@ type DigestResponse = {
 const iconFor = (kind: DigestItem['kind']) => {
   if (kind === 'song') return <Music2 className="h-4 w-4" />;
   if (kind === 'chat') return <MessageCircle className="h-4 w-4" />;
+  if (kind === 'safety') return <ShieldAlert className="h-4 w-4" />;
   return <Sparkles className="h-4 w-4" />;
 };
 
@@ -78,6 +79,7 @@ export const LoginActivityDigest: React.FC = () => {
               {digest.counts.songs > 0 ? ' ' + digest.counts.songs + ' song update' + (digest.counts.songs === 1 ? '' : 's') + '.' : ''}
               {digest.counts.feedback > 0 ? ' ' + digest.counts.feedback + ' feature/bug update' + (digest.counts.feedback === 1 ? '' : 's') + '.' : ''}
               {digest.counts.chats > 0 ? ' ' + digest.counts.chats + ' chat message' + (digest.counts.chats === 1 ? '' : 's') + '.' : ''}
+              {digest.counts.safety > 0 ? ' ' + digest.counts.safety + ' safety alert' + (digest.counts.safety === 1 ? '' : 's') + '.' : ''}
             </p>
           </div>
           <button type="button" onClick={dismiss} disabled={saving} aria-label="Close updates" className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-40"><X className="h-4 w-4" /></button>

@@ -84,6 +84,7 @@ export const YouTubeTrackedPlayer: React.FC<{
 }> = ({ video, className = 'h-full w-full' }) => {
   const [accessChecking, setAccessChecking] = React.useState(true);
   const [blocked, setBlocked] = React.useState(false);
+  const [blockMessage, setBlockMessage] = React.useState('');
   const [accessError, setAccessError] = React.useState('');
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
@@ -158,6 +159,14 @@ export const YouTubeTrackedPlayer: React.FC<{
             tags: Array.isArray(current.tags) ? current.tags.slice(0, 20) : [],
           },
         }),
+      }).then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (data?.autoBlocked) {
+          setBlocked(true);
+          setBlockMessage(data.accountLocked
+            ? 'Your account is now locked because this is the second confirmed inappropriate video this week. An administrator has been notified.'
+            : (data.warningMessage || 'This video was blocked. This is your first safety warning this week; another confirmed violation this week will lock your account.'));
+        }
       }).catch(() => undefined);
     };
 
@@ -227,7 +236,7 @@ export const YouTubeTrackedPlayer: React.FC<{
 
   if (accessChecking) return <div className={className + ' flex items-center justify-center bg-black text-xs text-slate-300'}>Checking video permissions…</div>;
   if (accessError) return <div className={className + ' flex items-center justify-center bg-[#101827] p-6 text-center text-xs text-amber-100'}>{accessError}</div>;
-  if (blocked) return <div className={className + ' flex flex-col items-center justify-center gap-2 bg-[#101827] p-6 text-center text-white'}><span className="text-sm font-semibold">Video blocked by YouSound</span><span className="max-w-sm text-xs leading-5 text-slate-400">An administrator has blocked this video. It cannot be played in YouSound.</span></div>;
+  if (blocked) return <div className={className + ' flex flex-col items-center justify-center gap-2 bg-[#101827] p-6 text-center text-white'}><span className="text-sm font-semibold">Video blocked by YouSound</span><span className="max-w-sm text-xs leading-5 text-slate-300">{blockMessage || 'This video was blocked by YouSound safety screening. It cannot be played here.'}</span></div>
 
   return (
     <iframe
