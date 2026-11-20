@@ -131,7 +131,7 @@ export const YouTubeSafetyReview: React.FC = () => {
         </button>
       </div>
       <div className="border-b border-white/10 bg-cyan-950/20 px-5 py-3 text-[11px] leading-5 text-cyan-100/80">
-        AI automatically blocks high-risk video metadata at 80% confidence or higher. Search queries at that threshold trigger the account safety lock. AI checks public titles, channel details, descriptions, tags, and search text—not video/audio content. Lower confidence or unavailable results stay in review.
+        AI automatically blocks high-risk video metadata at 80% confidence or higher. The first distinct blocked video in a Monday–Sunday week warns the member; a second distinct violation locks the account and sends an administrator alert. Unsafe searches are blocked but do not count as watched-video violations. AI checks public titles, channel details, descriptions, tags, and search text—not video/audio content. Truly ambiguous or unavailable results remain in review.
       </div>
       <div className="space-y-3 border-b border-white/10 px-5 py-4">
         <label className="relative block">
