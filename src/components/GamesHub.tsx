@@ -12,7 +12,7 @@ type ArcadeGame = {
   featured: boolean;
   launchUrl: string;
   launchMode: LaunchMode;
-  playerMode: 'solo' | 'multiplayer';
+  playerMode: 'solo' | 'multiplayer' | 'solo & multiplayer';
   providerLabel: string;
 };
 type LaunchEvent = {
