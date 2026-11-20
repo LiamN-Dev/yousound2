@@ -15,6 +15,7 @@ type CraftProfile = {
   username: string;
   score: number;
   discoveries: string[];
+  discoveryItems: Array<{ name: string; emoji: string }>;
   recipes: string[];
   combinations: number;
   raceWins: number;
@@ -113,11 +114,30 @@ async function mutateStore(update: (current: CraftStore) => CraftStore): Promise
 }
 
 function getProfile(store: CraftStore, account: Account): CraftProfile {
-  return store.profiles[account.uid] || {
+  const saved = store.profiles[account.uid];
+  if (saved) {
+    const discoveries = Array.isArray(saved.discoveries) ? saved.discoveries : [];
+    const discoveryItems = Array.isArray(saved.discoveryItems)
+      ? saved.discoveryItems.filter((item) => item && typeof item.name === 'string' && typeof item.emoji === 'string')
+      : discoveries.map((name) => ({ name, emoji: '✨' }));
+    return {
+      ...saved,
+      username: account.username,
+      discoveries,
+      discoveryItems,
+      recipes: Array.isArray(saved.recipes) ? saved.recipes : [],
+      score: Number(saved.score || 0),
+      combinations: Number(saved.combinations || 0),
+      raceWins: Number(saved.raceWins || 0),
+      updatedAt: saved.updatedAt || new Date().toISOString(),
+    };
+  }
+  return {
     uid: account.uid,
     username: account.username,
     score: 0,
     discoveries: [],
+    discoveryItems: [],
     recipes: [],
     combinations: 0,
     raceWins: 0,
@@ -190,7 +210,12 @@ function recordCombination(
     ...profile,
     username: account.username,
     score: profile.score + 1,
-    discoveries: profile.discoveries.includes(recipe.result) ? profile.discoveries : [...profile.discoveries, recipe.result],
+    discoveries: profile.discoveries.some((name) => name.toLocaleLowerCase() === recipe.result.toLocaleLowerCase())
+      ? profile.discoveries
+      : [...profile.discoveries, recipe.result],
+    discoveryItems: profile.discoveryItems.some((item) => item.name.toLocaleLowerCase() === recipe.result.toLocaleLowerCase())
+      ? profile.discoveryItems
+      : [...profile.discoveryItems, { name: recipe.result, emoji: recipe.emoji }],
     recipes: alreadyUsedRecipe ? profile.recipes : [...profile.recipes, recipe.key],
     combinations: profile.combinations + 1,
     updatedAt: now,
