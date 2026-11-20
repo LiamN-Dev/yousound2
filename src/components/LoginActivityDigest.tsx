@@ -12,7 +12,7 @@ type DigestItem = {
 
 type DigestResponse = {
   total: number;
-  counts: { songs: number; feedback: number; chats: number };
+  counts: { songs: number; feedback: number; chats: number; safety: number };
   items: DigestItem[];
 };
 
