@@ -5,7 +5,7 @@ import { getPersistentSettingDb, ensurePersistentSettingDb, compareAndSetPersist
 import { getUserByUid } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
 
-type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; finishedAt?: string | null };
+type Player = { uid: string; username: string; checkpoint: number; lives: number; row: number; status: 'playing' | 'eliminated' | 'finished'; joinedAt: string; lastProgressAt?: number; finishedAt?: string | null };
 type Room = { id: string; code: string; hostUid: string; status: 'waiting' | 'active' | 'finished'; createdAt: string; updatedAt: string; players: Player[]; winnerUid: string | null };
 type RaceResult = { id: string; userId: string; username: string; checkpoint: number; completed: boolean; playedAt: string; roomCode: string };
 const ROOM_KEY = 'crossy_road_race_rooms_v1';
@@ -58,7 +58,7 @@ async function mutate<T>(key: string, update: (current: Record<string, T>) => Re
 }
 function publicRoom(room: Room, viewerUid: string) {
   return { id: room.id, code: room.code, isHost: room.hostUid === viewerUid, status: room.status, winnerName: room.players.find(p => p.uid === room.winnerUid)?.username || null,
-    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username, username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isHost: uid === room.hostUid })),
+    players: room.players.map(({ uid, username, checkpoint, lives, row, status, finishedAt }) => ({ id: username + ':' + uid.slice(-6), username, checkpoint, lives, row, status, finishedAt, isMe: uid === viewerUid, isHost: uid === room.hostUid })),
     checkpoints: 5, livesPerCheckpoint: 3, checkpointRows: [25, 50, 75, 100, 125] };
 }
 async function addResult(room: Room) {
@@ -86,7 +86,7 @@ router.post('/rooms', async (req, res) => {
       const code = makeUniqueRoomCode(rooms);
       const now = new Date().toISOString();
       const room: Room = { id, code, hostUid: player.uid, status: 'waiting', createdAt: now, updatedAt: now, winnerUid: null,
-        players: [{ ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: now }] };
+        players: [{ ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: now, lastProgressAt: Date.now() }] };
       createdRoom = room;
       return { ...rooms, [id]: room };
     });
@@ -105,7 +105,7 @@ router.post('/rooms/join', async (req, res) => {
       if (!room) throw new Error('No waiting race was found for that code.');
       if (room.players.some(p => p.uid === player.uid)) { joined = room; return rooms; }
       if (room.players.length >= 8) throw new Error('This race is full (maximum 8 players).');
-      joined = { ...room, players: [...room.players, { ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: new Date().toISOString() }], updatedAt: new Date().toISOString() };
+      joined = { ...room, players: [...room.players, { ...player, checkpoint: 0, lives: 3, row: 0, status: 'playing', joinedAt: new Date().toISOString(), lastProgressAt: Date.now() }], updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: joined };
     });
     return res.json({ success: true, room: publicRoom(joined!, player.uid) });
@@ -172,10 +172,14 @@ router.post('/rooms/:id/progress', async (req, res) => {
       if (idx < 0 || room.players[idx].status !== 'playing') throw new Error('You are not an active player in this race.');
       const players = [...room.players];
       const current = players[idx];
-      // One legitimate forward hop is recorded per event; the iframe sends every row change.
-      const acceptedRow = Math.min(Math.max(current.row, row), current.row + 1);
+      // Progress messages may be coalesced while the network is busy. Allow a
+      // small time-based catch-up, but cap it so a client cannot submit an instant win.
+      const nowMs = Date.now();
+      const elapsedMs = Math.max(0, nowMs - Number(current.lastProgressAt || nowMs));
+      const maxAdvance = Math.max(1, Math.min(6, Math.floor(elapsedMs / 105) + 1));
+      const acceptedRow = Math.min(Math.max(current.row, row), current.row + maxAdvance);
       const checkpoint = Math.max(current.checkpoint, Math.min(5, Math.floor(acceptedRow / 25)));
-      players[idx] = { ...current, row: acceptedRow, checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
+      players[idx] = { ...current, row: acceptedRow, lastProgressAt: nowMs, checkpoint, lives: checkpoint > current.checkpoint ? 3 : current.lives, ...(checkpoint >= 5 ? { status: 'finished', finishedAt: new Date().toISOString() } : {}) };
       const winnerUid = checkpoint >= 5 && !room.winnerUid ? player.uid : room.winnerUid;
       const updatedRoom: Room = { ...room, players, winnerUid, status: winnerUid ? 'finished' : room.status, updatedAt: new Date().toISOString() };
       return { ...rooms, [room.id]: updatedRoom };
