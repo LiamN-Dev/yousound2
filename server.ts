@@ -842,8 +842,9 @@ function isSafeShortsCandidate(video: YouTubeVideoRecord): boolean {
 async function getYouTubeShortsVideos(
   apiKey: string,
   profile: YouTubeUserProfile,
-  regionCode = 'US'
-): Promise<YouTubeVideoRecord[]> {
+  regionCode = 'US',
+  pageToken = ''
+): Promise<{ videos: YouTubeVideoRecord[]; nextPageToken: string | null }> {
   const safeRegion = /^[A-Z]{2}$/.test(regionCode) ? regionCode : 'US';
   const profileFingerprint = createHash('sha256').update(JSON.stringify({
     interests: profile.interests,
@@ -854,9 +855,10 @@ async function getYouTubeShortsVideos(
     recentlyWatched: profile.recentVideoIds,
     recentSearches: profile.recentSearches,
   })).digest('hex').slice(0, 16);
-  const cacheKey = 'shorts:personalized:' + safeRegion + ':' + profileFingerprint;
+  const safePageToken = String(pageToken || '').slice(0, 500);
+  const cacheKey = 'shorts:personalized:' + safeRegion + ':' + profileFingerprint + ':' + createHash('sha256').update(safePageToken).digest('hex').slice(0, 12);
   const cached = getYoutubeCache(cacheKey);
-  if (cached) return cached;
+  if (cached) return cached as { videos: YouTubeVideoRecord[]; nextPageToken: string | null };
 
   const categoryTerms = Object.entries(profile.categoryWeights)
     .filter(([, weight]) => Number(weight) > 0)
@@ -868,10 +870,7 @@ async function getYouTubeShortsVideos(
     .map(value => String(value).trim().slice(0, 55))
     .filter(Boolean);
   const query = [...new Set(terms)].slice(0, 3).join(' ') || 'popular short videos';
-  // Use one relevance search per personalized cache window to keep search.list quota usage low.
-  // The Following section separately retrieves uploads from every followed channel; this feed
-  // ranks the broader candidate pool using the same channel/category weights.
-  const result = await callYouTubeApi('search', {
+  const params: Record<string, string> = {
     part: 'snippet',
     type: 'video',
     maxResults: '50',
@@ -881,21 +880,26 @@ async function getYouTubeShortsVideos(
     relevanceLanguage: 'en',
     order: 'relevance',
     videoDuration: 'short',
-  }, apiKey);
+  };
+  if (safePageToken) params.pageToken = safePageToken;
+  const result = await callYouTubeApi('search', params, apiKey);
   const ids: string[] = Array.from(new Set<string>(
     (Array.isArray(result.items) ? result.items : [])
       .map((item: any) => String(item?.id?.videoId || ''))
       .filter((id: string): id is string => /^[A-Za-z0-9_-]{11}$/.test(id))
-  )).slice(0, 50);
+  ));
   const videos = (await hydrateYouTubeVideos(ids, apiKey))
     .filter(video => {
       const seconds = youtubeDurationSeconds(video.duration);
       return seconds > 0 && seconds <= 180 && isSafeShortsCandidate(video);
     })
     .sort((a, b) => scorePersonalizedVideo(b, profile) - scorePersonalizedVideo(a, profile));
-
-  setYoutubeCache(cacheKey, videos, 3 * 60 * 1000);
-  return videos;
+  const page = {
+    videos,
+    nextPageToken: typeof result.nextPageToken === 'string' ? result.nextPageToken.slice(0, 500) : null,
+  };
+  setYoutubeCache(cacheKey, page as any, 3 * 60 * 1000);
+  return page;
 }
 
 async function getTrendingYouTubeVideos(apiKey: string, regionCode = 'US', categoryId?: string): Promise<YouTubeVideoRecord[]> {
@@ -1514,11 +1518,19 @@ app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
     const regionCode = typeof req.query.regionCode === 'string' ? req.query.regionCode.toUpperCase().slice(0, 2) : 'US';
     const profile = await getYouTubeProfile(member.uid);
     let candidates: YouTubeVideoRecord[] = [];
+    let shortsNextPageToken: string | null = null;
 
     if (mode === 'trending') {
       candidates = await getTrendingYouTubeVideos(apiKey, regionCode);
     } else if (mode === 'shorts') {
-      candidates = await getYouTubeShortsVideos(apiKey, profile, regionCode);
+      const shortsPage = await getYouTubeShortsVideos(
+        apiKey,
+        profile,
+        regionCode,
+        typeof req.query.pageToken === 'string' ? req.query.pageToken : ''
+      );
+      candidates = shortsPage.videos;
+      shortsNextPageToken = shortsPage.nextPageToken;
     } else if (mode === 'liked') {
       candidates = await hydrateYouTubeVideos([...profile.likedVideoIds].reverse().slice(0, 50), apiKey);
     } else if (mode === 'following') {
@@ -1560,7 +1572,8 @@ app.get('/api/youtube-mode/feed', async (req: Request, res: Response) => {
       mode,
       personalized: mode === 'for-you' || (mode === 'shorts' && hasPersonalization),
       hasPersonalization,
-      videos: ordered.slice(0, 36),
+      videos: mode === 'shorts' ? ordered : ordered.slice(0, 36),
+      nextPageToken: mode === 'shorts' ? shortsNextPageToken : null,
     });
   } catch (error: any) {
     console.error('[YouTube Mode] Feed load failed:', error?.message || error);
