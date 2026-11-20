@@ -1045,6 +1045,10 @@ async function reviewYouTubeWatchMetadata(video: {
   reason: string;
   confidence: number;
 }> {
+  const explicitSignal = hasExplicitUnsafeYouTubeMetadataSignal(video);
+  if (explicitSignal) {
+    return { decision: 'high-risk', category: 'age-inappropriate-content', reason: 'The video title or metadata explicitly describes inappropriate or adult content.', confidence: 0.95 };
+  }
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) {
     return { decision: 'unavailable', category: 'screening-unavailable', reason: 'AI metadata screening is not configured on the server.', confidence: 0 };
@@ -1073,15 +1077,14 @@ async function reviewYouTubeWatchMetadata(video: {
       },
     });
     const raw = String(generated.response.text || '').trim();
-    const parsed = JSON.parse(raw.replace(/^`{3}(?:json)?s*/i, '').replace(/s*`{3}$/, ''));
-    const explicitSignal = hasExplicitUnsafeYouTubeMetadataSignal(video);
-    const decision = explicitSignal ? 'high-risk' : (['safe', 'review', 'high-risk'].includes(parsed.decision) ? parsed.decision as YouTubeWatchSafetyDecision : 'review');
+    const parsed = JSON.parse(raw.replace(/^`{3}(?:json)?\\s*/i, '').replace(/\\s*`{3}$/, ''));
+    const decision = ['safe', 'review', 'high-risk'].includes(parsed.decision) ? parsed.decision as YouTubeWatchSafetyDecision : 'review';
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
     return {
       decision: confidence < 0.8 && decision === 'high-risk' ? 'review' : decision,
-      category: explicitSignal ? 'age-inappropriate-content' : String(parsed.category || 'other').slice(0, 48),
-      reason: explicitSignal ? 'The video title or metadata explicitly describes inappropriate or adult content.' : String(parsed.reason || 'Metadata needs administrator review.').slice(0, 240),
-      confidence: explicitSignal ? Math.max(0.9, confidence) : confidence,
+      category: String(parsed.category || 'other').slice(0, 48),
+      reason: String(parsed.reason || 'Metadata needs administrator review.').slice(0, 240),
+      confidence,
     };
   } catch (error: any) {
     console.warn('[YouTube Safety] Metadata screening failed:', error?.message || error);
