@@ -7,6 +7,7 @@ import {
   getUserByUid,
 } from '../db/queries.ts';
 import { getAuthUser } from '../services/auth.ts';
+import { resolveInfiniteCraftAiRecipe, type InfiniteCraftAiResult } from '../services/infiniteCraftAi.ts';
 import {
   findInfiniteCraftRecipe,
   infiniteCraftRecipeKey,
@@ -88,13 +89,14 @@ async function getAccount(req: Request, res: Response): Promise<Account | null> 
   return { uid: user.uid, username: user.username, isAdmin: user.role === 'admin' };
 }
 
-router.use(async (_req, res, next) => {
+router.use(async (req, res, next) => {
   try {
     const catalog = await getPersistentSettingDb<any[]>('arcade_game_catalog_v1');
     const configured = Array.isArray(catalog) ? catalog.find((item) => item?.id === 'infinite-craft') : null;
-    if (configured && configured.enabled !== true) {
-      return res.status(403).json({ success: false, error: 'Infinite Craft is currently unavailable in the Arcade.' });
-    }
+    if (configured && configured.enabled !== true) return res.status(403).json({ success: false, error: 'Infinite Craft is currently unavailable in the Arcade.' });
+    if (await getPersistentSettingDb<boolean>('arcade_maintenance_v1')) return res.status(503).json({ success: false, error: 'The Arcade is under maintenance.' });
+    const isRoomRead = req.method === 'GET' && /^\/rooms\/[^/]+$/.test(req.path);
+    if (((req.path.startsWith('/rooms') && !isRoomRead) || (req.path === '/discoveries' && Boolean((req as any).body?.roomId))) && await getPersistentSettingDb<boolean>('arcade_multiplayer_stopped_v1')) return res.status(503).json({ success: false, error: 'Arcade multiplayer has been stopped by an administrator.' });
     next();
   } catch {
     return res.status(503).json({ success: false, error: 'Arcade availability could not be checked.' });
@@ -168,80 +170,65 @@ function recordCombination(
   ingredientB: string,
   roomId: string | null,
   soloRaceTarget: string,
+  recipeOverride?: { inputA: string; inputB: string; result: string; emoji: string; key: string },
 ) {
-  const recipe = findInfiniteCraftRecipe(ingredientA, ingredientB);
-  if (!recipe) throw new Error('No known discovery for ' + ingredientA + ' + ' + ingredientB + ' yet. Try another combination.');
-  const profile = getProfile(store, account);
-  const alreadyUsedRecipe = profile.recipes.includes(recipe.key);
-  const firstDiscovery = !store.seenRecipes[recipe.key];
-  const points = alreadyUsedRecipe ? 0 : firstDiscovery ? 25 : 10;
-  const now = new Date().toISOString();
+  const key = infiniteCraftRecipeKey(ingredientA, ingredientB);
+  const cached = store.seenRecipes[key];
+  const recipe = cached
+    ? { inputA: ingredientA, inputB: ingredientB, result: cached.result, emoji: cached.emoji, key }
+    : recipeOverride;
+  if (!recipe) throw new Error('The AI rejected that combination. Try another pair.');
 
-  if (!store.seenRecipes[recipe.key]) {
-    store.seenRecipes[recipe.key] = {
-      result: recipe.result,
-      emoji: recipe.emoji,
-      firstUserId: account.uid,
-      firstUsername: account.username,
-      createdAt: now,
-    };
+  const profile = getProfile(store, account);
+  const alreadyDiscovered = profile.discoveries.includes(recipe.result);
+  const firstDiscovery = !cached;
+  const now = new Date().toISOString();
+  if (!cached) {
+    store.seenRecipes[key] = { result: recipe.result, emoji: recipe.emoji, firstUserId: account.uid, firstUsername: account.username, createdAt: now };
   }
 
   const nextProfile: CraftProfile = {
     ...profile,
     username: account.username,
-    score: profile.score + points,
-    discoveries: profile.discoveries.includes(recipe.result) ? profile.discoveries : [...profile.discoveries, recipe.result],
-    recipes: alreadyUsedRecipe ? profile.recipes : [...profile.recipes, recipe.key],
-    combinations: profile.combinations + (alreadyUsedRecipe ? 0 : 1),
+    score: profile.score + 1,
+    discoveries: alreadyDiscovered ? profile.discoveries : [...profile.discoveries, recipe.result],
+    recipes: profile.recipes.includes(key) ? profile.recipes : [...profile.recipes, key],
+    combinations: profile.combinations + 1,
     updatedAt: now,
   };
 
   let room: CraftRoom | null = null;
   let won = false;
-  let winBonus = 0;
   let roomDiscovery: CraftDiscovery | null = null;
-
   if (roomId) {
     room = store.rooms[roomId] || null;
     if (!room || room.status !== 'active') throw new Error('This room is not currently running.');
     const playerIndex = room.players.findIndex((player) => player.uid === account.uid);
     if (playerIndex < 0) throw new Error('You are not a member of this room.');
     const roomPlayer = room.players[playerIndex];
-    if (roomPlayer.recipes.includes(recipe.key)) {
-      return { recipe, points: 0, firstDiscovery: false, won: false, room, profile, alreadyDiscovered: true };
+    const isNewToRoom = !room.discoveries.some((item) => item.name === recipe.result);
+    if (isNewToRoom) {
+      roomDiscovery = {
+        id: room.id + ':' + key, recipeKey: key, name: recipe.result, emoji: recipe.emoji,
+        by: account.username, points: 1, firstDiscovery, createdAt: now,
+      };
     }
 
-    roomDiscovery = {
-      id: room.id + ':' + recipe.key,
-      recipeKey: recipe.key,
-      name: recipe.result,
-      emoji: recipe.emoji,
-      by: account.username,
-      points,
-      firstDiscovery,
-      createdAt: now,
-    };
     const players = [...room.players];
     players[playerIndex] = {
       ...roomPlayer,
-      score: roomPlayer.score + points,
+      score: roomPlayer.score + 1,
       discoveries: roomPlayer.discoveries.includes(recipe.result) ? roomPlayer.discoveries : [...roomPlayer.discoveries, recipe.result],
-      recipes: [...roomPlayer.recipes, recipe.key],
+      recipes: roomPlayer.recipes.includes(key) ? roomPlayer.recipes : [...roomPlayer.recipes, key],
     };
-
     if (room.mode === 'race' && recipe.result.toLocaleLowerCase() === room.raceTarget.toLocaleLowerCase() && !room.winnerUid) {
       won = true;
-      winBonus = 100;
-      players[playerIndex] = { ...players[playerIndex], score: players[playerIndex].score + winBonus };
-      nextProfile.score += winBonus;
       nextProfile.raceWins += 1;
     }
-
     room = {
       ...room,
       players,
-      discoveries: [...room.discoveries, roomDiscovery],
+      discoveries: roomDiscovery ? [...room.discoveries, roomDiscovery] : room.discoveries,
       winnerUid: won ? account.uid : room.winnerUid,
       winnerName: won ? account.username : room.winnerName,
       status: won ? 'finished' : room.status,
@@ -250,13 +237,11 @@ function recordCombination(
     store.rooms[roomId] = room;
   } else if (soloRaceTarget && recipe.result.toLocaleLowerCase() === soloRaceTarget.toLocaleLowerCase()) {
     won = true;
-    winBonus = 100;
-    nextProfile.score += winBonus;
     nextProfile.raceWins += 1;
   }
 
   store.profiles[account.uid] = nextProfile;
-  return { recipe, points, firstDiscovery, won, winBonus, room, profile: nextProfile, discovery: roomDiscovery, alreadyDiscovered: alreadyUsedRecipe };
+  return { recipe, points: 1, firstDiscovery, won, winBonus: 0, room, profile: nextProfile, discovery: roomDiscovery, alreadyDiscovered };
 }
 
 router.get('/recipes', (_req, res) => {
@@ -268,7 +253,12 @@ router.get('/profile', async (req, res) => {
     const account = await getAccount(req, res);
     if (!account) return;
     const store = await getPersistentSettingDb<CraftStore>(STORE_KEY) || emptyStore();
-    return res.json({ success: true, profile: getProfile(store, account) });
+    const profile = getProfile(store, account);
+    const items = profile.discoveries.map((name) => {
+      const known = Object.values(store.seenRecipes || {}).find((entry) => entry.result === name);
+      return { name, emoji: known?.emoji || '✨' };
+    });
+    return res.json({ success: true, profile: { ...profile, items } });
   } catch (error: any) {
     console.error('[Infinite Craft] Profile load failed:', error?.message || error);
     return res.status(500).json({ success: false, error: 'Could not load your Infinite Craft profile.' });
@@ -363,6 +353,26 @@ router.post('/rooms/:id/start', async (req, res) => {
   }
 });
 
+router.post('/rooms/:id/end', async (req, res) => {
+  try {
+    const account = await getAccount(req, res);
+    if (!account) return;
+    let updated: CraftRoom | null = null;
+    const store = await mutateStore((current) => {
+      const room = current.rooms[req.params.id];
+      if (!room || room.hostUid !== account.uid) throw new Error('Only the room host can end this game.');
+      if (room.status === 'finished') { updated = room; return current; }
+      updated = { ...room, status: 'finished', updatedAt: new Date().toISOString() };
+      return { ...current, rooms: { ...current.rooms, [room.id]: updated } };
+    });
+    const finalRoom = updated || store.rooms[req.params.id];
+    if (!finalRoom) throw new Error('Room not found.');
+    return res.json({ success: true, room: publicRoom(finalRoom, account.uid) });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, error: error?.message || 'Could not end this room.' });
+  }
+});
+
 router.get('/rooms/:id', async (req, res) => {
   try {
     const account = await getAccount(req, res);
@@ -385,45 +395,67 @@ router.post('/discoveries', async (req, res) => {
     const a = normalizeCraftName(req.body?.ingredientA);
     const b = normalizeCraftName(req.body?.ingredientB);
     if (!a || !b) return res.status(400).json({ success: false, error: 'Choose two ingredients.' });
+    if (a.length > 48 || b.length > 48) return res.status(400).json({ success: false, error: 'Ingredients must be 48 characters or fewer.' });
+
     const roomId = typeof req.body?.roomId === 'string' ? req.body.roomId.slice(0, 48) : null;
+    if (roomId && await getPersistentSettingDb<boolean>('arcade_multiplayer_stopped_v1')) return res.status(503).json({ success: false, error: 'Arcade multiplayer has been stopped by an administrator.' });
     const soloRaceTarget = roomId ? '' : normalizeCraftName(req.body?.raceTarget);
+    const key = infiniteCraftRecipeKey(a, b);
+    const snapshot = await getPersistentSettingDb<CraftStore>(STORE_KEY) || emptyStore();
+    const seen = snapshot.seenRecipes?.[key];
+    // Resolve each new pair with AI and cache its accepted result for consistency.
+    let recipe: { inputA: string; inputB: string; result: string; emoji: string; key: string } | null = seen
+      ? { inputA: a, inputB: b, result: seen.result, emoji: seen.emoji, key }
+      : null;
+    let aiGenerated = false;
+
+    if (!recipe) {
+      const now = Date.now();
+      const recent = (attempts.get(account.uid) || []).filter((stamp) => now - stamp < 60_000);
+      if (recent.length >= 24) return res.status(429).json({ success: false, error: 'You are crafting too quickly. Wait a moment before asking the AI for more combinations.' });
+      recent.push(now);
+      attempts.set(account.uid, recent);
+      const generated: InfiniteCraftAiResult = await resolveInfiniteCraftAiRecipe(a, b);
+      if (!generated.accepted) return res.status(422).json({ success: false, rejected: true, error: generated.reason || 'The AI rejected that combination.' });
+      recipe = { inputA: a, inputB: b, result: generated.noun, emoji: generated.emoji, key };
+      aiGenerated = true;
+    }
+
     const outcome: { value: ReturnType<typeof recordCombination> | null } = { value: null };
     const store = await mutateStore((current) => {
-      const next: CraftStore = {
-        rooms: { ...current.rooms },
-        profiles: { ...current.profiles },
-        seenRecipes: { ...current.seenRecipes },
-      };
-      outcome.value = recordCombination(next, account, a, b, roomId, soloRaceTarget);
+      const next: CraftStore = { rooms: { ...current.rooms }, profiles: { ...current.profiles }, seenRecipes: { ...current.seenRecipes } };
+      outcome.value = recordCombination(next, account, a, b, roomId, soloRaceTarget, recipe || undefined);
       return next;
     });
-    const recipe = findInfiniteCraftRecipe(a, b);
-    if (!recipe || !outcome.value) return res.status(422).json({ success: false, error: 'No known recipe for those ingredients yet.' });
+    if (!outcome.value) throw new Error('The combination could not be saved.');
     const result = outcome.value;
     const profile = store.profiles[account.uid] || getProfile(store, account);
     const room = roomId ? store.rooms[roomId] : null;
     return res.json({
       success: true,
-      item: { name: recipe.result, emoji: recipe.emoji },
+      item: { name: result.recipe.result, emoji: result.recipe.emoji },
       profile,
       room: room ? publicRoom(room, account.uid) : null,
       discovery: result.discovery || null,
-      points: result.points,
+      points: 1,
       firstDiscovery: result.firstDiscovery,
       alreadyDiscovered: result.alreadyDiscovered,
       won: result.won,
-      winBonus: result.winBonus || 0,
+      winBonus: 0,
+      aiGenerated,
     });
   } catch (error: any) {
-    const noRecipe = /No known discovery/.test(String(error?.message || ''));
-    return res.status(noRecipe ? 422 : 400).json({ success: false, error: error?.message || 'Could not save that discovery.' });
+    const message = String(error?.message || 'Could not save that discovery.');
+    if (/AI is not configured|AI is temporarily unavailable|temporarily unavailable/i.test(message)) return res.status(503).json({ success: false, error: message });
+    if (/AI rejected|No known discovery/i.test(message)) return res.status(422).json({ success: false, error: message });
+    return res.status(400).json({ success: false, error: message });
   }
 });
 
 router.get('/leaderboard', async (_req, res) => {
   try {
     const store = await getPersistentSettingDb<CraftStore>(STORE_KEY) || emptyStore();
-    const leaderboard = Object.values(store.profiles || {}).map((profile) => ({
+    const leaderboard = Object.values(store.profiles || {}).filter((profile) => Number(profile.score || 0) > 0 || Number(profile.combinations || 0) > 0 || Number(profile.raceWins || 0) > 0).map((profile) => ({
       username: profile.username,
       score: profile.score,
       discoveries: profile.discoveries.length,

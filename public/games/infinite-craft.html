@@ -103,7 +103,7 @@
           </div>
           <div id="room-status" class="text-[11px] font-medium text-emerald-600">Connecting…</div>
           <div id="lobby-players" class="flex flex-wrap gap-1.5"></div>
-          <button id="btn-host-start" type="button" class="hidden w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Start Room Game →</button>
+          <div class="flex gap-2"><button id="btn-host-start" type="button" class="hidden flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Start Room Game →</button><button id="btn-host-end" type="button" class="hidden px-4 py-2.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-700 text-xs font-bold">End Game</button></div>
         </div>
       </div>
     </div>
@@ -265,6 +265,8 @@
         roomStatus: 'waiting',
         roomPollTimer: null,
         lastRoomDiscoveryCount: 0,
+        savedDiscoveries: [],
+        roomFinishedNoticeShown: false,
         gameStarted: false,
         winnerShown: false,
         isHost: true,
@@ -339,6 +341,7 @@
           room.status === 'waiting' ? 'Waiting for friends to join…' :
           room.status === 'active' ? 'Game in progress · room synced' : 'Room finished';
         document.getElementById('btn-host-start').classList.toggle('hidden', !state.isHost || room.status !== 'waiting');
+        document.getElementById('btn-host-end').classList.toggle('hidden', !state.isHost || room.status === 'finished');
         renderLobbyPlayers();
         renderPlayersBar();
 
@@ -348,6 +351,7 @@
         for (const item of discoveries.slice(state.lastRoomDiscoveryCount)) {
           const player = state.players.find((p) => p.name === item.by);
           applyDiscovery(item.name, item.emoji, item.firstDiscovery, player ? player.id : item.by, item.by, item.points, false);
+          if (item.by && item.by !== state.myName) showToast(item.by + ' discovered ' + item.name + ' ' + item.emoji);
         }
         state.lastRoomDiscoveryCount = discoveries.length;
 
@@ -360,6 +364,11 @@
         renderPlayersBar();
         renderLobbyPlayers();
 
+        if (room.status === 'finished' && !room.winnerName && !state.roomFinishedNoticeShown) {
+          state.roomFinishedNoticeShown = true;
+          showToast('The host ended this game.');
+          if (state.roomPollTimer) clearInterval(state.roomPollTimer);
+        }
         if (room.status === 'finished' && room.winnerName && !state.winnerShown) {
           state.winnerShown = true;
           showWinner(room.winnerName, room.raceTarget || 'the target', '🏆', state.players.find((p) => p.name === room.winnerName)?.score || 0);
@@ -429,6 +438,7 @@
           state.myId = data.profile.username;
           document.getElementById('my-name-input').value = data.profile.username;
           state.players = [{ id: state.myId, name: state.myName, color: PLAYER_COLORS[0], score: data.profile.score || 0 }];
+          state.savedDiscoveries = Array.isArray(data.profile.items) ? data.profile.items.filter((item) => item && typeof item.name === 'string').slice(0, 500) : [];
           renderPlayersBar();
         } catch (error) {
           showToast(error.message || 'Your profile could not be loaded.');
@@ -457,6 +467,11 @@
         for (const st of STARTERS) {
           state.discovered.push({ name: st.name, emoji: st.emoji, isFirst: false, by: 'Starter' });
           state.discoveredSet.add(st.name);
+        }
+        for (const item of state.savedDiscoveries || []) {
+          if (state.discoveredSet.has(item.name)) continue;
+          state.discovered.push({ name: item.name, emoji: item.emoji || '✨', isFirst: false, by: 'Your account' });
+          state.discoveredSet.add(item.name);
         }
         clearWorkspace();
         if (state.mode === 'race') {
@@ -610,14 +625,14 @@
         const p = state.players.find((x) => x.id === byId || x.name === byName) || state.players[0];
         if (p) p.score += Number(points || 0);
         if (isLocal) playTone(isFirst ? 780 : 620, 0.14, 'triangle');
-        showToast(byName + ' ' + (isFirst ? '✨ First Discovery: ' : 'discovered ') + emoji + ' ' + name + '!');
+        showToast(byName + ' discovered ' + name + ' ' + emoji + ' · +1 point');
         renderInventory();
         renderPlayersBar();
       }
 
       function showWinner(winnerName, resName, resEmoji, score) {
         document.getElementById('win-title').textContent = `${winnerName} Wins!`;
-        document.getElementById('win-sub').textContent = `Crafted ${resEmoji} ${resName} with ${score} points!`;
+        document.getElementById('win-sub').textContent = `Crafted ${resEmoji} ${resName} · +1 point`;
         document.getElementById('win-modal').classList.remove('hidden');
         document.getElementById('win-modal').classList.add('flex');
         playTone(880, 0.25, 'triangle');
@@ -643,10 +658,12 @@
           removeChip(b.id);
           spawnChip(resName, resEmoji, mx, my, true);
           if (!state.discoveredSet.has(resName)) {
-            applyDiscovery(resName, resEmoji, Boolean(result.firstDiscovery), me.id, me.name, Number(result.points || 0), true);
+            applyDiscovery(resName, resEmoji, false, me.id, me.name, 1, true);
           } else {
-            playTone(360, 0.07);
-            showToast('You already discovered ' + resName + '. Try a new combination!');
+            if (me) me.score = Number(me.score || 0) + 1;
+            playTone(620, 0.1, 'triangle');
+            showToast('+1 point · ' + resEmoji + ' ' + resName);
+            renderPlayersBar();
           }
           if (result.room) syncRoomSnapshot(result.room);
           if (result.won) showWinner(me.name, resName, resEmoji, me.score);
@@ -690,6 +707,18 @@
         try { navigator.clipboard.writeText(state.roomCode); } catch (_) {}
         showToast(`Copied room code: ${state.roomCode}`);
       });
+      document.getElementById('btn-host-end').addEventListener('click', async () => {
+        if (!state.roomId || !state.isHost || !window.confirm('End this Infinite Craft game for everyone in the room?')) return;
+        try {
+          const data = await craftApi('/rooms/' + state.roomId + '/end', { method: 'POST', body: '{}' });
+          syncRoomSnapshot(data.room);
+          showToast('You ended the game for everyone.');
+          if (state.roomPollTimer) clearInterval(state.roomPollTimer);
+        } catch (error) {
+          showToast(error.message || 'Could not end the game.');
+        }
+      });
+
       document.getElementById('btn-host-start').addEventListener('click', async () => {
         if (!state.roomId || !state.isHost) return;
         state.raceTarget = RACE_TARGETS[Math.floor(Math.random() * RACE_TARGETS.length)];

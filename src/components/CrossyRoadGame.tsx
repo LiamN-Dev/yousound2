@@ -165,7 +165,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   }, []);
 
   const refreshLeaderboard = useCallback(async () => {
-    const data = await api<{ leaderboard: LeaderboardEntry[] }>('/leaderboard');
+    const data = await api<{ leaderboard: LeaderboardEntry[] }>('/high-score-leaderboard');
     setLeaderboard(data.leaderboard || []);
   }, []);
 
