@@ -1,15 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crown, Maximize2, Minimize2, RotateCcw, Trophy, Volume2, VolumeX, X } from 'lucide-react';
 import { CrossyRoad3DView } from './CrossyRoad3DView';
+import { getCrossyDestination, sanitizeCrossyLaneObjects } from '../services/crossyRoadGameLogic.ts';
+import { CROSSY_BIRD_SKINS, CROSSY_MAPS, type CrossyBirdSkin, type CrossyMapTheme } from '../services/crossyRoadCatalog.ts';
 
 type Direction = 'up' | 'down' | 'left' | 'right';
 type LaneKind = 'grass' | 'road' | 'river' | 'railRoad';
 type MovingObjectKind = 'vehicle' | 'log' | 'lilyPad' | 'train';
 type MovingObject = { id: string; x: number; length: number; kind?: MovingObjectKind };
 type Lane = { row: number; kind: LaneKind; direction: 1 | -1; speed: number; objects: MovingObject[]; spawnIn: number; trees?: number[]; boulders?: number[] };
-type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean };
+type GameState = { x: number; row: number; lanes: Lane[]; score: number; running: boolean; gameOver: boolean; facing: Direction };
 type Stats = { coins: number; highScore: number; totalGames: number };
 type LeaderboardEntry = { rank: number; username: string; highScore: number; totalGames: number };
+type GarageState = {
+  coins: number;
+  owned: Array<{ category: 'bird' | 'map'; id: string }>;
+  equipped: { bird: string; map: string };
+};
 
 const COLS = 9;
 const MOVE_SOUNDS = Array.from({ length: 12 }, (_, index) => 'move-' + String(index + 1).padStart(2, '0') + '.wav');
@@ -106,6 +113,7 @@ function initialGame(): GameState {
     score: 0,
     running: false,
     gameOver: false,
+    facing: 'up',
   };
 }
 
@@ -115,6 +123,9 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
   const [stats, setStats] = useState<Stats>({ coins: 0, highScore: 0, totalGames: 0 });
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showGarage, setShowGarage] = useState(false);
+  const [garage, setGarage] = useState<GarageState>({ coins: 0, owned: [{ category: 'bird', id: 'classic' }, { category: 'map', id: 'classic' }], equipped: { bird: 'classic', map: 'classic' } });
+  const [garageBusy, setGarageBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -164,6 +175,37 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     setGame(next);
   }, []);
 
+  const refreshGarage = useCallback(async () => {
+    const data = await api<GarageState & { birds: CrossyBirdSkin[]; maps: CrossyMapTheme[] }>('/garage');
+    setGarage({ coins: data.coins, owned: data.owned, equipped: data.equipped });
+    setStats(current => ({ ...current, coins: data.coins }));
+  }, []);
+
+  const garageAction = useCallback(async (category: 'bird' | 'map', itemId: string) => {
+    const key = category + ':' + itemId;
+    setGarageBusy(key);
+    try {
+      const owned = garage.owned.some(item => item.category === category && item.id === itemId);
+      if (owned) {
+        const result = await api<{ equipped: GarageState['equipped'] }>('/equip', { method: 'POST', body: JSON.stringify({ category, itemId }) });
+        setGarage(current => ({ ...current, equipped: result.equipped }));
+        setMessage('Equipped successfully.');
+      } else {
+        const result = await api<{ coins: number }>('/purchase', { method: 'POST', body: JSON.stringify({ category, itemId }) });
+        setGarage(current => ({ ...current, coins: result.coins, owned: [...current.owned, { category, id: itemId }] }));
+        setStats(current => ({ ...current, coins: result.coins }));
+        const equipped = await api<{ equipped: GarageState['equipped'] }>('/equip', { method: 'POST', body: JSON.stringify({ category, itemId }) });
+        setGarage(current => ({ ...current, equipped: equipped.equipped }));
+        setMessage('Unlocked and equipped!');
+      }
+      setError('');
+    } catch (actionError: any) {
+      setError(actionError?.message || 'Garage action failed.');
+    } finally {
+      setGarageBusy(null);
+    }
+  }, [garage.owned]);
+
   const refreshLeaderboard = useCallback(async () => {
     const data = await api<{ leaderboard: LeaderboardEntry[] }>('/high-score-leaderboard');
     setLeaderboard(data.leaderboard || []);
@@ -189,6 +231,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       if (session !== gameSessionRef.current) return;
       runIdRef.current = null;
       setStats({ coins: result.coins, highScore: result.highScore, totalGames: result.totalGames });
+      setGarage(current => ({ ...current, coins: result.coins }));
       setMessage('Score saved · +' + result.coinsAwarded + ' coins');
       if (result.coinsAwarded > 0) playSound('coin.mp3', 0.62);
       setError('');
@@ -237,10 +280,12 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     Promise.all([
       api<Stats>('/stats'),
       api<{ leaderboard: LeaderboardEntry[] }>('/leaderboard'),
-    ]).then(([account, board]) => {
+      api<GarageState>('/garage'),
+    ]).then(([account, board, garageData]) => {
       if (!active) return;
       setStats(account);
       setLeaderboard(board.leaderboard || []);
+      setGarage({ coins: garageData.coins, owned: garageData.owned, equipped: garageData.equipped });
       setError('');
     }).catch((loadError: any) => {
       if (active) setError(loadError?.message || 'Could not load your Crossy Road account data.');
@@ -255,11 +300,8 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
     if (now - lastMoveAtRef.current < 110) return;
     lastMoveAtRef.current = now;
 
-    const next = { ...current, x: current.x, row: current.row };
-    if (direction === 'up') next.row += 1;
-    if (direction === 'down') next.row = Math.max(0, next.row - 1);
-    if (direction === 'left') next.x = Math.max(0, next.x - 1);
-    if (direction === 'right') next.x = Math.min(COLS - 1, next.x + 1);
+    const destination = getCrossyDestination(current.x, current.row, direction, COLS);
+    const next = { ...current, x: destination.x, row: destination.row, facing: direction };
 
     const known = new Set(current.lanes.map(lane => lane.row));
     const lanes = current.lanes.slice();
@@ -321,7 +363,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       const lanes = current.lanes.map(lane => {
         if (lane.kind === 'grass') return lane;
         let spawnIn = lane.spawnIn - dt;
-        let objects = lane.objects.map(object => ({
+        let objects = sanitizeCrossyLaneObjects(lane.kind, lane.objects).map(object => ({
           ...object,
           x: object.x + lane.direction * lane.speed * dt,
         }));
@@ -357,7 +399,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           }
           spawnIn = 1.3 + Math.random() * 1.2;
         }
-        return { ...lane, objects, spawnIn };
+        return { ...lane, objects: sanitizeCrossyLaneObjects(lane.kind, objects), spawnIn };
       });
 
       const player = { x: current.x, row: current.row };
@@ -524,7 +566,7 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
                 onPointerUp={handleBoardPointerUp}
                 onPointerCancel={() => { swipeStartRef.current = null; }}
               >
-                <CrossyRoad3DView game={game} />
+                <CrossyRoad3DView game={game} birdSkinId={garage.equipped.bird} mapId={garage.equipped.map} />
               </div>
             </div>
           </div>
@@ -597,6 +639,43 @@ export const CrossyRoadGame: React.FC<{ onBack: () => void }> = ({ onBack }) => 
           )}
         </section>
       </main>
+
+
+      {showGarage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm">
+          <section className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/70 bg-[#fffdf5] text-[#17281c] shadow-2xl">
+            <header className="flex items-center justify-between border-b border-black/10 px-5 py-4">
+              <div><div className="text-[9px] font-black uppercase tracking-[.2em] text-[#718e4f]">Crossy Road</div><h2 className="text-xl font-black">Bird & Map Garage</h2><p className="text-xs text-black/50">Your account balance: 🪙 {garage.coins.toLocaleString()}</p></div>
+              <button type="button" onClick={() => setShowGarage(false)} className="rounded-xl p-2 hover:bg-black/5" aria-label="Close garage"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5">
+              <div><h3 className="mb-3 text-sm font-black">Bird skins</h3><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {CROSSY_BIRD_SKINS.map(item => {
+                  const owned = garage.owned.some(entry => entry.category === 'bird' && entry.id === item.id);
+                  const equipped = garage.equipped.bird === item.id;
+                  return <div key={item.id} className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white p-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#f3f0e7] text-2xl" style={{ color: item.tint }}>🐔</div>
+                    <div className="min-w-0 flex-1"><div className="text-sm font-black">{item.name}</div><div className="text-[10px] text-black/50">{item.description}</div><div className="mt-1 text-[10px] font-bold text-[#8b6b20]">{item.price === 0 ? 'Free' : '🪙 ' + item.price}</div></div>
+                    <button type="button" disabled={garageBusy !== null || equipped || (!owned && garage.coins < item.price)} onClick={() => void garageAction('bird', item.id)} className="rounded-lg bg-[#263b2b] px-3 py-2 text-[10px] font-black text-white disabled:opacity-40">{garageBusy === 'bird:' + item.id ? '...' : equipped ? 'Equipped' : owned ? 'Equip' : 'Unlock'}</button>
+                  </div>;
+                })}
+              </div></div>
+              <div><h3 className="mb-3 text-sm font-black">Maps</h3><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {CROSSY_MAPS.map(item => {
+                  const owned = garage.owned.some(entry => entry.category === 'map' && entry.id === item.id);
+                  const equipped = garage.equipped.map === item.id;
+                  return <div key={item.id} className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white p-3">
+                    <div className="h-12 w-12 shrink-0 rounded-xl border border-black/10" style={{ background: 'linear-gradient(135deg,' + item.grassColor + ' 0 35%, ' + item.roadColor + ' 35% 65%, ' + item.waterColor + ' 65%)' }} />
+                    <div className="min-w-0 flex-1"><div className="text-sm font-black">{item.name}</div><div className="text-[10px] text-black/50">{item.description}</div><div className="mt-1 text-[10px] font-bold text-[#8b6b20]">{item.price === 0 ? 'Free' : '🪙 ' + item.price}</div></div>
+                    <button type="button" disabled={garageBusy !== null || equipped || (!owned && garage.coins < item.price)} onClick={() => void garageAction('map', item.id)} className="rounded-lg bg-[#263b2b] px-3 py-2 text-[10px] font-black text-white disabled:opacity-40">{garageBusy === 'map:' + item.id ? '...' : equipped ? 'Equipped' : owned ? 'Equip' : 'Unlock'}</button>
+                  </div>;
+                })}
+              </div></div>
+            </div>
+            <footer className="border-t border-black/10 p-3 text-center text-[10px] text-black/45">Purchases and equipped items are saved to your signed-in YouSound account.</footer>
+          </section>
+        </div>
+      )}
 
       {(error || message) && (
         <div className="shrink-0 px-4 pb-2 text-center text-[10px]">

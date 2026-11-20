@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { sanitizeCrossyLaneObjects } from '../services/crossyRoadGameLogic.ts';
+import { CROSSY_BIRD_SKINS, CROSSY_MAPS } from '../services/crossyRoadCatalog.ts';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 export type CrossyRoad3DGame = {
@@ -16,6 +18,7 @@ export type CrossyRoad3DGame = {
   score: number;
   running: boolean;
   gameOver: boolean;
+  facing?: 'up' | 'down' | 'left' | 'right';
 };
 
 type LoadedModels = {
@@ -188,25 +191,29 @@ function disposeGeneratedGroup(group: THREE.Group): void {
   materials.forEach((material) => material.dispose());
 }
 
-function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
+function CrossyRoadFallback({ game, mapId = 'classic' }: { game: CrossyRoad3DGame; mapId?: string }) {
   const lanes = game.lanes
     .filter((lane) => lane.row >= game.row - VISIBLE_ROWS && lane.row <= game.row + VISIBLE_ROWS)
     .sort((a, b) => b.row - a.row);
 
+  const theme = CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0];
   return (
-    <div className="absolute inset-0 z-0 flex flex-col overflow-hidden bg-[#6da74b]" aria-label="Crossy Road game board">
+    <div className="absolute inset-0 z-0 flex flex-col overflow-hidden" style={{ background: theme.grassColor }} aria-label="Crossy Road game board">
       {lanes.map((lane) => {
+        const safeObjects = sanitizeCrossyLaneObjects(lane.kind, lane.objects);
         const isGrass = lane.kind === 'grass';
         const isRoad = lane.kind === 'road';
         const isRailRoad = lane.kind === 'railRoad';
+        const laneColor = isGrass ? theme.grassColor : isRoad ? theme.roadColor : isRailRoad ? theme.railColor : theme.waterColor;
         return (
           <div
             key={lane.row}
             className={
               'relative min-h-0 flex-1 overflow-hidden border-b border-black/10 ' +
-              (isGrass ? 'bg-[#6da74b]' : isRoad ? 'bg-[#303b3e]' : isRailRoad ? 'bg-[#66564a]' : 'bg-[#438eae]')
+              ''
             }
             style={{
+              backgroundColor: laneColor,
               backgroundImage: isGrass
                 ? 'repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 18px, transparent 18px 36px)'
                 : isRoad
@@ -240,7 +247,7 @@ function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
                 🪨
               </span>
             ))}
-            {!isGrass && lane.objects.map((object, index) => (
+            {!isGrass && safeObjects.map((object, index) => (
               <div
                 key={object.id}
                 className={
@@ -275,14 +282,17 @@ function CrossyRoadFallback({ game }: { game: CrossyRoad3DGame }) {
   );
 }
 
-export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game }) => {
+export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame; birdSkinId?: string; mapId?: string }> = ({ game, birdSkinId = 'classic', mapId = 'classic' }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const worldRef = useRef<THREE.Group | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
   const modelsRef = useRef<LoadedModels | null>(null);
   const objectPoolRef = useRef<Map<string, THREE.Group>>(new Map());
   const lastPlayerCellRef = useRef({ x: game.x, row: game.row });
   const currentGameRowRef = useRef(game.row);
   currentGameRowRef.current = game.row;
+  const currentFacingRef = useRef(game.facing || 'up');
+  currentFacingRef.current = game.facing || 'up';
   const deathStartedAtRef = useRef<number | null>(null);
   const playerMotionRef = useRef<{
     fromX: number; fromRow: number; toX: number; toRow: number; startedAt: number; duration: number;
@@ -324,6 +334,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
     mount.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
+    sceneRef.current = scene;
     scene.background = new THREE.Color('#cfe9f6');
     scene.fog = new THREE.Fog('#cfe9f6', 15, 28);
 
@@ -382,10 +393,13 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
         const row = motion.fromRow + (motion.toRow - motion.fromRow) * eased;
         const bounce = Math.sin(progress * Math.PI) * (motion.duration > 100 ? 1 : 0.04);
         chicken.position.set(x - 4, 0.38 + bounce * 0.48, row - currentGameRowRef.current);
-        chicken.rotation.set(0, 0, 0);
+        const facing = currentFacingRef.current;
+        const yaw = facing === 'down' ? Math.PI : facing === 'left' ? -Math.PI / 2 : facing === 'right' ? Math.PI / 2 : 0;
+        chicken.rotation.set(0, yaw, 0);
         chicken.scale.set(1 - bounce * 0.08, 1 + bounce * 0.18, 1 - bounce * 0.08);
         if (progress >= 1) {
           chicken.position.set(motion.toX - 4, 0.38, motion.toRow - currentGameRowRef.current);
+          chicken.rotation.set(0, yaw, 0);
           chicken.scale.set(1, 1, 1);
           playerMotionRef.current = null;
         }
@@ -460,6 +474,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       objectPoolRef.current.clear();
       playerMotionRef.current = null;
       worldRef.current = null;
+      sceneRef.current = null;
     };
   }, []);
 
@@ -496,10 +511,12 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       scaleY = 1,
       scaleZ = 1,
       rotationY = 0,
+      tint?: string,
     ) => {
       let object = objectPoolRef.current.get(key);
       if (!object) {
         object = cloneModel(source);
+        if (tint) object.traverse((child) => { if (child instanceof THREE.Mesh) child.material = Array.isArray(child.material) ? child.material.map(material => material.clone()) : child.material.clone(); });
         objectPoolRef.current.set(key, object);
         world.add(object);
       }
@@ -508,6 +525,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       object.position.set(x, y, z);
       object.scale.set(scaleX, scaleY, scaleZ);
       object.rotation.set(0, rotationY, 0);
+      if (tint) object.traverse((child) => { if (child instanceof THREE.Mesh) { const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => { const color = (material as THREE.MeshLambertMaterial).color; if (color) color.set(tint); }); } });
     };
 
     const visible = game.lanes
@@ -516,12 +534,13 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
 
     for (const lane of visible) {
       const rel = lane.row - game.row;
+      const laneObjects = sanitizeCrossyLaneObjects(lane.kind, lane.objects);
       if (lane.kind === 'grass') {
         place(
           'lane:' + lane.row + ':surface',
           lane.row % 2 === 0 ? models.grassLight : models.grassDark,
           0, -0.015, rel,
-          COLS / 25, 1, 1,
+          COLS / 25, 1, 1, 0, (CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0]).grassTint,
         );
         (lane.trees || []).forEach((treeX, index) => {
           const tree = models.trees[hashString(lane.row + ':tree:' + index) % models.trees.length];
@@ -537,9 +556,9 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           'lane:' + lane.row + ':surface',
           lane.row % 2 === 0 ? models.roadMarked : models.roadBlank,
           0, -0.015, rel,
-          COLS / 25, 1, 1,
+          COLS / 25, 1, 1, 0, (CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0]).roadTint,
         );
-        lane.objects.forEach((object) => {
+        laneObjects.forEach((object) => {
           const vehicle = models.cars[hashString(object.id) % models.cars.length];
           const vehicleBounds = new THREE.Box3().setFromObject(vehicle);
           const vehicleLength = Math.max(0.1, vehicleBounds.max.z - vehicleBounds.min.z);
@@ -555,7 +574,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           );
         });
       } else if (lane.kind === 'railRoad') {
-        place('lane:' + lane.row + ':track', models.railroad, 0, -0.015, rel, COLS / 25, 1, 1);
+        place('lane:' + lane.row + ':track', models.railroad, 0, -0.015, rel, COLS / 25, 1, 1, 0, (CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0]).railTint);
 
         const signalX = lane.direction > 0 ? -4.48 : 4.48;
         const signalModels = [
@@ -578,7 +597,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           signal.visible = state === 'inactive';
         });
 
-        lane.objects.forEach((object) => {
+        laneObjects.forEach((object) => {
           const key = 'lane:' + lane.row + ':train:' + object.id;
           let train = objectPoolRef.current.get(key);
           if (!train) {
@@ -592,7 +611,7 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
           train.scale.set(lane.direction > 0 ? factor : -factor, factor, factor);
         });
       } else {
-        place('lane:' + lane.row + ':surface', models.river, 0, -0.015, rel, COLS / 25, 1, 1);
+        place('lane:' + lane.row + ':surface', models.river, 0, -0.015, rel, COLS / 25, 1, 1, 0, (CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0]).waterTint);
         lane.objects.forEach((object) => {
           if (object.kind === 'lilyPad') {
             const key = 'lane:' + lane.row + ':lily:' + object.id;
@@ -621,8 +640,10 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       }
     }
 
-    // The ported camera looks from -Z, so the chicken faces +Z (toward the crossing).
-    place('player:chicken', models.chicken, game.x - 4, 0.38, 0, 1, 1, 1, 0);
+    // The model's forward axis is +Z. Match its facing to the requested hop direction.
+    const facingYaw = game.facing === 'down' ? Math.PI : game.facing === 'left' ? -Math.PI / 2 : game.facing === 'right' ? Math.PI / 2 : 0;
+    const birdTint = (CROSSY_BIRD_SKINS.find(item => item.id === birdSkinId) || CROSSY_BIRD_SKINS[0]).tint;
+    place('player:chicken', models.chicken, game.x - 4, 0.38, 0, 1, 1, 1, facingYaw, birdTint);
 
     for (const [key, object] of objectPoolRef.current) {
       if (activeKeys.has(key)) continue;
@@ -630,11 +651,19 @@ export const CrossyRoad3DView: React.FC<{ game: CrossyRoad3DGame }> = ({ game })
       disposeGeneratedGroup(object);
       objectPoolRef.current.delete(key);
     }
-  }, [game, modelsReady]);
+  }, [game, modelsReady, birdSkinId, mapId]);
+
+  useEffect(() => {
+    const theme = CROSSY_MAPS.find(item => item.id === mapId) || CROSSY_MAPS[0];
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.background = new THREE.Color(theme.skyColor);
+    if (scene.fog instanceof THREE.Fog) scene.fog.color.set(theme.fogColor);
+  }, [mapId, modelsReady]);
 
   return (
     <div ref={mountRef} className="relative h-full w-full overflow-hidden bg-[#cfe9f6]">
-      {!modelsReady && <CrossyRoadFallback game={game} />}
+      {!modelsReady && <CrossyRoadFallback game={game} mapId={mapId} />}
       {loading && (
         <div className="pointer-events-none absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/70 bg-white/85 px-3 py-1.5 text-[9px] font-bold text-[#263b2b] shadow">
           Loading 3D models · game ready
