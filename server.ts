@@ -1235,6 +1235,32 @@ app.get('/api/youtube-mode/video-access/:videoId', async (req: Request, res: Res
   }
 });
 
+app.post('/api/admin/youtube-mode/video-moderation/bulk', async (req: Request, res: Response) => {
+  if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
+  try {
+    const videoIds = Array.isArray(req.body?.videoIds)
+      ? [...new Set(req.body.videoIds.filter((id: unknown): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id)))].slice(0, 250)
+      : [];
+    const action = String(req.body?.action || '');
+    if (!videoIds.length || !['block', 'unblock'].includes(action)) return res.status(400).json({ success: false, error: 'Select valid videos and choose block or unblock.' });
+    await ensurePersistentSettingDb(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING, []);
+    let saved = false;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const before = await getPersistentSettingDb<string[]>(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING);
+      const current = Array.isArray(before) ? before.filter(value => typeof value === 'string') : [];
+      const next = action === 'block'
+        ? [...new Set([...current, ...videoIds])].slice(-10000)
+        : current.filter(id => !videoIds.includes(id));
+      if (await compareAndSetPersistentSettingDb(YOUTUBE_MODE_BLOCKED_VIDEOS_SETTING, before, next)) { saved = true; break; }
+    }
+    if (!saved) return res.status(409).json({ success: false, error: 'The blocked-video list changed repeatedly. Refresh and try again.' });
+    return res.json({ success: true, action, updatedCount: videoIds.length });
+  } catch (error: any) {
+    console.error('[YouTube Safety] Bulk moderation failed:', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Could not apply bulk video moderation.' });
+  }
+});
+
 app.post('/api/admin/youtube-mode/video-moderation', async (req: Request, res: Response) => {
   if (!isAdminReq(req)) return res.status(403).json({ success: false, error: 'Administrator access required.' });
   try {
