@@ -140,7 +140,7 @@ export const YouTubeSafetyReview: React.FC = () => {
         </button>
       </div>
       <div className="border-b border-white/10 bg-cyan-950/20 px-5 py-3 text-[11px] leading-5 text-cyan-100/80">
-        The monitor only sees videos opened in YouSound. AI screening checks public video metadata, not audio or visuals. A flag is a reason for an administrator to review—not proof of a violation and not an automatic punishment.
+        AI screening checks public metadata and search text—not the actual video/audio. High-confidence violations are automatically blocked and may lock the account; ambiguous results stay in this review queue. Administrators can inspect, unblock, or mark items safe.
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
         <div className="flex gap-2">
