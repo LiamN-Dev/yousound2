@@ -170,6 +170,8 @@ class StorageService {
       if (
         updated.isSuspended !== current.isSuspended ||
         updated.isLocked !== current.isLocked ||
+        updated.accountLockReason !== current.accountLockReason ||
+        updated.periodicTableOnly !== current.periodicTableOnly ||
         updated.suspendedReason !== current.suspendedReason ||
         updated.isApproved !== current.isApproved ||
         updated.chatBlocked !== current.chatBlocked ||
