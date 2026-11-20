@@ -695,11 +695,11 @@ app.get('/api/youtube-mode/events', async (req: Request, res: Response) => {
     res.flushHeaders?.();
 
     let previous = new Set(await getBlockedYouTubeVideoIds());
-    res.write('event: moderation\\ndata: ' + JSON.stringify({ blockedVideoIds: [...previous], unblockedVideoIds: [] }) + '\\n\\n');
+    res.write('event: moderation\ndata: ' + JSON.stringify({ blockedVideoIds: [...previous], unblockedVideoIds: [] }) + '\n\n');
 
     let closed = false;
     const heartbeat = setInterval(() => {
-      if (!closed) res.write(': keep-alive\\n\\n');
+      if (!closed) res.write(': keep-alive\n\n');
     }, 20000);
     const poll = setInterval(async () => {
       if (closed) return;
@@ -708,7 +708,7 @@ app.get('/api/youtube-mode/events', async (req: Request, res: Response) => {
         const blockedVideoIds = [...latest].filter(id => !previous.has(id));
         const unblockedVideoIds = [...previous].filter(id => !latest.has(id));
         if (blockedVideoIds.length || unblockedVideoIds.length) {
-          res.write('event: moderation\\ndata: ' + JSON.stringify({ blockedVideoIds, unblockedVideoIds }) + '\\n\\n');
+          res.write('event: moderation\ndata: ' + JSON.stringify({ blockedVideoIds, unblockedVideoIds }) + '\n\n');
           previous = latest;
         }
       } catch (error: any) {
@@ -1123,7 +1123,7 @@ async function reviewYouTubeWatchMetadata(video: {
           'If the title plainly labels the content inappropriate for a school-age audience (including inappropriate TV/show/cartoon clips, adult or uncensored content, explicit scenes, or similar clear descriptions), classify high-risk with confidence at least 0.80. Do not downgrade a clear title to review because its description is missing.',
           'Use review only when metadata is genuinely ambiguous, plausibly educational/documentary/fictional in a safe context, or too sparse to decide. Use safe only when supplied metadata gives no meaningful indication of unsafe content.',
           'Classify the content, not viewer intent. High-risk automatically blocks the video. First distinct violation in a UTC Monday-Sunday week warns the member; a second distinct violation locks the account and alerts administrators. Do not send clear cases to human review just to avoid moderation action.',
-        ].join('\\n'),
+        ].join('\n'),
       },
     });
     const raw = String(generated.response.text || '').trim();
@@ -1155,7 +1155,7 @@ async function reviewYouTubeSearchQuery(query: string): Promise<{ decision: YouT
         'High-risk only when the query clearly and explicitly seeks pornography or explicit sexual material, graphic gore, instructions for self-harm, actionable violent wrongdoing, dangerous weapon/explosive construction, or hateful extremist propaganda.',
         'Do not flag ordinary educational, medical, historical, news, safety, or fictional discussion merely because it mentions a sensitive topic. Ambiguous, slang, or context-dependent terms must be review, not high-risk.',
         'A high-risk decision requires strong evidence in the query itself. Do not infer intent from a single ambiguous word.',
-      ].join('\\n') },
+      ].join('\n') },
     });
     const raw = String(generated.response.text || '').trim();
     const parsed = JSON.parse(raw.replace(/^\x60{3}(?:json)?\s*/i, '').replace(/\s*\x60{3}$/, ''));
