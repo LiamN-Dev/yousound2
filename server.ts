@@ -1077,7 +1077,7 @@ async function reviewYouTubeWatchMetadata(video: {
       },
     });
     const raw = String(generated.response.text || '').trim();
-    const parsed = JSON.parse(raw.replace(/^`{3}(?:json)?\\s*/i, '').replace(/\\s*`{3}$/, ''));
+    const parsed = JSON.parse(raw.replace(/^`{3}(?:json)?\s*/i, '').replace(/\s*`{3}$/, ''));
     const decision = ['safe', 'review', 'high-risk'].includes(parsed.decision) ? parsed.decision as YouTubeWatchSafetyDecision : 'review';
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
     return {
