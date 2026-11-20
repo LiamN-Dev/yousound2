@@ -228,7 +228,8 @@ export function enforcePolicy(req: Request, res: Response, next: NextFunction) {
   // Keep only account status, appeal, login feedback, and logout available.
   const safeSuspendedRoute =
     (req.method === 'GET' && /^\/api\/auth\/me(?:\/[^/]+)?$/.test(url)) ||
-    (req.method === 'POST' && ['/api/chat/appeal', '/api/auth/logout', '/api/auth/login'].includes(url));
+    (req.method === 'POST' && ['/api/chat/appeal', '/api/chat/messages', '/api/auth/logout', '/api/auth/login'].includes(url)) ||
+    (req.method === 'GET' && /^\\/api\\/chat\\/messages\\/[^/]+$/.test(url));
   if (user.role !== 'admin' && user.isSuspended && !safeSuspendedRoute) {
     return res.status(403).json({
       success: false,
