@@ -113,7 +113,18 @@ export const YouTubeTrackedPlayer: React.FC<{
   }, [video.videoId]);
 
   useEffect(() => {
-    if (accessChecking || blocked) return;
+    if (accessChecking || blocked || accessError) return;
+    const timer = window.setInterval(() => {
+      fetch('/api/youtube-mode/video-access/' + encodeURIComponent(video.videoId), { credentials: 'same-origin', cache: 'no-store' })
+        .then(response => response.json())
+        .then(data => { if (data?.blocked === true) setBlocked(true); })
+        .catch(() => { /* Keep the current player alive during a transient check failure. */ });
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [video.videoId, accessChecking, blocked, accessError]);
+
+  useEffect(() => {
+    if (accessChecking || blocked || accessError) return;
     let cancelled = false;
     openedRef.current = false;
     playingRef.current = false;
