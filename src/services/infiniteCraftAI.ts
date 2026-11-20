@@ -16,22 +16,22 @@ function validateDiscovery(value: unknown): InfiniteCraftAiDiscovery {
   const data = value as Record<string, unknown>;
   if (data.accepted !== true) {
     const reason = typeof data.reason === 'string'
-      ? data.reason.replace(/[<>\\u0000-\\u001f]/g, '').trim().slice(0, 120)
+      ? data.reason.replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 120)
       : '';
     return { accepted: false, reason: reason || 'Those ingredients do not make a meaningful discovery.' };
   }
 
   const noun = typeof data.noun === 'string'
-    ? data.noun.normalize('NFKC').replace(/[<>\\u0000-\\u001f]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 40)
+    ? data.noun.normalize('NFKC').replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40)
     : '';
   const emoji = typeof data.emoji === 'string' ? data.emoji.trim().slice(0, 16) : '';
-  const words = noun.split(/\\s+/).filter(Boolean);
+  const words = noun.split(/\s+/).filter(Boolean);
   if (
     !noun ||
     words.length > 4 ||
-    !/^[\\p{L}\\p{M}\\p{N}][\\p{L}\\p{M}\\p{N}'’ -]*$/u.test(noun) ||
+    !/^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}'’ -]*$/u.test(noun) ||
     !emoji ||
-    !/\\p{Extended_Pictographic}/u.test(emoji)
+    !/\p{Extended_Pictographic}/u.test(emoji)
   ) {
     throw new Error('The discovery AI returned an invalid noun or emoji. Please try that combination again.');
   }
@@ -75,7 +75,7 @@ export async function generateInfiniteCraftDiscovery(ingredientA: string, ingred
       try {
         parsed = JSON.parse(raw);
       } catch {
-        const fenced = raw.match(/\\{[\\s\\S]*\\}/);
+        const fenced = raw.match(/\{[\s\S]*\}/);
         if (!fenced) throw new Error('The discovery AI returned unreadable JSON.');
         parsed = JSON.parse(fenced[0]);
       }
