@@ -54,9 +54,13 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
   const [interestDraft,setInterestDraft]=useState('');
   const [showPreferences,setShowPreferences]=useState(false);
   const [loading,setLoading]=useState(false);
+  const [loadingMore,setLoadingMore]=useState(false);
+  const [nextPageToken,setNextPageToken]=useState<string|null>(null);
   const [profileLoading,setProfileLoading]=useState(true);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const shortsScrollRef=useRef<HTMLDivElement|null>(null);
+  const shortsLoadingRef=useRef(false);
 
   const requestProfile = useCallback(async () => {
     const response=await fetch('/api/youtube-mode/profile',{credentials:'same-origin'});
@@ -76,6 +80,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
       if(!response.ok||!data.success) throw new Error(data.error||'YouTube discovery could not be completed.');
       const found=Array.isArray(data.videos)?data.videos as Video[]:[];
       setVideos(found);
+      setNextPageToken(mode === 'shorts' && typeof data.nextPageToken === 'string' ? data.nextPageToken : null);
       if(!found.length) setNotice(mode === 'for-you' ? 'Your feed is just getting started. Add a few interests or like videos to personalize it.' : 'No videos were returned for this section.');
       setSelected(current => current && !found.some(video=>video.videoId===current.videoId) ? null : current);
     } catch(err:any) {
@@ -139,6 +144,41 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
       stream.close();
     };
   }, []);
+
+  const loadMoreShorts = useCallback(async () => {
+    if (section !== 'shorts' || !nextPageToken || shortsLoadingRef.current) return;
+    shortsLoadingRef.current = true;
+    setLoadingMore(true);
+    try {
+      const response = await fetch('/api/youtube-mode/feed?mode=shorts&regionCode=US&pageToken=' + encodeURIComponent(nextPageToken), {
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not load more Shorts.');
+      const found = Array.isArray(data.videos) ? data.videos as Video[] : [];
+      setVideos(current => {
+        const existing = new Set(current.map(video => video.videoId));
+        return [...current, ...found.filter(video => !existing.has(video.videoId))];
+      });
+      setNextPageToken(typeof data.nextPageToken === 'string' ? data.nextPageToken : null);
+      if (!found.length && !data.nextPageToken) setNotice('You have reached the end of the available Shorts for now.');
+      setError('');
+    } catch (err: any) {
+      setError(err?.message || 'Could not load more Shorts.');
+    } finally {
+      shortsLoadingRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [section, nextPageToken]);
+
+  const handleShortsScroll = useCallback(() => {
+    const element = shortsScrollRef.current;
+    if (!element || !nextPageToken || loadingMore) return;
+    if (element.scrollTop + element.clientHeight >= element.scrollHeight - 900) {
+      void loadMoreShorts();
+    }
+  }, [nextPageToken, loadingMore, loadMoreShorts]);
 
   const switchSection = (next:Section) => {
     setSection(next);
@@ -279,7 +319,7 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
             {error && <div className="mb-3 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">{error}</div>}
             {loading && <div className="flex min-h-24 items-center justify-center gap-2 text-xs text-slate-400"><Loader2 size={16} className="animate-spin"/>Finding Shorts…</div>}
             {!loading && !videos.length && !error && <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 text-center text-xs text-slate-400">No Shorts were returned. Try again in a moment.</div>}
-            <div className="h-[calc(100dvh-190px)] min-h-[440px] space-y-3 overflow-y-auto snap-y snap-mandatory scroll-smooth pr-1">
+            <div ref={shortsScrollRef} onScroll={handleShortsScroll} className="h-[calc(100dvh-190px)] min-h-[440px] space-y-3 overflow-y-auto snap-y snap-mandatory scroll-smooth pr-1">
               {videos.map(video => {
                 const liked = profile.likedVideoIds.includes(video.videoId);
                 const followed = profile.followedChannels.includes(video.channelId);
@@ -310,6 +350,8 @@ export const YouTubeMode: React.FC<{onClose:()=>void}> = ({onClose}) => {
                   </div>
                 </article>;
               })}
+              {loadingMore && <div className="flex items-center justify-center gap-2 py-5 text-xs text-slate-400"><Loader2 size={15} className="animate-spin"/>Loading more Shorts…</div>}
+              {!loadingMore && nextPageToken && <button type="button" onClick={()=>void loadMoreShorts()} className="mx-auto block rounded-xl border border-white/10 bg-white/[.04] px-4 py-2 text-[11px] font-semibold text-slate-300 hover:bg-white/[.08]">Load more</button>}
             </div>
           </section>
         ) : (
